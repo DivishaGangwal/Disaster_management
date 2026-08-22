@@ -1843,10 +1843,9 @@ The product layer must never call raw Bluetooth or audio behavior directly from 
 7. **Responder incident:** accept/decline, en route, location uncertainty, arrived, resolve, and operational updates.
 8. **Resource detail:** state, capacity, source class, validity, last update, and offline route context.
 9. **Relay/gateway:** capabilities, peers, priority queues, stored/forwarded/rejected/expired counts, live probe, sync state, battery mode, and stop control.
-10. **Topology/packet journey:** time-stamped observed contacts, transfers, gateway hops, radio bridge, and custody states.
-11. **Tier 2 receiver:** microphone/direct source, campaign, frame and packet outcomes, duplicates, missing expected items, resulting actions, timeout, and one-way explanation.
-12. **Check-in:** cached form and compact Tier 1 response creation.
-13. **Diagnostics:** packet ID/type/size/transport/hop/validation/policy/map-action evidence for QA and judges.
+10. **Tier 2 receiver:** history of all messages, campaign, frame and packet outcomes, duplicates, missing expected items, and resulting actions.
+11. **Profile:** selected district/region setting, status of downloaded offline map and content pack, and action to update offline map.
+12. **Diagnostics:** packet ID/type/size/transport/validation/policy/map-action evidence for QA and judges.
 
 ### 26.3 Required web surfaces
 

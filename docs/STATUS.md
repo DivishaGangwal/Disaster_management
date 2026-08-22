@@ -87,7 +87,7 @@ npm run boundaries # dependency graph + domain isolation + truthful copy
 ## What remains, by workstream
 
 ### A — mobile app
-- [ ] Build the 13 screens. `apps/mobile/src/screens/screen-registry.ts` lists
+- [ ] Build the 12 screens. `apps/mobile/src/screens/screen-registry.ts` lists
       every required element and its requirement ID.
 - [ ] Navigation shell and role switching.
 - [ ] Accessibility pass: large targets, no colour-only state, screen-reader
@@ -152,9 +152,8 @@ npm run boundaries # dependency graph + domain isolation + truthful copy
 | F | Tier 2 microphone decode | 🟩 browser path implemented; physical run pending | ❌ measured device evidence pending |
 | G | Tier 2 direct-audio equivalence | 🟦 pass (frame level) | ❌ WS-F |
 | H | Radio-to-mesh bridge | 🟦 pass | ❌ WS-B/F |
-| I | Tier 2 check-in → Tier 1 response | ❌ needs the check-in screen | ❌ |
-| J | File transfer does not harm emergencies | 🟦 pass | ❌ |
-| K | Stale people and topology data | 🟦 pass (freshness); topology view remains | ❌ |
+| J | Tier 2 radio broadcast | ❌ needs audio decoding | ❌ |
+| K | Stale people | 🟦 pass (freshness) | ❌ |
 
 ## Known limitations of this pass
 
