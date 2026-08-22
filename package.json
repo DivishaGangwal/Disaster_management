@@ -5,12 +5,13 @@
   "description": "Disaster SOS Mesh - offline-first Bluetooth mesh emergency communication (SIH hackathon prototype)",
   "license": "UNLICENSED",
   "workspaces": [
+    "apps/web-authority",
     "packages/*",
     "apps/*",
     "tools/*"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.5"
   },
   "scripts": {
     "build": "tsc --build tsconfig.build.json",
@@ -20,7 +21,10 @@
     "sim": "npm run build && node packages/simulator/dist/cli.js",
     "seed": "npm run build && node tools/seed/dist/cli.js",
     "boundaries": "node tools/boundaries/check-boundaries.mjs",
-    "backend": "npm run build && node apps/backend/dist/main.js"
+    "backend": "npm run build && node apps/backend/dist/main.js",
+    "web:build": "npm run build --workspace @dsm/web-authority",
+    "web:dev": "npm run dev --workspace @dsm/web-authority",
+    "demo": "npm run build && npm run web:build && node apps/backend/dist/main.js"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

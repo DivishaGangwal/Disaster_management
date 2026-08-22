@@ -11,7 +11,7 @@ Content type: `application/json` on every endpoint.
 Binary packets travel as **base64** in a `bytesBase64` field — never as raw JSON
 objects. The canonical bytes are the source of truth, not any JSON rendering.
 
-Status legend: ✅ implemented · ❌ planned (Workstream E)
+Status legend: ✅ implemented · 🟡 partial · ❌ planned
 
 ---
 
@@ -205,43 +205,77 @@ position (WEB-003, DEC-020). There is no undated "live" marker.
 
 ---
 
-## Planned endpoints (Workstream E)
+## Operations Console endpoints
 
-Required by `02-…` but not yet implemented. Shapes are specified so the mobile
-and dashboard clients can be written against them now.
+All console endpoints use the `/api` prefix.
 
-### `GET /responders` ❌
+### `GET /api/overview` ✅
+
+Returns Assam scope, active-incident, responder, outbound-packet and approved-
+campaign counts plus recent audit entries.
+
+### `GET /api/packets` ✅
+
+Returns the live canonical read model used by Packet Network. Each item includes
+packet, type and source identity; family, priority, severity and flags; hop and
+fragment facts; digest and expiry; decoded payload; gateway observations;
+outbound regions; and both base64 and exact hexadecimal bytes. Its direction is
+`mesh-local`, `mesh-to-internet`, `internet-to-mesh`, or `radio-to-mesh` and is
+derived from recorded evidence rather than invented topology.
+
+### `GET /api/responders` ✅
 ```json
 { "responders": [
   { "responderRef": "RSP-7", "capabilities": ["medical"],
     "available": true, "provisionedByDemo": true }
 ] }
 ```
-`provisionedByDemo` must render as "demo-provisioned", **never** "verified"
+`provisionedByDemo` is a legacy storage field and renders as
+"organisation-provisioned", **never** "verified"
 (ROL-003, INT-004).
 
-### `POST /responders/:ref/assign` ❌
+### `POST /api/responders/:ref/assign` ✅
 ```json
-{ "incidentId": "INC-7A2C", "dispatcherLabel": "Demo Coordinator" }
+{ "incidentId": "INC-7A2C", "dispatcherLabel": "Assam Operations Coordinator" }
 ```
-→ `{ "assignmentId": "ASG-1", "packetId": "…" }`
+→ `{ "responder": { "responderRef": "RSP-AS-01", "assignmentId": "ASG-…", "incidentId": "INC-…", "status": "assigned" } }`
 
 Emits a `RESPONDER_ASSIGNED` packet onto the outbound queue. State changes
 happen **by emitting packets**, never by mutating history invisibly.
 
-### `GET|POST /region/:regionCode/resources` ❌
-`GET` → baseline + active overrides.
-`POST` → emits a `SHELTER` / `MEDICAL_POST` / `FOOD_WATER` / `SAFE_ZONE` packet.
-Body references a **stable compact object ID**; it never carries a full record.
+### `GET /api/region/IN-AS/records` ✅
 
-### `GET|POST /region/:regionCode/hazards` ❌ · `…/routes` ❌
-Same pattern → `HAZARD` / `ROUTE_STATE` packets.
+Returns the prepared Assam operational register. The current records remain
+development data until Workstream D supplies a sourced and licensed pack.
 
-### `POST /campaigns` ❌ · `POST /campaigns/:id/validate|approve|archive` ❌
-Campaign CRUD over the frozen state machine in `@dsm/tier2`. Approve returns
-`400` if content changed since validation (WEB-007, DEC-025).
+### `POST /api/region/IN-AS/records/:objectId` ✅
 
-### `GET /campaigns/:id/preview` ❌
+Body: `{ "state": "open|full|closed|damaged|active|watch|cleared|restricted|blocked" }`.
+The backend emits the appropriate resource, hazard, or route packet using the
+stable compact object ID.
+
+Regional records include `latE7` and `lonE7` for MapLibre. Popup actions use
+this same endpoint; there is no UI-only closed or disabled state.
+
+### `GET|POST /api/campaigns` ✅
+
+Lists campaigns or creates a draft official-alert campaign.
+
+### `PUT /api/campaigns/:id` ✅
+
+Edits content and applies `contentEdited()`; approved-or-later content returns
+to draft rather than retaining stale approval.
+
+### `POST /api/campaigns/:id/transition` ✅
+
+Body: `{ "state": "validated|approved|broadcaster-ready|..." }`. The backend
+enforces `CAMPAIGN_TRANSITIONS`; approval fails if content changed after
+validation.
+
+### `GET /api/campaigns/:id/preview` 🟡
+
+Preview data is currently returned inside each campaign record rather than by a
+separate endpoint.
 ```json
 { "totalTier2Bytes": 1840, "totalDurationS": 115,
   "budgetS": 180, "overBudget": false,
@@ -252,14 +286,28 @@ Already computable — `planCampaign()` returns exactly this (WEB-005).
 An over-budget campaign reports `overBudget: true`; it is never silently
 truncated.
 
-### `POST /campaigns/:id/decode-test` ❌
-→ `DecodeTestResult`: expected vs recovered packet IDs, frames
-detected/valid/corrupt/duplicate, and `passed` (WEB-009). Blocked on the ggwave
-modem.
+### `POST /api/campaigns/:id/broadcast-program` ✅
 
-### `POST /demo/reset` ❌
-Controlled non-production only. Restores the checklist in
-`tools/seed/src/demo-actors.ts` → `DEMO_RESET_CHECKLIST`.
+Creates the immutable raw Tier 2 frame list and scheduled repetition sequence,
+records a SHA-256 artifact digest, and advances `broadcaster-ready` to
+`audio-generated`. Repeated calls return the same stored program.
+
+### `POST /api/campaigns/:id/broadcast-reception` ✅
+
+Body: `{ "framesBase64": ["..."], "receiverLabel": "Browser receiving station" }`.
+Each recovered frame is decoded through the Tier 2 CRC gate and compared with
+the exact program frame set. A complete match persists `passed: true` and
+advances `audio-generated` to `decode-tested`; incomplete/corrupt input leaves
+the campaign at `audio-generated`.
+
+### `GET /api/gateway-audit` ✅ · `GET /api/audit` ✅
+
+Return gateway/observation/outbound evidence and the append-only operations log.
+
+### `POST /api/demo/reset` ✅
+Controlled non-production only. Restores deterministic synthetic Assam
+operations data. Set
+`DSM_DEMO_MODE=false` to disable the endpoint.
 
 ---
 

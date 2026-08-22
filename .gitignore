@@ -15,6 +15,11 @@ Thumbs.db
 evidence/out/
 tools/ggwave-artifact/out/
 coverage/
+output/
+data/*.sqlite
+data/*.sqlite-shm
+data/*.sqlite-wal
+.playwright-cli/
 .vscode/
 .idea/
 # SQLite database (runtime data — not committed)

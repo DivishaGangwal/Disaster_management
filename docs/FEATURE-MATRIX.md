@@ -69,7 +69,7 @@ Legend — **evidence**: 🟩 static check · 🟦 simulator · 🟥 real Androi
 | Newer sequence wins, history kept | MAP-007 | ✅ | 🟩 | D | — |
 | Missing object → fallback, no substitution | MAP-008 | ✅ | 🟩 | D | — |
 | Tier 1 / gateway / Tier 2 → one projection | MAP-009 | ✅ | 🟦 | D | Structural — one `toMapOperations()`. |
-| Filters and list equivalents | MAP-010 | 🟡 | 🟩 | A/D | `asList()` exists; **no UI consumes it**. |
+| Filters and list equivalents | MAP-010 | ✅ | 🟩 | A/D/E | MapLibre exposes incident, centre, route, and hazard layers; the adjacent register is the list equivalent. |
 | Topology view | MAP-012 | ❌ | — | A/D | Peer observations are recorded; the topology projection and screen are not built. |
 
 ## 6. Tier 2 / ggwave (T2-001 … T2-013)
@@ -77,8 +77,8 @@ Legend — **evidence**: 🟩 static check · 🟦 simulator · 🟥 real Androi
 | Feature | Req | Status | Evidence | Owner | Likely cause if not working |
 |---|---|---|---|---|---|
 | Compact frame format | T2-001 | ✅ | 🟩 | F | 12-byte overhead vs 64 for Tier 1. |
-| **Actual ggwave encode/decode** | T2-001 | ❌ | — | **F** | **The acoustic modem is not integrated.** Everything around it is done — frames, receiver state machine, campaign planner — but no audio is produced or consumed. Needs the ggwave library plus the `AudioRecord` PCM bridge from WS-B. |
-| Microphone path | T2-002 | ❌ | — | F/B | Blocked on the modem and the PCM bridge. |
+| **Actual ggwave encode/decode** | T2-001 | 🟡 | 🟩 | **F** | Browser encode/decode is wired to raw Tier 2 frames and WAV export is runtime-checked. Android still needs the `AudioRecord` PCM bridge. |
+| Microphone path | T2-002 | 🟡 | 🟩 | F/B | Browser microphone capture and decode are implemented; measured two-device acoustic evidence and Android PCM remain outstanding. |
 | Mic ≡ direct equivalence | T2-004 | ✅ | 🟦 | F | Proven **at frame level**: both paths recover byte-identical canonical packets. Not yet proven through real audio. |
 | Campaign manifest | T2-005 | ✅ | 🟩 | F | — |
 | Critical items repeat more | T2-006 | ✅ | 🟩 | F | — |
@@ -91,14 +91,16 @@ Legend — **evidence**: 🟩 static check · 🟦 simulator · 🟥 real Androi
 
 | Feature | Req | Status | Evidence | Owner | Likely cause if not working |
 |---|---|---|---|---|---|
-| Deduplicated incident + observations | WEB-001 | ✅ | 🟦 | E | Service layer done; **no UI**. |
-| Assignment / lifecycle actions | WEB-002 | 🟡 | 🟩 | E | Packet types exist; no roster service, no UI. |
-| Authority composer + byte preview | WEB-005 | 🟡 | 🟩 | E/F | `planCampaign()` returns the byte and duration preview; **no composer UI**. |
+| Deduplicated incident + observations | WEB-001 | ✅ | 🟦 | E | Merged console shows one incident with separate gateway observations. |
+| Assignment / lifecycle actions | WEB-002 | 🟡 | 🟩 | E | Roster and assignment packet emission work; responder-side accept/en-route/arrive remains mobile work. |
+| Authority composer + byte preview | WEB-005 | ✅ | 🟩 | E/F | Composer renders the real `planCampaign()` byte, frame, repetition, and duration preview. |
 | Campaign state machine | WEB-006 | ✅ | 🟩 | F | — |
 | Edit after approval resets it | WEB-007 | ✅ | 🟩 | F | `contentEdited()`. |
-| Decode-before-broadcast | WEB-009 | ❌ | — | F | Blocked on real audio generation. |
+| Decode-before-broadcast | WEB-009 | ✅ | 🟩 | F | Two browser station modes, raw frame recovery, CRC validation, exact expected/recovered comparison, and persisted pass/fail results are implemented. Physical acoustic evidence remains separate. |
 | Region-bounded outbound | WEB-010 | ✅ | 🟦 | E | — |
-| **Both dashboards** | — | ❌ | — | **E** | **Not built.** Only `package.json` + surface registries exist. Vite/React scaffold not yet initialised. |
+| **Merged operations console** | — | ✅ | 🟩 | **E** | Five authority and four broadcaster surfaces live in one responsive Vite/React application with no role switch. |
+| Interactive operations map | WEB-001/004 | ✅ | 🟩 | E | MapLibre clusters and filters live GeoJSON; centre popup actions publish versioned packets rather than changing local-only marker state. |
+| Packet network inspector | WEB-010 | ✅ | 🟩 | E | Three-second refresh shows direction, hop facts, gateway evidence, decoded payload and exact canonical bytes. |
 
 ## 8. Mobile app
 
@@ -124,14 +126,14 @@ Legend — **evidence**: 🟩 static check · 🟦 simulator · 🟥 real Androi
 
 1. **Native Android module (WS-B)** — blocks 8 features and every 🟥 row in the
    repo. Nothing else on the critical path can start without it.
-2. **ggwave modem integration (WS-F)** — blocks scenarios F and I, and WEB-009.
+2. **Android ggwave PCM integration (WS-B/F)** — the browser modem is wired; Android and measured physical reception still block device evidence.
 3. **Durable storage (WS-C)** — blocks OFF-003 and REL-010; a one-package change
    behind an interface that already exists.
 
 ## What is genuinely finished
 
 The protocol, validation, policy, incident model, map projection, routing, and
-the backend coordination loop. 30 tests, all passing. Those layers are unlikely
+the backend coordination loop. 31 tests, all passing. Those layers are unlikely
 to need rework as the remaining pieces land, because each remaining piece plugs
 into an interface that is already frozen and already has a working reference
 implementation.

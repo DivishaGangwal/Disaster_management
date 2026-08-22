@@ -30,7 +30,7 @@ export const AUTHORITY_SURFACES: readonly SurfaceSpec[] = [
       'last-known location AGE and ACCURACY',
       'filters: severity, age, state, type, region',
     ],
-    status: 'scaffold',
+    status: 'partial',
   },
   {
     key: 'responder-ops',
@@ -39,10 +39,10 @@ export const AUTHORITY_SURFACES: readonly SurfaceSpec[] = [
     mustShow: [
       'responder availability',
       'assign, acknowledge, en route, arrived, resolved',
-      'responder identity labelled DEMO-PROVISIONED, never "verified" (INT-004)',
+      'responder identity labelled ORGANISATION-PROVISIONED, never "verified" (INT-004)',
       'every action emits a new packet rather than mutating history invisibly',
     ],
-    status: 'scaffold',
+    status: 'partial',
   },
   {
     key: 'regional-editor',
@@ -53,7 +53,7 @@ export const AUTHORITY_SURFACES: readonly SurfaceSpec[] = [
       'hazards and route records',
       'edits reference STABLE COMPACT OBJECT IDs from the content pack',
     ],
-    status: 'scaffold',
+    status: 'partial',
   },
   {
     key: 'alert-composer',
@@ -65,7 +65,7 @@ export const AUTHORITY_SURFACES: readonly SurfaceSpec[] = [
       'campaign validation and approval controls',
       'only authority-provisioned sources may compose official alerts',
     ],
-    status: 'scaffold',
+    status: 'partial',
   },
   {
     key: 'gateway-audit',
@@ -76,7 +76,7 @@ export const AUTHORITY_SURFACES: readonly SurfaceSpec[] = [
       'outbound-to-mesh queue state',
       'region-bounded outbound selection',
     ],
-    status: 'scaffold',
+    status: 'partial',
   },
 ];
 
@@ -90,7 +90,7 @@ export const BROADCASTER_SURFACES: readonly SurfaceSpec[] = [
       'editing approved content returns it to draft/validation',
       'the broadcaster cannot silently alter authority meaning',
     ],
-    status: 'scaffold',
+    status: 'complete',
   },
   {
     key: 'packet-inventory',
@@ -102,7 +102,7 @@ export const BROADCASTER_SURFACES: readonly SurfaceSpec[] = [
       'critical items repeating more often than normal updates',
       'an over-budget campaign shown as over budget, never silently truncated',
     ],
-    status: 'scaffold',
+    status: 'complete',
   },
   {
     key: 'decode-test',
@@ -114,7 +114,7 @@ export const BROADCASTER_SURFACES: readonly SurfaceSpec[] = [
       'frames detected / valid / corrupt / duplicate',
       'pass or fail, tied to the artifact integrity value',
     ],
-    status: 'scaffold',
+    status: 'complete',
   },
   {
     key: 'broadcast-log',
@@ -124,6 +124,6 @@ export const BROADCASTER_SURFACES: readonly SurfaceSpec[] = [
       'scheduled / exported / played state',
       'an IMMUTABLE log entry naming the tested artifact version and integrity value',
     ],
-    status: 'scaffold',
+    status: 'partial',
   },
 ];

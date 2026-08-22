@@ -42,8 +42,13 @@ cd apps/mobile && npm install && npx expo start
 Run the coordination backend:
 
 ```bash
-cd apps/backend && node dist/main.js
+npm run demo
 ```
+
+The command builds the single Assam Operations Console, starts the SQLite-backed
+backend, and serves both at `http://localhost:8787`. Persistent operations data is
+stored in `data/assam-operations.sqlite`. Set `DSM_DATABASE_PATH` to use a
+different file. See [`docs/WEB-CONSOLE.md`](docs/WEB-CONSOLE.md).
 
 ## About React Native, Expo, and Expo Go
 

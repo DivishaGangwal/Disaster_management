@@ -23,13 +23,132 @@ import {
 } from '@dsm/contracts';
 import { buildBackendAck, decodePacket, toEpochS } from '@dsm/codec';
 import { validate } from '@dsm/validator';
-import { type IncidentView } from '@dsm/incident';
-import { SqliteBackendStore as BackendStore, type GatewayObservation, type StoredCanonicalPacket } from './store.js';
+import { IncidentReducer, type IncidentView } from '@dsm/incident';
 
-export { BackendStore };
+export interface StoredCanonicalPacket {
+  readonly packetId: PacketId;
+  readonly bytes: Uint8Array;
+  /** Payload digest, matching @dsm/validator. Not a digest of the full frame. */
+  readonly digest: string;
+  readonly firstSeenAtMs: number;
+}
 
-// Re-export types so existing imports from './services.js' still work
-export type { StoredCanonicalPacket, GatewayObservation };
+export interface GatewayObservation {
+  readonly packetId: PacketId;
+  readonly gatewayToken: string;
+  readonly receivedAtMs: number;
+  readonly uploadedAtMs: number;
+  readonly hopCountOnArrival: number;
+  readonly transport: string;
+}
+
+export class BackendStore {
+  /** One canonical packet per ID. */
+  readonly packets = new Map<PacketId, StoredCanonicalPacket>();
+  /** Many observations per packet (GTW-003). */
+  readonly observations: GatewayObservation[] = [];
+  /** Idempotency: a retried batch must not create duplicate observations. */
+  protected readonly seenBatches = new Set<string>();
+  incidents = new IncidentReducer();
+  /** Packets queued for delivery back into the mesh, per region. */
+  readonly outbound = new Map<string, { packetId: PacketId; bytes: Uint8Array; seq: number }[]>();
+  protected outboundSeq = 0;
+  readonly gatewayTokens = new Map<string, { nodeToken: string; regionCode: string }>();
+
+  isDuplicateBatch(batchId: string): boolean {
+    return this.seenBatches.has(batchId);
+  }
+
+  rememberBatch(batchId: string): void {
+    this.seenBatches.add(batchId);
+    this.changed();
+  }
+
+  registerGateway(gatewayToken: string, nodeToken: string, regionCode: string): void {
+    this.gatewayTokens.set(gatewayToken, { nodeToken, regionCode });
+    this.changed();
+  }
+
+  addObservation(observation: GatewayObservation): void {
+    this.observations.push(observation);
+    this.changed();
+  }
+
+  putPacket(packet: StoredCanonicalPacket): void {
+    this.packets.set(packet.packetId, packet);
+    this.changed();
+  }
+
+  enqueueOutbound(regionCode: string, packetId: PacketId, bytes: Uint8Array): void {
+    const list = this.outbound.get(regionCode) ?? [];
+    if (list.some((item) => item.packetId === packetId)) return; // idempotent
+    this.outboundSeq += 1;
+    list.push({ packetId, bytes, seq: this.outboundSeq });
+    this.outbound.set(regionCode, list);
+    this.changed();
+  }
+
+  protected changed(): void {}
+
+  snapshotCore() {
+    return {
+      packets: [...this.packets.values()].map((packet) => ({
+        ...packet,
+        bytesBase64: Buffer.from(packet.bytes).toString('base64'),
+        bytes: undefined,
+      })),
+      observations: this.observations,
+      seenBatches: [...this.seenBatches],
+      outbound: [...this.outbound.entries()].map(([regionCode, items]) => ({
+        regionCode,
+        items: items.map((item) => ({ ...item, bytesBase64: Buffer.from(item.bytes).toString('base64'), bytes: undefined })),
+      })),
+      outboundSeq: this.outboundSeq,
+      gatewayTokens: [...this.gatewayTokens.entries()],
+    };
+  }
+
+  restoreCore(snapshot: ReturnType<BackendStore['snapshotCore']>): void {
+    this.packets.clear();
+    this.observations.splice(0);
+    this.seenBatches.clear();
+    this.outbound.clear();
+    this.gatewayTokens.clear();
+    this.incidents = new IncidentReducer();
+    for (const packet of snapshot.packets) {
+      const { bytesBase64, ...rest } = packet;
+      const stored = { ...rest, bytes: new Uint8Array(Buffer.from(bytesBase64, 'base64')) } as StoredCanonicalPacket;
+      this.packets.set(stored.packetId, stored);
+      const decoded = decodePacket(stored.bytes);
+      if (decoded.ok) this.incidents.apply(decoded.packet, { localSourceId: 'backend' });
+    }
+    this.observations.push(...snapshot.observations);
+    for (const batch of snapshot.seenBatches) this.seenBatches.add(batch);
+    for (const entry of snapshot.outbound) {
+      this.outbound.set(
+        entry.regionCode,
+        entry.items.map((item) => {
+          const { bytesBase64, ...rest } = item;
+          return { ...rest, bytes: new Uint8Array(Buffer.from(bytesBase64, 'base64')) };
+        }),
+      );
+    }
+    this.outboundSeq = snapshot.outboundSeq;
+    for (const [token, value] of snapshot.gatewayTokens) this.gatewayTokens.set(token, value);
+  }
+
+  readOutbound(regionCode: string, cursor: string | undefined, max: number) {
+    const after = cursor ? Number.parseInt(cursor, 10) : 0;
+    const list = (this.outbound.get(regionCode) ?? []).filter((item) => item.seq > after);
+    const page = list.slice(0, max);
+    const last = page[page.length - 1];
+    return {
+      items: page.map((item) => ({ packetId: item.packetId, bytes: item.bytes })),
+      nextCursor: last ? String(last.seq) : cursor,
+      hasMore: list.length > page.length,
+    };
+  }
+}
 
 export class IngestService {
   constructor(private readonly store: BackendStore) {}
@@ -82,17 +201,14 @@ export class IngestService {
       }
 
       if (!replay) {
-        this.store.pushObservation(
-          {
-            packetId: item.packetId,
-            gatewayToken: request.gatewayToken,
-            receivedAtMs: item.observation.receivedAtMs,
-            uploadedAtMs: nowMs,
-            hopCountOnArrival: item.observation.hopCountOnArrival,
-            transport: item.observation.transport,
-          },
-          request.batchId,
-        );
+        this.store.addObservation({
+          packetId: item.packetId,
+          gatewayToken: request.gatewayToken,
+          receivedAtMs: item.observation.receivedAtMs,
+          uploadedAtMs: nowMs,
+          hopCountOnArrival: item.observation.hopCountOnArrival,
+          transport: item.observation.transport,
+        });
       }
 
       if (existing) {
@@ -105,7 +221,8 @@ export class IngestService {
         continue;
       }
 
-      this.store.packets.set(item.packetId, {
+      this.store.putPacket({
+        packetId: item.packetId,
         bytes: item.bytes,
         digest,
         firstSeenAtMs: nowMs,

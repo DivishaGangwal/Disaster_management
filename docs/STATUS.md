@@ -1,6 +1,6 @@
 # Status — what the first pass built, and what remains
 
-**As of the first pass.** Evidence types are labelled per working rule 10:
+**Updated after the Assam web operations pass.** Evidence types are labelled per working rule 10:
 🟩 **static check** · 🟦 **simulator run** · 🟥 **real Android device**.
 
 Nothing below claims real-device evidence, because no real device has been run
@@ -14,7 +14,7 @@ yet. That row is honest and stays honest until Workstream B measures it.
 
 ```
 npm run build      # all 15 TypeScript projects compile, strict mode
-npm test           # 30 tests, 30 passing
+npm test           # 31 tests, 31 passing
 npm run boundaries # dependency graph + domain isolation + truthful copy
 ```
 
@@ -59,6 +59,25 @@ npm run boundaries # dependency graph + domain isolation + truthful copy
 - Priority-aware bounded upload; cursor advances only after confirmed response.
 - Backend dedup: 2 gateways → 1 incident, 2 observations. Tested.
 - Acknowledgement returned as its own packet through the mesh.
+- One merged Assam Operations Console implements all five authority/coordinator
+  surfaces and all four broadcaster surfaces without a role switch.
+- The nine contract surfaces are reorganised into Coordinate, Publish,
+  Campaigns, and Packet Network workspaces.
+- MapLibre GL JS renders live Assam incident and centre data with clusters,
+  filters, selection, popup actions, and state-driven marker changes.
+- Packet Network refreshes canonical bytes, decoded fields, hops, gateway
+  observations, and mesh/internet/radio direction every three seconds.
+- SQLite persists packets, observations, responders, regional updates,
+  campaigns, approvals, outbound queues, and audit entries across restart.
+- Responder assignments and regional changes emit canonical packets through the
+  existing validator and outbound queue.
+- Campaign drafts use the frozen state machine, real byte/duration preview,
+  immutable approval digests, and broadcaster hand-off.
+- Browser broadcast and receive stations use raw ggwave Tier 2 frames, export a
+  reproducible WAV, and persist expected-versus-recovered decode results.
+- The browser audio layer vendors pinned WavePX transport/audio code; a complete
+  reception renders the decoded human-readable alert immediately.
+- Controlled demo reset restores deterministic, clearly synthetic Assam data.
 
 ### Transport seam — Workstreams B + C
 - `TransportAdapter` contract frozen; simulated adapter drives the full 8-phase
@@ -102,17 +121,21 @@ npm run boundaries # dependency graph + domain isolation + truthful copy
 - [ ] Replace `tools/seed/src/demo-pack.ts` — keep the structure, swap the data.
 
 ### E — backend + web
-- [ ] Authority/coordinator dashboard (5 surfaces in `surface-registry.ts`).
-- [ ] Broadcaster dashboard (4 surfaces).
-- [ ] Campaign approval workflow UI over the existing state machine.
-- [ ] Responder roster and assignment UI.
-- [ ] Persistent storage (currently in-memory) and demo reset/seed endpoint.
+- [x] One merged Authority/coordinator dashboard (5 surfaces in `surface-registry.ts`).
+- [x] Broadcaster surfaces (4 surfaces) in the same console, with no role switch.
+- [x] Campaign approval workflow UI over the existing state machine through
+      `broadcaster-ready`.
+- [x] Responder roster and assignment UI.
+- [x] SQLite backend persistence and controlled Assam demo reset/seed endpoint.
+- [x] WAV generation, browser acoustic playback, browser microphone decoder,
+      exact-frame decode comparison, and immutable artifact logs.
+- [ ] Scheduling and explicit played/archive actions.
 
 ### F — ggwave + QA + evidence
-- [ ] Real ggwave encode/decode integration (frame format and receiver are done;
-      the modem is not wired).
-- [ ] Reproducible radio-program artifact package.
-- [ ] Decode-before-broadcast tool comparing recovered vs expected.
+- [x] Browser ggwave encode/decode integration over the existing raw Tier 2 frames.
+- [ ] Reproducible radio-program package. Per-campaign WAV export and a stored
+      program digest work; a packaged manifest and release bundle remain.
+- [x] Decode-before-broadcast comparison of recovered vs expected frames.
 - [ ] 🟥 Declared microphone setup and measured success rate.
 - [ ] Battery and performance measurement.
 - [ ] Failure-injection playbook and demo rehearsal.
@@ -126,7 +149,7 @@ npm run boundaries # dependency graph + domain isolation + truthful copy
 | C | Store-carry-forward | 🟦 pass | ❌ WS-B |
 | D | Conditional mesh-to-internet | 🟦 pass | ❌ WS-B/E |
 | E | Internet-to-mesh map update | 🟦 partial (ack loop proven; map delta injection needs the dashboard) | ❌ |
-| F | Tier 2 microphone decode | ❌ needs the real modem | ❌ WS-F |
+| F | Tier 2 microphone decode | 🟩 browser path implemented; physical run pending | ❌ measured device evidence pending |
 | G | Tier 2 direct-audio equivalence | 🟦 pass (frame level) | ❌ WS-F |
 | H | Radio-to-mesh bridge | 🟦 pass | ❌ WS-B/F |
 | I | Tier 2 check-in → Tier 1 response | ❌ needs the check-in screen | ❌ |
@@ -139,14 +162,13 @@ Stated plainly rather than buried:
 
 1. **No real Bluetooth has run.** Every Tier 1 result is simulated. The simulated
    adapter is faithful to the contract, but it is not evidence about Android.
-2. **ggwave itself is not integrated.** The Tier 2 frame format, receiver, and
-   campaign planner are real and tested; the acoustic modem is not wired, so
-   scenario F cannot be claimed.
-3. **Persistence is in-memory.** It implements the real semantics (idempotency,
-   conflict quarantine, eviction order) but does not survive process restart, so
-   OFF-003 is not yet satisfied.
-4. **No UI exists.** The screen and surface registries encode every requirement,
-   but no screen is built.
+2. **Browser ggwave is integrated, but physical reception is unmeasured.** The
+   browser encodes raw Tier 2 frames, exports WAV, and captures microphone PCM.
+   No two-device acoustic success rate or Android `AudioRecord` run is claimed.
+3. **Mobile persistence is still in-memory.** The backend now survives restart
+   through SQLite, but OFF-003 still needs `expo-sqlite` on Android.
+4. **The web UI exists; the mobile UI does not.** The merged Assam console is
+   built and browser-verified. The 13 mobile screens remain Workstream A.
 5. **The content pack is synthetic.** Deliberately (INT-006), and it must be
    replaced with a sourced pack carrying a licence note.
 6. **Copy-budget and duty-cycle numbers are unmeasured.** They are documented
