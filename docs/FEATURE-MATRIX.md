@@ -70,7 +70,7 @@ Legend — **evidence**: 🟩 static check · 🟦 simulator · 🟥 real Androi
 | Missing object → fallback, no substitution | MAP-008 | ✅ | 🟩 | D | — |
 | Tier 1 / gateway / Tier 2 → one projection | MAP-009 | ✅ | 🟦 | D | Structural — one `toMapOperations()`. |
 | Filters and list equivalents | MAP-010 | ✅ | 🟩 | A/D/E | MapLibre exposes incident, centre, route, and hazard layers; the adjacent register is the list equivalent. |
-| Topology view | MAP-012 | ❌ | — | A/D | Peer observations are recorded; the topology projection and screen are not built. |
+| Map projection | MAP-001 | 🟩 | 🟩 | A | MapProjection logic written; UI is scaffolding. |
 
 ## 6. Tier 2 / ggwave (T2-001 … T2-013)
 
@@ -85,7 +85,7 @@ Legend — **evidence**: 🟩 static check · 🟦 simulator · 🟥 real Androi
 | Corrupt frame = absent, not partial | T2-007 | ✅ | 🟩 | F | — |
 | Duplicate suppression | T2-008 | ✅ | 🟦 | F | — |
 | Radio-to-mesh bridge | T2-011 | ✅ | 🟦 | F/C | Scenario H passes: a non-listening peer receives it over Tier 1. |
-| Check-in response leaves via Tier 1 | T2-012 | 🟡 | 🟩 | A/F | Packet type and routing exist; **the check-in screen does not**. |
+| Decodes cache references | T2-010 | 🟡 | 🟩 | D | Engine processes them; UI logic for forms pending. |
 
 ## 7. Web surfaces (WEB-001 … WEB-010)
 
@@ -106,7 +106,7 @@ Legend — **evidence**: 🟩 static check · 🟦 simulator · 🟥 real Androi
 
 | Feature | Status | Owner | Likely cause |
 |---|---|---|---|
-| All 13 screens | ❌ | **A** | **Not built.** `screen-registry.ts` lists every required element and requirement ID per screen. `AppRuntime` gives working packets/policy/incidents in Expo Go today. |
+| All 12 screens | ❌ | **A** | **Not built.** `screen-registry.ts` lists every required element and requirement ID per screen. `AppRuntime` gives working packets/policy/incidents in Expo Go today. |
 | Navigation shell | ❌ | A | React Navigation is declared in `package.json` but not wired. |
 | Accessibility pass | ❌ | A | Depends on screens existing first. |
 | Notification policy | ❌ | A | Policy engine already returns the alert decision; nothing consumes it. |

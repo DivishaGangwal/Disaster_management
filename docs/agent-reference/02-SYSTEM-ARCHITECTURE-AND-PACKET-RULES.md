@@ -324,16 +324,6 @@ Fields include route/edge ID, state (blocked, restricted, reopened, advised), re
 
 Fields include alert ID/version, category, severity, region/geofence, valid window, language/fallback text, instruction code, related map object IDs, and campaign/source label. In this prototype, “official” means created through the provisioned authority dashboard workflow, not cryptographic verification.
 
-### Check-in family
-
-#### CHECKIN_CAMPAIGN
-
-Fields include campaign ID/version, cached form ID, response deadline, region, allowed response options, requested optional fields, fallback prompt, and reply routing policy.
-
-#### CHECKIN_RESPONSE
-
-Fields include campaign ID, response packet ID, compact status selection, people count if requested, location state, response time, and source reference. It is Tier 1/gateway traffic.
-
 ### Request family
 
 #### RESOURCE_REQUEST
@@ -366,7 +356,7 @@ Explicit packet IDs and requested fragment ranges in priority order.
 
 #### NETWORK_STATUS_OBSERVATION
 
-Optional diagnostic/topology information describing a recent contact or gateway observation. It must be bounded, short-lived, and excluded from uncontrolled flooding.
+Optional diagnostic information describing a recent contact or gateway observation. It must be bounded, short-lived, and excluded from uncontrolled flooding.
 
 ## Header and payload design
 
@@ -433,12 +423,9 @@ Use a compact rotating or incident-scoped source identifier in ordinary mesh pac
 | Hospital/shelter/safe zone | Yes if region relevant | Map/list | Map/list | Normal/high when changed | Yes if mesh-origin permitted | Through supersession/expiry |
 | Food/water | Yes if relevant | Map/list | Map/list | Normal | Yes if permitted | Through supersession/expiry |
 | Hazard/route | Yes | Aggressive if intersecting area | Aggressive | High | Yes | Valid window/tombstone |
-| Check-in campaign | Yes | Open form if applicable | Open form if applicable | High | Reception optional | Deadline plus history |
-| Check-in response | Own/relay custody | Own status | Incident/campaign view when authorized | High | Yes | Campaign/incident lifecycle |
 | Resource request | Yes | Own/nearby minimal view | Action queue | High | Yes | Until fulfilled/expired |
 | File manifest | Yes | Prompt/metadata only | Prompt/metadata | Low | Optional | Short/bounded |
 | File fragment | Until assembly/expiry | Hidden | Hidden | Lowest/requested only | Optional | Short |
-| Topology observation | Bounded | Topology only | Topology only | Limited/diagnostic | Optional | Very short |
 
 ## Routing algorithm specification
 
@@ -1114,31 +1101,6 @@ A packet may carry a bounded location observation with coordinates, accuracy, so
 - resource or hazard object.
 
 Every moving-person marker becomes stale over time. The UI must show age or a stale state and must not imply continuous GPS tracking.
-
-### Network topology map
-
-The product includes a topology view for the controlled demo. It visualizes observed relationships, not a perfect global real-time graph.
-
-Possible nodes:
-
-- current phone;
-- recently observed peers;
-- packet source;
-- responders;
-- known temporary gateways;
-- backend/dashboard as an external node when reached;
-- Tier 2 broadcaster as a one-way source.
-
-Possible edges:
-
-- recently discovered;
-- packet transferred;
-- acknowledgement returned;
-- gateway uploaded;
-- authority data injected;
-- radio packet received and bridged.
-
-Each edge needs a timestamp and status. Old observations fade or expire. No agent should present the topology map as omniscient when nodes cannot share a global view offline.
 
 ## Predownloaded map update operations
 

@@ -1202,7 +1202,7 @@ Expected result:
 - B receives the same packet identity and applies the same map change.
 - Re-encounter does not cause duplicate user-visible effects.
 
-### I. Tier 2 check-in, Tier 1 response
+### I. (Removed - Tier 2 check-in)
 
 Initial condition: a Tier 2 campaign requests a check-in.
 
@@ -1224,9 +1224,9 @@ Expected result:
 - SOS/control transfer begins first.
 - The image later resumes from missing fragments and becomes visible only after integrity succeeds.
 
-### K. Stale people and topology data
+### K. Stale people
 
-Initial condition: a peer/responder location and topology relationship have not been refreshed.
+Initial condition: a peer/responder location has not been refreshed.
 
 Expected result:
 

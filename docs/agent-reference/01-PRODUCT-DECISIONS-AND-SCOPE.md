@@ -60,7 +60,6 @@ Every architecture decision is recorded with its consequence so agents cannot si
 | DEC-018 | Files/images exist but are subordinate. | They are bounded, requested, fragmented, resumable, and preempted by emergency traffic. |
 | DEC-019 | Production cryptography is out of hackathon scope. | The demo uses checksums, digests, strict parsing, demo role provisioning, and honest labels—not verified-security claims. |
 | DEC-020 | Every displayed person/node location has freshness. | The app cannot show an undated “live” peer dot. |
-| DEC-021 | The topology map is observation-based. | It shows known recent contacts and transfers, not an omniscient global graph. |
 | DEC-022 | Link receipt is not rescue progress. | Delivery copy counts and responder/backend states are shown separately. |
 | DEC-023 | Local success is a complete outcome. | A nearby responder can accept, arrive, and resolve an SOS even if no gateway ever appears. |
 | DEC-024 | Authority and broadcaster use web dashboards. | They do not require the Android app for campaign work. |
@@ -81,7 +80,6 @@ Every architecture decision is recorded with its consequence so agents cannot si
 
 ### Secondary goals
 
-- Show judges how the observed mesh topology evolves.
 - Demonstrate compact map changes rather than retransmitting large assets.
 - Demonstrate a constrained image/file channel without compromising emergencies.
 - Produce reproducible metrics, logs, and demo reset behavior.
@@ -172,9 +170,8 @@ Requirements use stable IDs. Tests, implementation notes, and issue references s
 - **MAP-007:** A newer source sequence wins while history remains available for diagnostics.
 - **MAP-008:** Missing referenced objects must produce safe fallback text/coordinates, not silent substitution.
 - **MAP-009:** Tier 1, gateway, and Tier 2 inputs must update the same projection.
-- **MAP-010:** Filters must allow users to focus on incidents, responders, resources, hazards, routes, or topology.
+- **MAP-010:** Filters must allow users to focus on incidents, responders, resources, hazards, or routes.
 - **MAP-011:** General users must not see sensitive incident details outside the selected disclosure policy.
-- **MAP-012:** The topology map must display observation age and distinguish discovery, transfer, gateway, and radio bridge relationships.
 
 ### Tier 2
 
@@ -189,7 +186,6 @@ Requirements use stable IDs. Tests, implementation notes, and issue references s
 - **T2-009:** Tier 2 may activate/update predownloaded map objects, guides, translations, and forms by compact ID.
 - **T2-010:** Tier 2 must carry short fallback text for critical meaning when an object is missing.
 - **T2-011:** A valid received authority packet may bridge into Tier 1 without changing its logical identity.
-- **T2-012:** A check-in response must leave by Tier 1 or a later gateway, never by radio.
 - **T2-013:** Tier 2 must not send normal image/file content during the main demo.
 
 ### Dashboard and campaign workflow
@@ -312,8 +308,7 @@ Layers:
 - help centres;
 - hazards;
 - route blockages/changes;
-- temporary gateway observations;
-- optional topology overlay.
+- temporary gateway observations.
 
 Every item detail sheet must show source category, last update, location quality, current operational state, and relevant action. Map data must remain understandable in list form for accessibility and low-performance devices.
 
@@ -361,30 +356,27 @@ Must show:
 - battery mode;
 - stop control.
 
-### 10. Network topology and packet journey
-
-Topology shows time-bounded observed nodes/edges. Packet journey shows one packet's known path and state observations. Neither screen claims visibility into contacts not reported to the current phone or backend.
-
-### 11. Tier 2 listening
+### 10. Tier 2 listening
 
 Must show:
 
-- microphone permission and active capture indicator;
-- direct-demo versus microphone source;
+- history of all messages received from gg waves;
 - active campaign ID/version when detected;
 - frames detected, valid, corrupt, duplicate, and missing;
 - packets recovered versus expected manifest;
-- resulting alerts/map actions;
-- listen timeout and stop control;
-- clear “one-way broadcast” language.
+- resulting alerts/map actions.
 
-### 12. Check-in form
+### 11. Profile
 
-Activated by local selection or Tier 2 campaign. Must use cached schema/options and generate a compact Tier 1 response with status, people count where requested, current location state, and source incident/campaign reference.
+Must show:
 
-### 13. Diagnostics
+- selected district/region setting;
+- status of downloaded offline map and content pack;
+- action to update the offline map.
 
-For judges and QA, show transport, packet ID prefix, packet type, size, source category, previous hop, timestamps, validation outcome, policy outcomes, and resulting action. Diagnostics must be separable from the normal citizen experience.
+### 12. Diagnostics
+
+For judges and QA, show transport, packet ID prefix, packet type, size, source category, timestamps, validation outcome, policy outcomes, and resulting action. Diagnostics must be separable from the normal citizen experience.
 
 ### 14. Authority/coordinator dashboard
 

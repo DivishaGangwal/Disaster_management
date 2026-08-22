@@ -3,6 +3,7 @@
     "name": "Disaster SOS Mesh",
     "slug": "disaster-sos-mesh",
     "version": "0.1.0",
+    "scheme": "dsm",
     "orientation": "portrait",
     "platforms": ["android"],
     "android": {
@@ -20,6 +21,7 @@
       ]
     },
     "plugins": [
+      "expo-router",
       "expo-location",
       "expo-notifications"
     ]

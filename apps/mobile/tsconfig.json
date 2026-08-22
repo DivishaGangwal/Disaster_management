@@ -5,8 +5,17 @@
     "jsx": "react-jsx",
     "moduleResolution": "bundler",
     "paths": {
-      "@dsm/*": ["../../packages/*/src"]
+      "@/*": [
+        "./*"
+      ],
+      "@dsm/*": [
+        "../../packages/*/src"
+      ]
     }
   },
-  "include": ["src/**/*", "App.tsx", "index.js"]
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "nativewind-env.d.ts"
+  ]
 }
