@@ -49,6 +49,8 @@ export interface Campaign {
   readonly campaignVersion: number;
   readonly title: string;
   readonly summary: string;
+  readonly dataType?: 'official-alert' | 'check-in' | 'regional-record';
+  readonly objectId?: string;
   readonly regionCode: string;
   readonly state: string;
   readonly profile: string;
@@ -116,6 +118,8 @@ export interface DecodedBroadcastMessage {
   readonly severity: number;
   readonly language: string;
   readonly text: string;
+  readonly typeName?: string;
+  readonly payload?: Record<string, unknown>;
 }
 
 export interface PacketStreamItem {

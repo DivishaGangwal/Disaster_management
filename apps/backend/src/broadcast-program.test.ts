@@ -57,3 +57,33 @@ test('approved campaign becomes an exact, persisted ggwave frame program', async
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('campaign composer emits distinct canonical check-in and regional packet types', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'dsm-broadcast-types-'));
+  try {
+    const backend = createBackend({ databasePath: join(directory, 'operations.sqlite') });
+    const operations = backend.operations!;
+    const checkin = operations.createCampaign({
+      title: 'District safety check',
+      summary: 'Report safe, medical need, trapped, or water need.',
+      dataType: 'check-in',
+    });
+    const regional = operations.createCampaign({
+      title: 'Shelter status',
+      summary: 'Broadcast the current shelter record.',
+      dataType: 'regional-record',
+      objectId: operations.listRegionalRecords().find((item) => item.kind === 'shelter')!.objectId,
+    });
+
+    assert.equal(checkin.messageType, 0x70);
+    assert.equal(checkin.dataType, 'check-in');
+    assert.equal(regional.messageType, 0x40);
+    assert.equal(regional.dataType, 'regional-record');
+    assert.notEqual(checkin.packetId, regional.packetId);
+    assert.ok(checkin.preview.totalTier2Bytes > 0);
+    assert.ok(regional.preview.totalTier2Bytes > 0);
+    await backend.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

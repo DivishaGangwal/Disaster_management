@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   AlertCategory,
+  CheckinStatus,
   ENVELOPE,
   Flags,
   GeometryKind,
@@ -15,6 +16,7 @@ import {
 } from '@dsm/contracts';
 import {
   buildHazard,
+  buildCheckinCampaign,
   buildOfficialAlert,
   buildResponderState,
   buildResourceRecord,
@@ -51,6 +53,8 @@ export interface CampaignCreateInput {
   readonly category?: number;
   readonly instruction?: number;
   readonly profile?: GgwaveProfileName;
+  readonly dataType?: 'official-alert' | 'check-in' | 'regional-record';
+  readonly objectId?: string;
 }
 
 export class OperationsService {
@@ -221,6 +225,8 @@ export class OperationsService {
       category: clamp(input.category ?? AlertCategory.WEATHER, 0, 6),
       instruction: clamp(input.instruction ?? InstructionCode.MOVE_TO_HIGHER_GROUND, 0, 7),
       profile: input.profile ?? 'audible-normal',
+      dataType: input.dataType ?? 'official-alert',
+      objectId: input.objectId,
       contentRevision: 1,
       state: 'draft',
       createdAtMs: Date.now(),
@@ -242,6 +248,8 @@ export class OperationsService {
       category: clamp(input.category ?? AlertCategory.WEATHER, 0, 6),
       instruction: clamp(input.instruction ?? InstructionCode.MOVE_TO_HIGHER_GROUND, 0, 7),
       profile: input.profile ?? current.profile,
+      dataType: input.dataType ?? current.dataType ?? 'official-alert',
+      objectId: input.objectId ?? current.objectId,
       contentRevision: current.contentRevision + 1,
       state,
       createdAtMs: current.createdAtMs,
@@ -377,17 +385,30 @@ export class OperationsService {
     category: number;
     instruction: number;
     profile: GgwaveProfileName;
+    dataType: 'official-alert' | 'check-in' | 'regional-record';
+    objectId?: string;
     contentRevision: number;
     state: CampaignState;
     createdAtMs: number;
   }): CampaignRecord {
     const now = Date.now();
-    const packet = buildOfficialAlert(
-      { sourceId: AUTHORITY_SOURCE_ID, sourceClass: SourceClass.AUTHORITY_PROVISIONED, nowS: toEpochS(now) },
-      `ALT-${input.campaignId.slice(4)}`,
-      input.campaignVersion,
-      input.severity as 0 | 1 | 2 | 3,
-      {
+    const context = { sourceId: AUTHORITY_SOURCE_ID, sourceClass: SourceClass.AUTHORITY_PROVISIONED as 3, nowS: toEpochS(now) };
+    const selectedRecord = input.objectId ? this.store.regionalRecords.get(input.objectId) : undefined;
+    if (input.dataType === 'regional-record' && !selectedRecord) throw new Error('select a known regional record');
+    const packet = input.dataType === 'check-in'
+      ? buildCheckinCampaign(context, input.campaignId, {
+          campaignVersion: input.campaignVersion,
+          formId: 'FORM-AS-SAFETY-01',
+          regionCode: REGION_CODE,
+          deadlineS: toEpochS(now + 6 * 60 * 60 * 1000),
+          allowedStatuses: [CheckinStatus.SAFE, CheckinStatus.SAFE_NEED_SUPPLIES, CheckinStatus.NEED_ASSISTANCE, CheckinStatus.INJURED, CheckinStatus.DISPLACED],
+          requestPeopleCount: true,
+          requestLocation: true,
+          fallbackPrompt: input.summary,
+        })
+      : input.dataType === 'regional-record' && selectedRecord
+        ? buildRegionalBroadcast(context, selectedRecord)
+        : buildOfficialAlert(context, `ALT-${input.campaignId.slice(4)}`, input.campaignVersion, input.severity as 0 | 1 | 2 | 3, {
         category: input.category,
         instruction: input.instruction,
         regionCode: REGION_CODE,
@@ -396,8 +417,7 @@ export class OperationsService {
         fallbackText: input.summary,
         language: 'en',
         campaignId: input.campaignId,
-      },
-    );
+      });
     const decoded = decodePacket(packet.bytes);
     if (!decoded.ok) throw new Error(`campaign packet failed local decode: ${decoded.reason}`);
     const plan = planCampaign({
@@ -423,6 +443,8 @@ export class OperationsService {
       campaignVersion: input.campaignVersion,
       title: input.title,
       summary: input.summary,
+      dataType: input.dataType,
+      ...(input.objectId ? { objectId: input.objectId } : {}),
       regionCode: REGION_CODE,
       state: input.state,
       profile: input.profile,
@@ -497,6 +519,12 @@ function resourceState(state: string): number {
   return OperationalState.UNKNOWN;
 }
 
+function buildRegionalBroadcast(context: { sourceId: string; sourceClass: 3; nowS: number }, record: RegionalRecord) {
+  if (record.kind === 'hazard') return buildHazard(context, record.objectId, record.version, Severity.URGENT, { hazardType: 1, geometryKind: GeometryKind.CACHED_REFERENCE, cachedGeometryRef: record.objectId, fallbackLabel: bounded(record.name, 64) });
+  if (record.kind === 'route') return buildRouteState(context, record.objectId, record.version, { state: record.state === 'blocked' ? RouteState.BLOCKED : record.state === 'restricted' ? RouteState.RESTRICTED : RouteState.OPEN, fallbackInstruction: bounded(`${record.name}: ${record.state}`, 80) });
+  return buildResourceRecord(context, resourceMessageType(record.kind), record.objectId, record.version, { state: resourceState(record.state), fallbackLabel: bounded(record.name, 64), lastConfirmedS: context.nowS });
+}
+
 function digestCampaign(campaign: CampaignRecord): string {
   return createHash('sha256')
     .update(`${campaign.campaignId}:${campaign.campaignVersion}:${campaign.contentRevision}:${campaign.packetId}`)
@@ -552,5 +580,7 @@ function decodedCampaignMessage(campaign: CampaignRecord): NonNullable<Broadcast
     severity: campaign.severity,
     language: String(payload['language'] ?? 'en'),
     text: String(payload['fallbackText'] ?? campaign.summary),
+    typeName: messageTypeName(campaign.messageType) ?? `TYPE_${campaign.messageType}`,
+    payload: jsonSafe(payload) as Record<string, unknown>,
   };
 }

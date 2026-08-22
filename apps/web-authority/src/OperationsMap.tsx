@@ -19,6 +19,7 @@ export function OperationsMap({ incidents, records, selected, onSelect, onQuickS
   const callbacks = useRef({ onSelect, onQuickState });
   const [ready, setReady] = useState(false);
   const [filters, setFilters] = useState<Set<Filter>>(() => new Set(['incidents', 'centres', 'routes', 'hazards']));
+  const [mapReadout, setMapReadout] = useState({ zoom: 6.1, lat: 26.1, lon: 92.5 });
   callbacks.current = { onSelect, onQuickState };
 
   const data = useMemo(() => featureCollection(incidents, records, filters), [incidents, records, filters]);
@@ -57,11 +58,12 @@ export function OperationsMap({ incidents, records, selected, onSelect, onQuickS
     instance.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
     instance.on('load', () => {
       instance.addSource('operations', { type: 'geojson', data, cluster: true, clusterRadius: 44, clusterMaxZoom: 11 });
-      instance.addLayer({ id: 'clusters', type: 'circle', source: 'operations', filter: ['has', 'point_count'], paint: { 'circle-color': '#132c3a', 'circle-radius': ['step', ['get', 'point_count'], 17, 8, 22, 20, 28], 'circle-stroke-width': 3, 'circle-stroke-color': '#ffffff' } });
-      instance.addLayer({ id: 'cluster-count', type: 'symbol', source: 'operations', filter: ['has', 'point_count'], layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 12 }, paint: { 'text-color': '#ffffff' } });
-      instance.addLayer({ id: 'selected-halo', type: 'circle', source: 'operations', filter: ['==', ['get', 'id'], ''], paint: { 'circle-radius': 17, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-width': 3, 'circle-stroke-color': '#1565ff' } });
-      instance.addLayer({ id: 'operation-points', type: 'circle', source: 'operations', filter: ['!', ['has', 'point_count']], paint: { 'circle-radius': ['case', ['==', ['get', 'featureType'], 'incident'], 9, 8], 'circle-color': ['match', ['get', 'status'], 'critical', '#c62d42', 'urgent', '#f0782d', 'closed', '#68727a', 'blocked', '#c62d42', 'active', '#d94b38', 'open', '#1a8f6a', '#1673c9'], 'circle-stroke-width': 2.5, 'circle-stroke-color': '#ffffff' } });
-      instance.addLayer({ id: 'operation-labels', type: 'symbol', source: 'operations', filter: ['!', ['has', 'point_count']], minzoom: 7, layout: { 'text-field': ['get', 'label'], 'text-size': 11, 'text-offset': [0, 1.5], 'text-anchor': 'top', 'text-allow-overlap': false }, paint: { 'text-color': '#10212d', 'text-halo-color': '#ffffff', 'text-halo-width': 1.5 } });
+      instance.addLayer({ id: 'clusters', type: 'circle', source: 'operations', filter: ['has', 'point_count'], paint: { 'circle-color': '#132c3a', 'circle-radius': ['step', ['get', 'point_count'], 21, 8, 27, 20, 34], 'circle-stroke-width': 4, 'circle-stroke-color': '#ffffff' } });
+      instance.addLayer({ id: 'cluster-count', type: 'symbol', source: 'operations', filter: ['has', 'point_count'], layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 13 }, paint: { 'text-color': '#ffffff' } });
+      instance.addLayer({ id: 'selected-halo', type: 'circle', source: 'operations', filter: ['==', ['get', 'id'], ''], paint: { 'circle-radius': 22, 'circle-color': 'rgba(21,101,255,.08)', 'circle-stroke-width': 4, 'circle-stroke-color': '#1565ff' } });
+      instance.addLayer({ id: 'operation-points', type: 'circle', source: 'operations', filter: ['!', ['has', 'point_count']], paint: { 'circle-radius': ['case', ['==', ['get', 'featureType'], 'incident'], 13, 11], 'circle-color': ['match', ['get', 'status'], 'critical', '#c62d42', 'urgent', '#f0782d', 'closed', '#68727a', 'blocked', '#c62d42', 'active', '#d94b38', 'open', '#1a8f6a', '#1673c9'], 'circle-stroke-width': 3.5, 'circle-stroke-color': '#ffffff' } });
+      instance.addLayer({ id: 'operation-glyphs', type: 'symbol', source: 'operations', filter: ['!', ['has', 'point_count']], layout: { 'text-field': ['get', 'glyph'], 'text-size': 10, 'text-font': ['Noto Sans Bold'] }, paint: { 'text-color': '#ffffff', 'text-halo-color': '#132c3a', 'text-halo-width': .5 } });
+      instance.addLayer({ id: 'operation-labels', type: 'symbol', source: 'operations', filter: ['!', ['has', 'point_count']], minzoom: 6.7, layout: { 'text-field': ['get', 'label'], 'text-size': 12, 'text-offset': [0, 1.75], 'text-anchor': 'top', 'text-allow-overlap': false }, paint: { 'text-color': '#10212d', 'text-halo-color': '#ffffff', 'text-halo-width': 2 } });
       instance.on('click', 'clusters', async (event) => {
         const feature = instance.queryRenderedFeatures(event.point, { layers: ['clusters'] })[0];
         const clusterId = Number(feature?.properties?.cluster_id);
@@ -82,6 +84,8 @@ export function OperationsMap({ incidents, records, selected, onSelect, onQuickS
         instance.on('mouseenter', layer, () => { instance.getCanvas().style.cursor = 'pointer'; });
         instance.on('mouseleave', layer, () => { instance.getCanvas().style.cursor = ''; });
       }
+      instance.on('mousemove', (event) => setMapReadout((current) => ({ ...current, lat: event.lngLat.lat, lon: event.lngLat.lng })));
+      instance.on('zoomend', () => setMapReadout((current) => ({ ...current, zoom: instance.getZoom() })));
       setReady(true);
     });
     return () => { instance.remove(); map.current = undefined; };
@@ -100,20 +104,24 @@ export function OperationsMap({ incidents, records, selected, onSelect, onQuickS
   }, [selected, data, ready]);
 
   const toggle = (filter: Filter) => setFilters((current) => { const next = new Set(current); next.has(filter) ? next.delete(filter) : next.add(filter); return next; });
+  const unavailable = records.filter((record) => ['closed', 'blocked', 'damaged', 'active'].includes(record.state)).length;
+  const selectedLabel = records.find((record) => record.objectId === selected)?.name ?? incidents.find((incident) => incident.incidentId === selected)?.incidentId;
   return <div className="maplibre-shell">
-    <div className="map-toolbar" aria-label="Map layers">{(['incidents', 'centres', 'routes', 'hazards'] as Filter[]).map((filter) => <button key={filter} className={filters.has(filter) ? 'active' : ''} onClick={() => toggle(filter)}><i />{filter}</button>)}<button onClick={() => map.current?.fitBounds([[89.6, 23.8], [96.2, 28.3]], { padding: 44, maxZoom: 8 })}>Fit Assam</button></div>
+    <div className="map-toolbar" aria-label="Map layers">{(['incidents', 'centres', 'routes', 'hazards'] as Filter[]).map((filter) => <button key={filter} aria-pressed={filters.has(filter)} className={filters.has(filter) ? 'active' : ''} onClick={() => toggle(filter)}><i>{filters.has(filter) ? '✓' : ''}</i>{filter}</button>)}<button onClick={() => map.current?.fitBounds([[89.6, 23.8], [96.2, 28.3]], { padding: 44, maxZoom: 8 })}>Fit Assam</button></div>
     <div ref={container} className="maplibre-canvas" />
+    <div className="map-overview"><span><b>{data.features.length}</b> visible</span>{records.length > 0 && <><span><b>{records.length - unavailable}</b> available</span><span><b>{unavailable}</b> restricted</span></>}<span className="map-selection">{selectedLabel ?? 'No selection'}</span></div>
+    <div className="map-readout">Z{mapReadout.zoom.toFixed(1)} · {mapReadout.lat.toFixed(4)}, {mapReadout.lon.toFixed(4)}</div>
     {!ready && <div className="map-loading">Loading operational basemap…</div>}
   </div>;
 }
 
 function featureCollection(incidents: Incident[], records: RegionalRecord[], filters: Set<Filter>): GeoJSON.FeatureCollection<GeoJSON.Point> {
   const features: GeoJSON.Feature<GeoJSON.Point>[] = [];
-  if (filters.has('incidents')) for (const item of incidents) if (item.latE7 != null && item.lonE7 != null) features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [item.lonE7 / 1e7, item.latE7 / 1e7] }, properties: { id: item.incidentId, featureType: 'incident', label: categoryName(item.category), subtitle: `${item.peopleTotal ?? 0} people · ${item.observationCount} gateway observations`, status: item.severity >= 3 ? 'critical' : item.severity === 2 ? 'urgent' : 'active', state: item.state, severity: item.severity } });
+  if (filters.has('incidents')) for (const item of incidents) if (item.latE7 != null && item.lonE7 != null) features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [item.lonE7 / 1e7, item.latE7 / 1e7] }, properties: { id: item.incidentId, featureType: 'incident', glyph: `S${item.severity}`, label: categoryName(item.category), subtitle: `${item.peopleTotal ?? 0} people · ${item.observationCount} gateway observations`, status: item.severity >= 3 ? 'critical' : item.severity === 2 ? 'urgent' : 'active', state: item.state, severity: item.severity } });
   for (const item of records) {
     const group: Filter = item.kind === 'route' ? 'routes' : item.kind === 'hazard' ? 'hazards' : 'centres';
     if (!filters.has(group)) continue;
-    features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [item.lonE7 / 1e7, item.latE7 / 1e7] }, properties: { id: item.objectId, featureType: 'record', label: item.name, subtitle: `${item.district} · ${item.kind} · version ${item.version}`, status: item.state, state: item.state, kind: item.kind } });
+    features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [item.lonE7 / 1e7, item.latE7 / 1e7] }, properties: { id: item.objectId, featureType: 'record', glyph: markerGlyph(item.kind), label: item.name, subtitle: `${item.district} · ${item.kind} · version ${item.version}`, status: item.state, state: item.state, kind: item.kind } });
   }
   return { type: 'FeatureCollection', features };
 }
@@ -133,3 +141,4 @@ function showPopup(map: MapLibreMap, coordinates: [number, number], properties: 
 }
 
 function categoryName(value: number): string { return ['Medical', 'Trapped', 'Fire', 'Flood', 'Violence', 'Structural collapse', 'Missing person', 'Other'][value] ?? 'Emergency'; }
+function markerGlyph(kind: string): string { return kind === 'medical' ? '+' : kind === 'hazard' ? '!' : kind === 'route' ? 'R' : kind === 'shelter' ? 'S' : kind === 'safe-zone' ? 'A' : 'W'; }

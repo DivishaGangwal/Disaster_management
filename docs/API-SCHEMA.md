@@ -259,7 +259,16 @@ this same endpoint; there is no UI-only closed or disabled state.
 
 ### `GET|POST /api/campaigns` ✅
 
-Lists campaigns or creates a draft official-alert campaign.
+Lists campaigns or creates a bounded Tier 2 packet draft. `dataType` is one of:
+
+- `official-alert` — compact authority instruction;
+- `check-in` — activates the cached safety-response form; responses return over
+  Tier 1 or a later gateway, never over Tier 2;
+- `regional-record` — snapshots a known shelter, medical post, food/water
+  point, safe zone, hazard, or route by `objectId`.
+
+The latter two reuse the frozen `CHECKIN_CAMPAIGN` and regional packet types;
+they are not transport-specific aliases. Unknown regional IDs are rejected.
 
 ### `PUT /api/campaigns/:id` ✅
 
@@ -288,7 +297,8 @@ truncated.
 
 ### `POST /api/campaigns/:id/broadcast-program` ✅
 
-Creates the immutable raw Tier 2 frame list and scheduled repetition sequence,
+Creates the immutable raw Tier 2 frame list through the vendored WavePX-style
+browser transport backed by `ggwave`, plus the scheduled repetition sequence,
 records a SHA-256 artifact digest, and advances `broadcaster-ready` to
 `audio-generated`. Repeated calls return the same stored program.
 

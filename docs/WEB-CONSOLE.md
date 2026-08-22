@@ -80,10 +80,38 @@ future Android receiver. Attribution is in
 
 Coordinate and Publish use MapLibre GL JS with live GeoJSON. The map clusters
 dense points and provides incident/centre/route/hazard filters, navigation,
-fullscreen, scale, fit-to-Assam, state-coloured markers, selection fly-to, and
-safe DOM popups. A regional object can be closed, blocked, cleared, or reopened
-from its popup; the action uses the versioned publication endpoint, and both map
-and packet stream update on the next three-second poll.
+fullscreen, scale, fit-to-Assam, state-coloured markers, enlarged selectable
+objects, cursor coordinates, zoom level, visible-object totals, selection
+fly-to, and safe DOM popups. Publish is a single map-first workspace: selecting
+an object on the map or regional register opens the same state control and its
+packet delivery trail. A regional object can be closed, blocked, cleared, or
+reopened; the action uses the versioned publication endpoint, and both map and
+packet stream update on the next three-second poll.
+
+## Evidence inspection
+
+Packet evidence is available in Publish and Packet Network through the same
+inspector. The three views expose only stored protocol facts:
+
+- **Decoded:** message and source headers, fragment position, flags, priority,
+  severity, and the complete decoded payload.
+- **Route:** direction, hop budget, creation/expiry/store times, outbound
+  regions, optional geospatial envelope, and every gateway observation.
+- **Raw bytes:** total and payload sizes, full digest, exact hexadecimal bytes,
+  and exact base64 bytes, with copy controls for exchange and debugging.
+
+Campaigns also exposes an acoustic evidence drawer containing the artifact
+digest, every expected base64 Tier 2 frame, the playback schedule count, frames
+recovered by the current browser, and the stored exact-comparison result. The
+human-readable decoded public message remains visible after a successful
+microphone or WAV reception.
+
+The campaign composer can create three supported canonical packet categories:
+public alerts, cached-form check-in requests, and current regional map records.
+Each category is encoded with its existing frozen message type and passes
+through the same approval, WavePX/ggwave preparation, speaker/WAV transmission,
+frame comparison, and decode evidence flow. Check-in answers are explicitly a
+separate Tier 1 or gateway response; the radio path remains one-way.
 
 The current basemap is online. It does not satisfy MAP-001 offline-map evidence;
 that remains Workstream D and requires a licensed packaged tile artifact.

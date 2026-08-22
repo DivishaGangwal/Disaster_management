@@ -29,7 +29,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ state }),
     })).record,
-  createCampaign: async (input: { title: string; summary: string; severity: number; profile: string }) =>
+  createCampaign: async (input: { title: string; summary: string; severity: number; profile: string; dataType: 'official-alert' | 'check-in' | 'regional-record'; objectId?: string }) =>
     (await request<{ campaign: Campaign }>('/api/campaigns', { method: 'POST', body: JSON.stringify(input) })).campaign,
   transitionCampaign: async (campaignId: string, state: string) =>
     (await request<{ campaign: Campaign }>(`/api/campaigns/${encodeURIComponent(campaignId)}/transition`, {
