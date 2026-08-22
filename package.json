@@ -24,7 +24,8 @@
     "backend": "npm run build && node apps/backend/dist/main.js",
     "web:build": "npm run build --workspace @dsm/web-authority",
     "web:dev": "npm run dev --workspace @dsm/web-authority",
-    "demo": "npm run build && npm run web:build && node apps/backend/dist/main.js"
+    "demo": "npm run build && npm run web:build && node apps/backend/dist/main.js",
+    "fuzz": "npm run build && node tools/fuzz/fuzz.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
