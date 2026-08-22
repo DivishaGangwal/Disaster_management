@@ -30,7 +30,7 @@ export const AUTHORITY_SURFACES: readonly SurfaceSpec[] = [
       'last-known location AGE and ACCURACY',
       'filters: severity, age, state, type, region',
     ],
-    status: 'partial',
+    status: 'complete',
   },
   {
     key: 'responder-ops',
@@ -42,7 +42,7 @@ export const AUTHORITY_SURFACES: readonly SurfaceSpec[] = [
       'responder identity labelled ORGANISATION-PROVISIONED, never "verified" (INT-004)',
       'every action emits a new packet rather than mutating history invisibly',
     ],
-    status: 'partial',
+    status: 'complete',
   },
   {
     key: 'regional-editor',
@@ -79,7 +79,7 @@ export const AUTHORITY_SURFACES: readonly SurfaceSpec[] = [
       'outbound-to-mesh queue state',
       'region-bounded outbound selection',
     ],
-    status: 'partial',
+    status: 'complete',
   },
 ];
 
@@ -127,6 +127,6 @@ export const BROADCASTER_SURFACES: readonly SurfaceSpec[] = [
       'scheduled / exported / played state',
       'an IMMUTABLE log entry naming the tested artifact version and integrity value',
     ],
-    status: 'partial',
+    status: 'complete',
   },
 ];

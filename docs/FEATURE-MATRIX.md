@@ -1,141 +1,76 @@
-# Feature matrix — what works, what doesn't, and why
+# Feature matrix — current implementation and remaining work
 
-One row per feature. **"Likely cause"** is filled in for everything not working,
-so the owning workstream starts from a diagnosis rather than a blank page.
+Updated 2026-08-23 after the packet, mobile, native-radio, ggwave and centre-operation integration pass.
 
-Legend — **status**: ✅ working · 🟡 partial · ❌ not built
-Legend — **evidence**: 🟩 static check · 🟦 simulator · 🟥 real Android device
+Evidence labels: 🟩 source/build check · 🟦 automated integration or simulator · 🟥 measured physical-device run.
+No row claims 🟥: no compatible Android handset or two-device acoustic setup was attached during this pass.
 
-> Nothing in this file claims 🟥. No real device has been run yet.
+## Offline mobile and SOS
 
----
+| Feature | Status | Evidence | Current truth |
+|---|---:|---:|---|
+| Create rapid or detailed SOS without internet | ✅ | 🟦 | The packet is validated and committed locally before the UI reports success. Relay starts immediately after a successful SOS save. |
+| Durable mobile state across restart | ✅ | 🟩 | `expo-sqlite` repositories persist packets, seen IDs, observations, custody, fragments, peers and assembled files behind the frozen repository ports. |
+| Update and cancel SOS | ✅ | 🟦 | Updates raise the source sequence; cancel is terminal and retained for audit. |
+| Truthful delivery evidence | ✅ | 🟩 | The app separates local save, direct peer receipt, responder acknowledgement and backend acknowledgement. It explicitly says it cannot monitor a packet after it leaves the phone. |
+| Native notification priority | ✅ | 🟩 | Android channels are MAX for emergency/authority-critical, HIGH for operational updates and LOW for the relay service. Validated inbound packets select the channel from protocol priority. |
+| Home battery, temperature, thermal and link state | ✅ | 🟩 | Home shows battery percent, battery-sensor temperature when Android exposes it, thermal-throttling state, selected BLE/Classic/simulated radio, peer count, relay and proven-gateway state. Missing sensor temperature renders unavailable rather than being invented. |
 
-## 1. Offline foundation (OFF-001 … OFF-008)
+## Tier 1 relay and gateway
 
-| Feature | Req | Status | Evidence | Owner | Likely cause if not working |
-|---|---|---|---|---|---|
-| Create SOS with no internet | OFF-002 | ✅ | 🟦 | C | — |
-| Durable across process restart | OFF-003 | ❌ | — | C | **Store is in-memory only.** `MemoryPacketRepository` implements the real semantics but has no disk backing. Needs the expo-sqlite implementation behind the existing `PacketRepository` port. |
-| Missing gateway is normal state | OFF-004 | ✅ | 🟩 | E | — |
-| GPS failure does not block SOS | OFF-005 | ✅ | 🟩 | C | Location is optional in `SosCreatePayload`; `LocationSource.UNKNOWN` is a valid value. |
-| Content pack readable offline | OFF-006 | 🟡 | 🟩 | D | Pack loading works; **the pack itself is synthetic** and there is no base-map artifact yet. |
-| Clock-uncertainty tolerance | OFF-008 | ✅ | 🟩 | C | Bounded skew + separate local receive time. |
+| Feature | Status | Evidence | Current truth |
+|---|---:|---:|---|
+| BLE advertise/scan and GATT server/client | ✅ implemented, unmeasured | 🟩 | The Expo native module compiles in the generated Android development build, negotiates MTU 247 and transports bounded records. |
+| Bluetooth Classic contingency | ✅ implemented, unmeasured | 🟩 | Selection prefers BLE when all required roles exist and falls back to Classic RFCOMM when they do not. Classic uses bounded length-prefixed records and rotating discovery tokens. |
+| Foreground relay service | ✅ implemented, unmeasured | 🟩 | Ongoing Android notification includes a stop action. Manufacturer-specific screen-off behaviour still needs device evidence. |
+| Inventory, dedup and bidirectional sessions | ✅ | 🟦 | Repeat contacts suppress already-held packets; forwarding remains bounded by hop, expiry, copy and cooldown rules. |
+| Store-carry-forward | ✅ | 🟦 | Multi-node movement/loss scenarios pass. |
+| Mesh → network → mesh | ✅ | 🟦 | The phone attaches `GatewaySynchronizer` when `EXPO_PUBLIC_DSM_BACKEND_URL` is configured. A live identity probe gates upload; downloads re-enter the same validator and become relayable. |
+| Literal `PACKET_REQUEST` exchange | deferred deviation | 🟦 | Filtered inventory push provides the required missing-only behaviour. The literal request packet remains the documented HD-001 deviation. |
 
-## 2. SOS lifecycle (SOS-001 … SOS-010)
+## Canonical packets and ggwave/WavePX
 
-| Feature | Req | Status | Evidence | Owner | Likely cause if not working |
-|---|---|---|---|---|---|
-| Rapid + expanded SOS payload | SOS-002/003 | ✅ | 🟩 | C | Builder exists; **the composer screen does not**. |
-| Stable incident + packet identity | SOS-004 | ✅ | 🟩 | C | — |
-| Update raises source sequence | SOS-005 | ✅ | 🟦 | C | — |
-| Cancel is terminal, keeps audit | SOS-006 | ✅ | 🟦 | C | — |
-| Six delivery states tracked apart | SOS-007 | ✅ | 🟦 | A/C | `DeliveryFacts` tracks each separately. |
-| Relay copy never = "help is coming" | SOS-008 | ✅ | 🟩 | A | `DELIVERY_STATE_COPY` + boundary checker greps for the phrase. |
-| Terminal stops replication | SOS-009 | ✅ | 🟦 | C | — |
+| Feature | Status | Evidence | Current truth |
+|---|---:|---:|---|
+| One canonical packet across website, receiver, gateway and mesh | ✅ | 🟦 | Tier 2 fragments carry the complete canonical Tier 1 bytes. The receiver reconstructs and decodes those bytes independently; a manifest verifies expected bytes but never invents a header. |
+| ggwave encode/decode | ✅ browser | 🟩 | The admin console uses `ggwave` through the vendored WavePX-style audio lifecycle. |
+| Microphone input | ✅ browser, unmeasured acoustically | 🟩 | The receiving station captures microphone PCM and submits recovered raw frames through CRC, reassembly, canonical decode and exact expected-byte comparison. |
+| Audio-file input | ✅ | 🟩 | WAV files use the same decoder and comparison path as microphone input. |
+| File export and playback | ✅ | 🟩 | The approved immutable schedule exports 48 kHz mono WAV and playback is decode-gated. |
+| Independent receiver without campaign manifest | ✅ | 🟦 | Automated tests recover and decode the packet with no preloaded manifest. |
+| Android microphone ggwave decoder | not implemented | — | The mobile Tier 2 screen is intentionally honest. A native `AudioRecord`/decoder integration remains if acoustic reception is required on the Android app rather than the admin browser. |
 
-## 3. Relay / Tier 1 (REL-001 … REL-010)
+## Centre and map-operation pipeline
 
-| Feature | Req | Status | Evidence | Owner | Likely cause if not working |
-|---|---|---|---|---|---|
-| Real BLE advertise / scan | REL-002 | ❌ | — | **B** | **The native module does not exist.** This is the critical path. `apps/mobile` throws a clear error for any non-simulated adapter rather than pretending. |
-| GATT server / client | REL-002 | ❌ | — | **B** | Same — needs the Expo development build. |
-| Foreground relay service | REL-001 | ❌ | — | **B** | Android foreground service + ongoing notification not written. |
-| Inventory before full transfer | REL-003 | ✅ | 🟦 | C | Both sides announce and filter. Repeat contacts now transfer nothing (`offered: 0, peerAlreadyHolds: 2`). |
-| Receiver requests missing items | REL-004 | 🟡 | 🟦 | C | Intent met by filtered push, but the literal `PACKET_REQUEST` round trip is not implemented — see HD-001 in docs/DECISIONS-HACKATHON.md. |
-| Bidirectional session | DEC-005 | ✅ | 🟦 | C | Fixed this pass; was one-directional. |
-| Dedup suppresses repeat action | REL-006 | ✅ | 🟦 | C | — |
-| Hop / expiry / copy budget / cooldown | REL-007 | ✅ | 🟦 | C | — |
-| Store-carry-forward | REL-008 | ✅ | 🟦 | C | Scenario C passes. |
-| Survives Bluetooth loss / restart | REL-010 | ❌ | — | B/C | Blocked on both the native adapter **and** durable storage. |
+| Feature | Status | Evidence | Current truth |
+|---|---:|---:|---|
+| Create a temporary centre | ✅ | 🟦 | The admin API/UI creates a stable temporary object and emits a canonical resource packet. |
+| Open or close a centre | ✅ | 🟦 | State changes emit versioned packets; no UI-only mutation is used. |
+| Move or edit a centre | ✅ | 🟦 | Name, district and coordinates are encoded in the same regional packet model. |
+| Packet → ggwave → decode → map operation | ✅ | 🟦 | Tests cover create, close, move and reopen. Recovered canonical bytes are translated by the shared `toMapOperations()` path. |
+| Tier 1/gateway/Tier 2 projection agreement | ✅ | 🟦 | All paths enter `NodeEngine.ingest()` and the same deterministic `MapProjection`. |
+| Mobile graphical/offline map renderer | deferred by request | — | The existing mobile layout/placeholder remains. The adjacent list is fed by real projected objects. No licensed offline basemap bundle is claimed. |
 
-## 4. Gateway (GTW-001 … GTW-008)
+## Web authority and coordination
 
-| Feature | Req | Status | Evidence | Owner | Likely cause if not working |
-|---|---|---|---|---|---|
-| Live probe required for gateway | GTW-001 | ✅ | 🟦 | E | Identity check defeats captive portals. |
-| Priority-aware resumable upload | GTW-002 | ✅ | 🟦 | E | — |
-| Many gateways → one incident | GTW-003 | ✅ | 🟦 | E | Tested: 2 gateways, 1 incident, 2 observations. |
-| Backend ack returns as a packet | GTW-004 | ✅ | 🟦 | E | — |
-| Downloads use the same validator | GTW-005 | ✅ | 🟩 | E | Structural — `ingest()` is the only ingress. |
-| Downloads re-advertised into Tier 1 | GTW-006 | 🟡 | 🟦 | E/B | Logic is in place; **unprovable without real BLE**. |
-| Backend success only after ack reaches source | GTW-008 | ✅ | 🟦 | A/C | — |
+| Feature | Status | Evidence | Current truth |
+|---|---:|---:|---|
+| Incident deduplication and responder lifecycle | ✅ | 🟦 | Multiple gateway observations remain one incident; assignment/accept/en-route/arrive/resolve actions emit packets. |
+| Regional centre editor | ✅ | 🟩 | Create, edit/move and state controls publish canonical packets. |
+| Campaign validation, approval and immutable artifact log | ✅ | 🟩 | Editing approved content returns it to draft; playback/export are tied to the tested digest. |
+| Locally observed packet evidence | ✅ | 🟩 | The console shows packets stored by this backend and their recorded gateway/radio facts. It does not claim global mesh tracking after transmission. |
+| SQLite backend recovery | ✅ | 🟦 | Packets, observations, queues, regional records, campaigns and logs survive restart. |
 
-## 5. Map (MAP-001 … MAP-012)
+## Mobile screens
 
-| Feature | Req | Status | Evidence | Owner | Likely cause if not working |
-|---|---|---|---|---|---|
-| Base map renders offline | MAP-001 | ❌ | — | **D** | **No base-map artifact exists.** Region not yet selected. |
-| Stable compact object IDs | MAP-002 | 🟡 | 🟩 | D | Registry works; IDs are synthetic placeholders. |
-| Typed updates are idempotent | MAP-006 | ✅ | 🟩 | D | — |
-| Newer sequence wins, history kept | MAP-007 | ✅ | 🟩 | D | — |
-| Missing object → fallback, no substitution | MAP-008 | ✅ | 🟩 | D | — |
-| Tier 1 / gateway / Tier 2 → one projection | MAP-009 | ✅ | 🟦 | D | Structural — one `toMapOperations()`. |
-| Filters and list equivalents | MAP-010 | ✅ | 🟩 | A/D/E | MapLibre exposes incident, centre, route, and hazard layers; the adjacent register is the list equivalent. |
-| Map projection | MAP-001 | 🟩 | 🟩 | A | MapProjection logic written; UI is scaffolding. |
+All 12 required routes exist and the original visual layout is retained. Readiness, SOS composer, nearby incidents, responder detail, resource detail and diagnostics are connected to runtime data. Home, active SOS, relay, Tier 2, profile and map are marked partial where the binding screen contract asks for data that cannot honestly be produced yet, such as a responder acknowledgement not observed locally, physical ggwave metrics, or the deferred map renderer.
 
-## 6. Tier 2 / ggwave (T2-001 … T2-013)
+## Complete remaining list
 
-| Feature | Req | Status | Evidence | Owner | Likely cause if not working |
-|---|---|---|---|---|---|
-| Compact frame format | T2-001 | ✅ | 🟩 | F | 12-byte overhead vs 64 for Tier 1. |
-| **Actual ggwave encode/decode** | T2-001 | 🟡 | 🟩 | **F** | Browser encode/decode is wired to raw Tier 2 frames and WAV export is runtime-checked. Android still needs the `AudioRecord` PCM bridge. |
-| Microphone path | T2-002 | 🟡 | 🟩 | F/B | Browser microphone capture and decode are implemented; measured two-device acoustic evidence and Android PCM remain outstanding. |
-| Mic ≡ direct equivalence | T2-004 | ✅ | 🟦 | F | Proven **at frame level**: both paths recover byte-identical canonical packets. Not yet proven through real audio. |
-| Campaign manifest | T2-005 | ✅ | 🟩 | F | — |
-| Critical items repeat more | T2-006 | ✅ | 🟩 | F | — |
-| Corrupt frame = absent, not partial | T2-007 | ✅ | 🟩 | F | — |
-| Duplicate suppression | T2-008 | ✅ | 🟦 | F | — |
-| Radio-to-mesh bridge | T2-011 | ✅ | 🟦 | F/C | Scenario H passes: a non-listening peer receives it over Tier 1. |
-| Decodes cache references | T2-010 | 🟡 | 🟩 | D | Engine processes them; UI logic for forms pending. |
+1. **Deferred mobile map renderer:** add the graphical offline renderer, a licensed tile/content bundle and sourced stable regional registry without changing the packet-to-map pipeline.
+2. **Android acoustic receiver, only if required on-phone:** connect `AudioRecord` PCM to a ggwave decoder and feed recovered frames into the existing Tier 2 receiver. Browser microphone and WAV input already work.
+3. **Physical evidence, not code:** run BLE and Classic on the selected phones, screen-off relay, restart recovery, battery/thermal measurements and a two-device acoustic success-rate matrix.
+4. **Production data/security:** replace synthetic Assam records with licensed authority data and production identity/key management. The prototype deliberately does not claim verified identities or production cryptography.
+5. **Documented protocol deviation:** implement a literal `PACKET_REQUEST` round trip only if HD-001 is reversed; the current missing-only filtered exchange already passes the relay acceptance behaviour.
 
-## 7. Web surfaces (WEB-001 … WEB-010)
-
-| Feature | Req | Status | Evidence | Owner | Likely cause if not working |
-|---|---|---|---|---|---|
-| Deduplicated incident + observations | WEB-001 | ✅ | 🟦 | E | Merged console shows one incident with separate gateway observations. |
-| Assignment / lifecycle actions | WEB-002 | 🟡 | 🟩 | E | Roster and assignment packet emission work; responder-side accept/en-route/arrive remains mobile work. |
-| Authority composer + byte preview | WEB-005 | ✅ | 🟩 | E/F | Composer renders the real `planCampaign()` byte, frame, repetition, and duration preview, and carries an operator-selected broadcast point in the alert packet. |
-| Check-in campaign composer | WEB-004 | ❌ | 🟩 | E | **Removed from the console (HD-010).** The frozen check-in packet types are untouched; nothing composes them. |
-| Campaign state machine | WEB-006 | ✅ | 🟩 | F | — |
-| Edit after approval resets it | WEB-007 | ✅ | 🟩 | F | `contentEdited()`. |
-| Decode-before-broadcast | WEB-009 | ✅ | 🟩 | F | Two browser station modes, raw frame recovery, CRC validation, exact expected/recovered comparison, and persisted pass/fail results are implemented. Recovered frames are replayed through `Tier2Receiver`, rebuilt into the canonical packet and compared byte-for-byte before anything is reported as decoded. Physical acoustic evidence remains separate. |
-| Region-bounded outbound | WEB-010 | ✅ | 🟦 | E | — |
-| **Merged operations console** | — | ✅ | 🟩 | **E** | Five authority and four broadcaster surfaces live in one responsive Vite/React application with no role switch. |
-| Interactive operations map | WEB-001/004 | ✅ | 🟩 | E | MapLibre clusters and filters live GeoJSON; centre popup actions publish versioned packets rather than changing local-only marker state. |
-| Packet network inspector | WEB-010 | ✅ | 🟩 | E | Three-second refresh shows direction, hop facts, gateway evidence, decoded payload and exact canonical bytes. |
-
-## 8. Mobile app
-
-| Feature | Status | Owner | Likely cause |
-|---|---|---|---|
-| All 12 screens | ❌ | **A** | **Not built.** `screen-registry.ts` lists every required element and requirement ID per screen. `AppRuntime` gives working packets/policy/incidents in Expo Go today. |
-| Navigation shell | ❌ | A | React Navigation is declared in `package.json` but not wired. |
-| Accessibility pass | ❌ | A | Depends on screens existing first. |
-| Notification policy | ❌ | A | Policy engine already returns the alert decision; nothing consumes it. |
-
-## 9. Files and images (FIL-001 … FIL-007)
-
-| Feature | Req | Status | Owner | Likely cause |
-|---|---|---|---|---|
-| Manifest + bounded fragments | FIL-001 | ✅ | C | — |
-| SOS preempts file transfer | FIL-005 | ✅ | C | Scenario J passes. |
-| Reassembly + whole-object integrity | FIL-004 | ✅ | C | `FileAssembler` verifies the whole-object digest before visibility; a mismatch discards the object. |
-| Reject executables / zip bombs | FIL-006 | ✅ | C | `MimeCategory` defined; EXECUTABLE and ARCHIVE refused at manifest time; orphan fragments never stored. The prototype has no decompressor at all (HD-003). |
-
----
-
-## The three things blocking the most
-
-1. **Native Android module (WS-B)** — blocks 8 features and every 🟥 row in the
-   repo. Nothing else on the critical path can start without it.
-2. **Android ggwave PCM integration (WS-B/F)** — the browser modem is wired; Android and measured physical reception still block device evidence.
-3. **Durable storage (WS-C)** — blocks OFF-003 and REL-010; a one-package change
-   behind an interface that already exists.
-
-## What is genuinely finished
-
-The protocol, validation, policy, incident model, map projection, routing, and
-the backend coordination loop. 31 tests, all passing. Those layers are unlikely
-to need rework as the remaining pieces land, because each remaining piece plugs
-into an interface that is already frozen and already has a working reference
-implementation.
+Everything else requested in this pass is implemented and covered by static, integration or simulator evidence. The items above must not be presented as finished until their stated evidence exists.

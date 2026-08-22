@@ -1,19 +1,23 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   AlertCategory,
-  ENVELOPE,
+  ArrivalEvidence,
   Flags,
   GeometryKind,
   InstructionCode,
+  LocationSource,
   MessageType,
   OperationalState,
   RouteState,
+  ResolutionOutcome,
   Severity,
   SourceClass,
   messageTypeName,
   type CampaignState,
+  type MapOperation,
   type PacketId,
 } from '@dsm/contracts';
+import { toMapOperations } from '@dsm/mapkit';
 import {
   buildHazard,
   buildOfficialAlert,
@@ -39,6 +43,7 @@ import {
   type CampaignRecord,
   type BroadcastDecodeResult,
   type BroadcastProgramRecord,
+  type BroadcastEventRecord,
   type RegionalRecord,
   type ResponderRecord,
 } from './sqlite-store.js';
@@ -60,6 +65,19 @@ export interface CampaignCreateInput {
   readonly latE7?: number;
   readonly lonE7?: number;
   readonly radiusM?: number;
+  readonly clearLocation?: boolean;
+}
+
+export type ResponderAction = 'accepted' | 'en-route' | 'arrived' | 'resolved';
+
+export interface RegionalRecordInput {
+  readonly objectId?: string;
+  readonly kind: 'shelter' | 'medical' | 'food-water' | 'safe-zone';
+  readonly name: string;
+  readonly district: string;
+  readonly latE7: number;
+  readonly lonE7: number;
+  readonly state: string;
 }
 
 /** Degrees × 1e7 bounds, matching the validator's OFFICIAL_ALERT rules. */
@@ -87,7 +105,16 @@ export class OperationsService {
     private readonly store: SqliteBackendStore,
     private readonly ingest: IngestService,
     private readonly outbound: OutboundService,
-  ) {}
+  ) {
+    for (const responder of store.responders.values()) {
+      if (!responder.incidentId) continue;
+      const incident = store.incidents.view(responder.incidentId);
+      if (incident && !['resolved', 'cancelled', 'expired'].includes(incident.state)) continue;
+      const { assignmentId: _assignmentId, incidentId: _incidentId, ...unassigned } = responder;
+      store.responders.set(responder.responderRef, { ...unassigned, available: true, status: 'available', lastUpdatedAtMs: Date.now() });
+      this.audit('responder.assignment-reconciled', responder.responderRef, `Released stale assignment ${responder.assignmentId ?? 'unknown'} because its incident is unavailable or terminal`);
+    }
+  }
 
   overview() {
     const incidents = this.store.incidents.list();
@@ -176,7 +203,7 @@ export class OperationsService {
     const assignmentId = `ASG-${Date.now().toString(36).toUpperCase()}`;
     const sequence = Math.max(1, (this.store.incidents.view(incidentId)?.timeline.length ?? 0) + 1);
     const packet = buildResponderState(
-      { sourceId: COORDINATOR_SOURCE_ID, sourceClass: SourceClass.COORDINATOR_PROVISIONED, nowS: toEpochS(Date.now()) },
+      { sourceId: responderSourceId(responder.responderRef), sourceClass: SourceClass.RESPONDER_PROVISIONED, nowS: toEpochS(Date.now()) },
       MessageType.RESPONDER_ASSIGNED,
       incidentId,
       sequence,
@@ -196,6 +223,56 @@ export class OperationsService {
     return updated;
   }
 
+  updateResponderState(responderRef: string, action: ResponderAction, operatorLabel: string): ResponderRecord {
+    const responder = this.store.responders.get(responderRef);
+    if (!responder) throw new Error('unknown responder');
+    if (!responder.assignmentId || !responder.incidentId) throw new Error('responder has no active assignment');
+    const incident = this.store.incidents.view(responder.incidentId);
+    if (!incident) throw new Error('assigned incident no longer exists');
+
+    const allowed: Record<ResponderAction, readonly ResponderRecord['status'][]> = {
+      accepted: ['assigned'],
+      'en-route': ['accepted'],
+      arrived: ['en-route'],
+      resolved: ['arrived'],
+    };
+    if (!allowed[action].includes(responder.status)) {
+      throw new Error(`cannot move responder from ${responder.status} to ${action}`);
+    }
+
+    const messageType = action === 'accepted'
+      ? MessageType.RESPONDER_ACCEPTED
+      : action === 'en-route'
+        ? MessageType.RESPONDER_EN_ROUTE
+        : action === 'arrived'
+          ? MessageType.RESPONDER_ARRIVED
+          : MessageType.RESOLVED;
+    const sequence = Math.max(1, incident.timeline.length + 1);
+    const payload = action === 'resolved'
+      ? { resolverRef: responder.responderRef, outcome: ResolutionOutcome.ASSISTED_ON_SITE, terminalRetentionS: 86_400 }
+      : {
+          assignmentId: responder.assignmentId,
+          responderRef: responder.responderRef,
+          ...(action === 'arrived' ? { evidence: ArrivalEvidence.DECLARED } : {}),
+        };
+    const packet = buildResponderState(
+      { sourceId: COORDINATOR_SOURCE_ID, sourceClass: SourceClass.COORDINATOR_PROVISIONED, nowS: toEpochS(Date.now()) },
+      messageType,
+      responder.incidentId,
+      sequence,
+      payload,
+    );
+    this.publishOperationalPacket(packet.packetId, packet.bytes);
+    const resolved = action === 'resolved';
+    const { assignmentId: _assignmentId, incidentId: _incidentId, ...unassigned } = responder;
+    const updated: ResponderRecord = resolved
+      ? { ...unassigned, available: true, status: 'available', lastUpdatedAtMs: Date.now() }
+      : { ...responder, status: action, lastUpdatedAtMs: Date.now() };
+    this.store.responders.set(responderRef, updated);
+    this.audit(`responder.${action}`, responderRef, `${operatorLabel} moved ${responder.assignmentId} to ${action}`);
+    return updated;
+  }
+
   listRegionalRecords(): readonly RegionalRecord[] {
     return [...this.store.regionalRecords.values()].sort((a, b) => a.objectId.localeCompare(b.objectId));
   }
@@ -203,6 +280,8 @@ export class OperationsService {
   updateRegionalRecord(objectId: string, state: string): RegionalRecord {
     const current = this.store.regionalRecords.get(objectId);
     if (!current) throw new Error('unknown regional object');
+    const allowedStates = current.kind === 'hazard' ? ['active', 'watch', 'cleared'] : current.kind === 'route' ? ['open', 'restricted', 'blocked'] : ['open', 'full', 'closed', 'damaged'];
+    if (!allowedStates.includes(state)) throw new Error(`invalid ${current.kind} state`);
     const version = current.version + 1;
     const context = {
       sourceId: AUTHORITY_SOURCE_ID,
@@ -225,6 +304,7 @@ export class OperationsService {
             })
           : buildResourceRecord(context, resourceMessageType(current.kind), current.objectId, version, {
               state: numericState,
+              location: resourceLocation(current.latE7, current.lonE7),
               fallbackLabel: bounded(current.name, 64),
               lastConfirmedS: toEpochS(Date.now()),
             });
@@ -235,8 +315,55 @@ export class OperationsService {
     return updated;
   }
 
+  /**
+   * Creates or moves a centre and publishes the resulting canonical resource
+   * packet. The map renderer is deliberately not involved: phones, gateways,
+   * and Tier 2 receivers all derive the same operation from these bytes.
+   */
+  upsertRegionalCentre(input: RegionalRecordInput): RegionalRecord {
+    const name = utf8Bounded(input.name, 64, 'centre name');
+    const district = utf8Bounded(input.district, 64, 'district');
+    if (!name || !district) throw new Error('centre name and district are required');
+    if (!Number.isInteger(input.latE7) || Math.abs(input.latE7) > LAT_E7_LIMIT) throw new Error('invalid centre latitude');
+    if (!Number.isInteger(input.lonE7) || Math.abs(input.lonE7) > LON_E7_LIMIT) throw new Error('invalid centre longitude');
+    const allowedStates = ['open', 'full', 'closed', 'damaged'];
+    if (!allowedStates.includes(input.state)) throw new Error('invalid centre state');
+
+    const current = input.objectId ? this.store.regionalRecords.get(input.objectId) : undefined;
+    if (input.objectId && !current) throw new Error('unknown regional object');
+    if (current && (current.kind === 'hazard' || current.kind === 'route')) throw new Error('only centres can be moved with this operation');
+    const objectId = current?.objectId ?? temporaryCentreId(input.kind);
+    const version = (current?.version ?? 0) + 1;
+    const updated: RegionalRecord = {
+      objectId,
+      kind: input.kind,
+      name,
+      district,
+      latE7: input.latE7,
+      lonE7: input.lonE7,
+      state: input.state,
+      version,
+      updatedAtMs: Date.now(),
+      synthetic: true,
+    };
+    const context = {
+      sourceId: AUTHORITY_SOURCE_ID,
+      sourceClass: SourceClass.AUTHORITY_PROVISIONED as 3,
+      nowS: toEpochS(updated.updatedAtMs),
+    };
+    const packet = buildRegionalBroadcast(context, updated);
+    this.publishOperationalPacket(packet.packetId, packet.bytes);
+    this.store.regionalRecords.set(objectId, updated);
+    this.audit(current ? 'region.centre-moved' : 'region.centre-created', objectId, `${name} published at ${input.latE7},${input.lonE7} as ${input.state}`);
+    return updated;
+  }
+
   listCampaigns(): readonly CampaignRecord[] {
     return [...this.store.campaigns.values()].sort((a, b) => b.updatedAtMs - a.updatedAtMs);
+  }
+
+  campaignPreview(campaignId: string): CampaignRecord['preview'] {
+    return this.requireCampaign(campaignId).preview;
   }
 
   createCampaign(input: CampaignCreateInput): CampaignRecord {
@@ -244,8 +371,8 @@ export class OperationsService {
     const campaign = this.buildCampaign({
       campaignId,
       campaignVersion: 1,
-      title: bounded(input.title || 'Assam public alert', 72),
-      summary: bounded(input.summary || 'Await official instructions.', 140),
+      title: utf8Bounded(input.title || 'Assam public alert', 72, 'campaign title'),
+      summary: utf8Bounded(input.summary || 'Await official instructions.', 140, 'public instruction'),
       severity: clamp(input.severity ?? Severity.URGENT, 0, 3),
       category: clamp(input.category ?? AlertCategory.WEATHER, 0, 6),
       instruction: clamp(input.instruction ?? InstructionCode.MOVE_TO_HIGHER_GROUND, 0, 7),
@@ -265,22 +392,25 @@ export class OperationsService {
   updateCampaign(campaignId: string, input: CampaignCreateInput): CampaignRecord {
     const current = this.requireCampaign(campaignId);
     const state = contentEdited(current.state);
+    const dataType = input.dataType ?? current.dataType ?? 'official-alert';
     const updated = this.buildCampaign({
       campaignId,
       campaignVersion: current.campaignVersion + 1,
-      title: bounded(input.title || current.title, 72),
-      summary: bounded(input.summary || current.summary, 140),
+      title: utf8Bounded(input.title || current.title, 72, 'campaign title'),
+      summary: utf8Bounded(input.summary || current.summary, 140, 'public instruction'),
       severity: clamp(input.severity ?? current.severity, 0, 3),
       category: clamp(input.category ?? AlertCategory.WEATHER, 0, 6),
       instruction: clamp(input.instruction ?? InstructionCode.MOVE_TO_HIGHER_GROUND, 0, 7),
       profile: input.profile ?? current.profile,
-      dataType: input.dataType ?? current.dataType ?? 'official-alert',
-      objectId: input.objectId ?? current.objectId,
-      location: campaignLocation({
-        latE7: input.latE7 ?? current.latE7,
-        lonE7: input.lonE7 ?? current.lonE7,
-        radiusM: input.radiusM ?? current.radiusM,
-      }),
+      dataType,
+      ...(dataType === 'regional-record' ? { objectId: input.objectId ?? current.objectId } : {}),
+      location: dataType === 'regional-record' || input.clearLocation
+        ? undefined
+        : campaignLocation({
+            latE7: input.latE7 ?? current.latE7,
+            lonE7: input.lonE7 ?? current.lonE7,
+            radiusM: input.radiusM ?? current.radiusM,
+          }),
       contentRevision: current.contentRevision + 1,
       state,
       createdAtMs: current.createdAtMs,
@@ -325,7 +455,7 @@ export class OperationsService {
       messageType: current.messageType,
       priority: current.priority,
       severity: current.severity,
-      payload: packet.subarray(ENVELOPE.HEADER_BYTES),
+      canonicalPacketBytes: packet,
     });
     const uniqueFramesBase64 = frames.map((frame) => Buffer.from(frame).toString('base64'));
     const repeats = current.preview.items[0]?.repeats ?? 1;
@@ -399,6 +529,7 @@ export class OperationsService {
       ...(reassembly ? { reassembledPacketId: reassembly.packetId, reassembledDigest: reassembly.digest } : {}),
       receiverLabel: bounded(receiverLabel || 'Web receiving station', 48),
       receptionTransport,
+      ...(reassembly?.mapOperations ? { mapOperations: reassembly.mapOperations } : {}),
       ...(reassembly?.decodedMessage ? { decodedMessage: reassembly.decodedMessage } : {}),
       testedAtMs: Date.now(),
     };
@@ -411,6 +542,45 @@ export class OperationsService {
       result.passed ? 'campaign.decode-tested' : 'campaign.decode-failed',
       campaignId,
       `${result.receiverLabel} recovered ${result.recoveredFrames}/${result.expectedFrames} frames; corrupt ${result.corruptFrames}; unexpected ${result.unexpectedFrames}; canonical packet ${result.canonicalMatch ? 'rebuilt byte-identical' : 'not rebuilt'}`,
+    );
+    return updated;
+  }
+
+  recordBroadcastEvent(campaignId: string, event: 'exported' | 'played', operatorLabel: string): CampaignRecord {
+    const current = this.requireCampaign(campaignId);
+    const program = current.broadcastProgram;
+    if (!program || !current.decodeResult?.passed) throw new Error('campaign must pass exact decode testing first');
+    if (event === 'exported' && current.state !== 'decode-tested' && current.state !== 'scheduled') {
+      throw new Error('only a decode-tested campaign can be exported');
+    }
+    if (event === 'played' && current.state !== 'scheduled') {
+      throw new Error('campaign must be scheduled before playback');
+    }
+    const nextState = event === 'exported' && current.state === 'decode-tested'
+      ? transitionCampaign(current.state, 'scheduled')
+      : event === 'played'
+        ? transitionCampaign(current.state, 'played')
+        : current.state;
+    const broadcastEvent: BroadcastEventRecord = {
+      eventId: randomUUID(),
+      event,
+      programId: program.programId,
+      campaignVersion: current.campaignVersion,
+      artifactDigest: program.artifactDigest,
+      operatorLabel: bounded(operatorLabel, 48),
+      atMs: Date.now(),
+    };
+    const updated: CampaignRecord = {
+      ...current,
+      state: nextState,
+      broadcastEvents: [...(current.broadcastEvents ?? []), broadcastEvent],
+      updatedAtMs: broadcastEvent.atMs,
+    };
+    this.store.campaigns.set(campaignId, updated);
+    this.audit(
+      `campaign.${event}`,
+      campaignId,
+      `${broadcastEvent.operatorLabel} ${event} ${program.programId} v${program.campaignVersion} · SHA-256 ${program.artifactDigest}`,
     );
     return updated;
   }
@@ -555,7 +725,23 @@ function resourceState(state: string): number {
 function buildRegionalBroadcast(context: { sourceId: string; sourceClass: 3; nowS: number }, record: RegionalRecord) {
   if (record.kind === 'hazard') return buildHazard(context, record.objectId, record.version, Severity.URGENT, { hazardType: 1, geometryKind: GeometryKind.CACHED_REFERENCE, cachedGeometryRef: record.objectId, fallbackLabel: bounded(record.name, 64) });
   if (record.kind === 'route') return buildRouteState(context, record.objectId, record.version, { state: record.state === 'blocked' ? RouteState.BLOCKED : record.state === 'restricted' ? RouteState.RESTRICTED : RouteState.OPEN, fallbackInstruction: bounded(`${record.name}: ${record.state}`, 80) });
-  return buildResourceRecord(context, resourceMessageType(record.kind), record.objectId, record.version, { state: resourceState(record.state), fallbackLabel: bounded(record.name, 64), lastConfirmedS: context.nowS });
+  return buildResourceRecord(context, resourceMessageType(record.kind), record.objectId, record.version, {
+    state: resourceState(record.state),
+    location: resourceLocation(record.latE7, record.lonE7),
+    fallbackLabel: bounded(record.name, 64),
+    lastConfirmedS: context.nowS,
+  });
+}
+
+function resourceLocation(latE7: number, lonE7: number) {
+  // USER_PIN means an operator-selected coordinate; authority is established
+  // independently by the signed/provisioned packet source class.
+  return { source: LocationSource.USER_PIN, latE7, lonE7, accuracyM: 0, ageS: 0 };
+}
+
+function temporaryCentreId(kind: RegionalRecordInput['kind']): string {
+  const prefix = ({ shelter: 'SHL', medical: 'MED', 'food-water': 'FWD', 'safe-zone': 'SFZ' })[kind];
+  return `TMP-${prefix}-${Date.now().toString(36).toUpperCase()}-${randomUUID().slice(0, 4).toUpperCase()}`;
 }
 
 function digestCampaign(campaign: CampaignRecord): string {
@@ -566,6 +752,16 @@ function digestCampaign(campaign: CampaignRecord): string {
 
 function bounded(value: string, max: number): string {
   return [...value.trim()].slice(0, max).join('');
+}
+
+function utf8Bounded(value: string, maxBytes: number, label: string): string {
+  const normalized = value.trim();
+  if (Buffer.byteLength(normalized, 'utf8') > maxBytes) throw new Error(`${label} exceeds ${maxBytes} UTF-8 bytes`);
+  return normalized;
+}
+
+function responderSourceId(responderRef: string): string {
+  return createHash('sha256').update(`responder:${responderRef}`).digest('hex').slice(0, 16);
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -615,6 +811,7 @@ function reassembleFromFrames(
   readonly packetId: string;
   readonly canonicalMatch: boolean;
   readonly digest: string;
+  readonly mapOperations?: readonly MapOperation[];
   readonly decodedMessage?: NonNullable<BroadcastDecodeResult['decodedMessage']>;
 } | undefined {
   const approved = new Uint8Array(Buffer.from(campaign.packetBytesBase64, 'base64'));
@@ -624,14 +821,10 @@ function reassembleFromFrames(
     campaignHandle: campaign.campaignVersion,
     resolvePacketId: (handle) => (handle === 1 ? (campaign.packetId as PacketId) : undefined),
     expectedPacketIds: () => [campaign.packetId as PacketId],
-    rebuildPacketBytes: (handle, payload) => {
-      if (handle !== 1) return undefined;
-      if (payload.length !== approved.length - ENVELOPE.HEADER_BYTES) return undefined;
-      const out = new Uint8Array(approved.length);
-      out.set(approved.subarray(0, ENVELOPE.HEADER_BYTES), 0);
-      out.set(payload, ENVELOPE.HEADER_BYTES);
-      return out;
-    },
+    verifyPacketBytes: (handle, canonicalBytes) =>
+      handle === 1 &&
+      canonicalBytes.length === approved.length &&
+      canonicalBytes.every((byte, index) => byte === approved[index]),
   };
 
   const receiver = new Tier2Receiver(resolver);
@@ -649,27 +842,32 @@ function reassembleFromFrames(
   const digest = createHash('sha256').update(Buffer.from(rebuilt)).digest('hex');
   const decoded = decodePacket(rebuilt);
   return {
-    packetId: campaign.packetId,
+    packetId: decoded.ok ? decoded.packet.header.packetId : campaign.packetId,
     canonicalMatch,
     digest,
     // A packet that fails to decode is reported as absent meaning, never as
     // the stored draft's meaning.
     ...(canonicalMatch && decoded.ok
-      ? { decodedMessage: decodedCampaignMessage(campaign, decoded.packet.payload as Record<string, unknown>) }
+      ? {
+          decodedMessage: decodedCampaignMessage(campaign, decoded.packet.header.packetId, decoded.packet.header.type, decoded.packet.payload as Record<string, unknown>),
+          mapOperations: toMapOperations(decoded.packet, source, toEpochS(Date.now())),
+        }
       : {}),
   };
 }
 
 function decodedCampaignMessage(
   campaign: CampaignRecord,
+  packetId: string,
+  messageType: number,
   payload: Record<string, unknown>,
 ): NonNullable<BroadcastDecodeResult['decodedMessage']> {
   const latE7 = payload['latE7'];
   const lonE7 = payload['lonE7'];
   const hasLocation = typeof latE7 === 'number' && typeof lonE7 === 'number';
   return {
-    packetId: campaign.packetId,
-    messageType: campaign.messageType,
+    packetId,
+    messageType,
     alertId: String(payload['alertId'] ?? `ALT-${campaign.campaignId}`),
     campaignId: String(payload['campaignId'] ?? campaign.campaignId),
     regionCode: String(payload['regionCode'] ?? campaign.regionCode),
@@ -689,7 +887,7 @@ function decodedCampaignMessage(
           },
         }
       : {}),
-    typeName: messageTypeName(campaign.messageType) ?? `TYPE_${campaign.messageType}`,
+    typeName: messageTypeName(messageType) ?? `TYPE_${messageType}`,
     payload: jsonSafe(payload) as Record<string, unknown>,
   };
 }

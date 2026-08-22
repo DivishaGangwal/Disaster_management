@@ -222,6 +222,7 @@ export class SimulatedTransportAdapter implements TransportAdapter {
       audioInputAvailable: true,
       permissions: ALL_GRANTED,
       batteryPercent: 80,
+      batteryTemperatureC: 31.5,
       batteryOptimisationRestricted: false,
       thermalThrottled: false,
       // Never lie about this: the readiness screen renders it verbatim.

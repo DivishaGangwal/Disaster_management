@@ -320,7 +320,7 @@ test('scenarios G and H: Tier 2 paths agree, and a Tier 2 packet bridges into Ti
     messageType: MessageType.OFFICIAL_ALERT,
     priority: decodedAlert.packet.header.priority,
     severity: decodedAlert.packet.header.severity,
-    payload: alert.bytes.subarray(64),
+    canonicalPacketBytes: alert.bytes,
   });
 
   // --- G: the two audio paths must recover identical canonical bytes --------
@@ -344,6 +344,17 @@ test('scenarios G and H: Tier 2 paths agree, and a Tier 2 packet bridges into Ti
     'T2-004: both Tier 2 paths must yield identical canonical bytes',
   );
   assert.deepEqual(Array.from(micBytes!), Array.from(alert.bytes), 'and identical to the original Tier 1 packet');
+
+  // The campaign manifest is an additional approval check, not a decoding
+  // dependency. A device that has never seen the campaign still recovers the
+  // self-describing Tier 1 packet.
+  const independent = new Tier2Receiver();
+  let independentBytes: Uint8Array | undefined;
+  for (const frame of frames) {
+    const outcome = independent.accept({ bytes: frame, source: 'tier2-mic', receivedAtMs: scenario.medium.clockMs });
+    if (outcome.packet) independentBytes = outcome.packet.bytes;
+  }
+  assert.deepEqual(Array.from(independentBytes!), Array.from(alert.bytes), 'an offline receiver must decode without a preloaded manifest');
 
   // --- H: bridge the Tier 2 packet into Tier 1 -----------------------------
   const responder = scenario.node('responder');

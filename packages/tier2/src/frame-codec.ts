@@ -18,7 +18,7 @@
  *            through the campaign manifest)
  *   [8]      message type
  *   [9]      priority (high nibble) | severity (low nibble)
- *   [10..n]  payload slice
+ *   [10..n]  canonical Tier 1 packet byte slice
  *   [n+1..2] CRC-16 over bytes 0..n
  *
  * Overhead: 12 bytes, versus 64 for Tier 1. At ggwave bitrates that matters.
@@ -109,7 +109,15 @@ export function decodeTier2Frame(bytes: Uint8Array): Tier2DecodeResult {
   };
 }
 
-/** Splits one canonical Tier 1 packet's payload into bounded Tier 2 frames. */
+/**
+ * Splits one complete canonical Tier 1 packet into bounded Tier 2 frames.
+ *
+ * Carrying the complete packet is deliberate. A phone that hears a new radio
+ * campaign must not need a private copy of the packet header in order to
+ * recover its identity or meaning. The campaign manifest remains the expected
+ * inventory, while the acoustic bytes are independently self-describing and
+ * can be validated by the same decoder used for BLE and gateway ingress.
+ */
 export function toTier2Frames(input: {
   readonly campaignHandle: number;
   readonly campaignVersion: number;
@@ -117,10 +125,10 @@ export function toTier2Frames(input: {
   readonly messageType: number;
   readonly priority: number;
   readonly severity: number;
-  readonly payload: Uint8Array;
+  readonly canonicalPacketBytes: Uint8Array;
 }): readonly Uint8Array[] {
   const capacity = TIER2.MAX_FRAME_BYTES - TIER2_OVERHEAD_BYTES;
-  const count = Math.max(1, Math.ceil(input.payload.length / capacity));
+  const count = Math.max(1, Math.ceil(input.canonicalPacketBytes.length / capacity));
   if (count > TIER2.MAX_FRAMES_PER_PACKET) {
     throw new RangeError(`payload needs ${count} frames, over the ${TIER2.MAX_FRAMES_PER_PACKET} limit`);
   }
@@ -136,7 +144,7 @@ export function toTier2Frames(input: {
         severity: input.severity,
         fragmentIndex: i,
         fragmentCount: count,
-        payload: input.payload.slice(i * capacity, (i + 1) * capacity),
+        payload: input.canonicalPacketBytes.slice(i * capacity, (i + 1) * capacity),
       }),
     );
   }

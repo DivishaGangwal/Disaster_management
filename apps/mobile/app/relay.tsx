@@ -15,6 +15,7 @@ import { useRouter } from 'expo-router';
 import { useAppStore } from '@/store/useAppStore';
 import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { mobileController } from '@/src/services/mobile-controller';
 
 export default function RelayScreen() {
   const router = useRouter();
@@ -24,14 +25,24 @@ export default function RelayScreen() {
     internetState,
     setInternetState,
     peersRecentlySeen,
+    storedPackets,
+    selectedRadio,
+    batteryPercent,
+    batteryTemperatureC,
+    thermalState,
   } = useAppStore();
 
   const ShieldIcon = icons.shield;
   const ArrowLeftIcon = icons.arrowLeft;
 
-  const handleProbe = () => {
-    setInternetState('probing');
-    setTimeout(() => setInternetState('unavailable'), 2000);
+  const handleProbe = async () => {
+    try { await mobileController.probeGateway(); }
+    catch { setInternetState('unavailable'); }
+  };
+
+  const handleRelay = async (active: boolean) => {
+    try { await mobileController.setRelay(active); }
+    catch { setRelayActive(false); }
   };
 
   return (
@@ -60,11 +71,16 @@ export default function RelayScreen() {
             </Text>
             <Switch
               value={relayActive}
-              onValueChange={setRelayActive}
+              onValueChange={(value) => void handleRelay(value)}
               trackColor={{ false: '#3A3A3C', true: '#2D5A27' }}
               thumbColor="#FFFFFF"
             />
           </View>
+        </View>
+
+        <View style={{ backgroundColor: '#1C1C1E', borderWidth: 1, borderColor: '#3A3A3C', padding: 16, marginBottom: 24 }}>
+          <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 8 }}>DEVICE RELAY CONDITIONS</Text>
+          <Text style={{ color: '#FFFFFF' }}>{selectedRadio} · Battery {batteryPercent === undefined ? 'unknown' : `${batteryPercent}%`} · Temperature {batteryTemperatureC === undefined ? 'unavailable' : `${batteryTemperatureC.toFixed(1)}°C`} · Thermal {thermalState}</Text>
         </View>
 
         {/* Peers nearby */}
@@ -102,17 +118,17 @@ export default function RelayScreen() {
           <View style={{ flexDirection: 'row' }}>
             <View style={{ flex: 1, alignItems: 'center' }}>
               <Text style={{ color: '#AEAEB2', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 4 }}>STORED</Text>
-              <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700' }}>45</Text>
+              <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700' }}>{storedPackets}</Text>
             </View>
             <View style={{ width: 1, backgroundColor: '#3A3A3C' }} />
             <View style={{ flex: 1, alignItems: 'center' }}>
               <Text style={{ color: '#AEAEB2', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 4 }}>QUEUED</Text>
-              <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700' }}>12</Text>
+              <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700' }}>—</Text>
             </View>
             <View style={{ width: 1, backgroundColor: '#3A3A3C' }} />
             <View style={{ flex: 1, alignItems: 'center' }}>
               <Text style={{ color: '#AEAEB2', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 4 }}>FWD</Text>
-              <Text style={{ color: '#a1d494', fontSize: 28, fontWeight: '700' }}>89</Text>
+              <Text style={{ color: '#a1d494', fontSize: 28, fontWeight: '700' }}>—</Text>
             </View>
           </View>
         </View>
@@ -121,14 +137,14 @@ export default function RelayScreen() {
       {/* Bottom buttons */}
       <View style={{ flexDirection: 'row', padding: 20, gap: 8, backgroundColor: '#000000', borderTopWidth: 1, borderTopColor: '#3A3A3C' }}>
         <TouchableOpacity
-          onPress={() => setRelayActive(!relayActive)}
+          onPress={() => void handleRelay(!relayActive)}
           style={{ flex: 1, backgroundColor: '#2C2C2E', paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', borderWidth: 1, borderColor: '#3A3A3C' }}
         >
           <Text style={{ color: '#FFFFFF', fontSize: 18, marginRight: 8 }}>⟳</Text>
-          <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700', letterSpacing: 0.5 }}>START RELAY</Text>
+          <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700', letterSpacing: 0.5 }}>{relayActive ? 'STOP RELAY' : 'START RELAY'}</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          onPress={handleProbe}
+          onPress={() => void handleProbe()}
           style={{ flex: 1, backgroundColor: '#2D5A27', paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
         >
           <Text style={{ color: '#FFFFFF', fontSize: 18, marginRight: 8 }}>◎</Text>

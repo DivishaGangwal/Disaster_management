@@ -5,6 +5,29 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createBackend } from './server.js';
 
+test('Assam demo seed supplies a populated, idempotent realtime command picture', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'dsm-command-picture-'));
+  const databasePath = join(directory, 'operations.sqlite');
+  try {
+    const backend = createBackend({ databasePath });
+    assert.equal(backend.incidents.list().filter((item) => item.incidentId.startsWith('INC-AS-V2-')).length, 10);
+    assert.equal(backend.operations!.listResponders().length, 8);
+    assert.equal(backend.operations!.listRegionalRecords().length, 17);
+    assert.equal(backend.store.gatewayTokens.size, 4);
+    assert.ok(backend.store.observations.length >= 10);
+    await backend.close();
+
+    const restored = createBackend({ databasePath });
+    assert.equal(restored.incidents.list().filter((item) => item.incidentId.startsWith('INC-AS-V2-')).length, 10);
+    assert.equal(restored.operations!.listResponders().length, 8);
+    assert.equal(restored.operations!.listRegionalRecords().length, 17);
+    assert.equal(restored.store.gatewayTokens.size, 4);
+    await restored.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('approved campaign becomes an exact, persisted ggwave frame program', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'dsm-broadcast-'));
   const databasePath = join(directory, 'operations.sqlite');
@@ -42,6 +65,14 @@ test('approved campaign becomes an exact, persisted ggwave frame program', async
     assert.equal(complete.decodeResult?.decodedMessage?.text, 'Move to designated higher ground and follow district instructions.');
     assert.equal(complete.decodeResult?.decodedMessage?.regionCode, 'IN-AS');
 
+    assert.throws(() => operations.recordBroadcastEvent(campaign.campaignId, 'played', 'Operator Test'), /scheduled/);
+    const exported = operations.recordBroadcastEvent(campaign.campaignId, 'exported', 'Operator Test');
+    assert.equal(exported.state, 'scheduled');
+    assert.equal(exported.broadcastEvents?.[0]?.artifactDigest, campaign.broadcastProgram.artifactDigest);
+    const played = operations.recordBroadcastEvent(campaign.campaignId, 'played', 'Operator Test');
+    assert.equal(played.state, 'played');
+    assert.deepEqual(played.broadcastEvents?.map((event) => event.event), ['exported', 'played']);
+
     const stream = operations.packetStream();
     assert.ok(stream.length >= 3);
     assert.ok(stream.every((packet) => packet.bytesHex.length === packet.totalBytes * 2));
@@ -52,7 +83,63 @@ test('approved campaign becomes an exact, persisted ggwave frame program', async
     const persisted = restored.operations!.listCampaigns().find((item) => item.campaignId === campaign.campaignId);
     assert.equal(persisted?.broadcastProgram?.artifactDigest, campaign.broadcastProgram.artifactDigest);
     assert.equal(persisted?.decodeResult?.passed, true);
+    assert.equal(persisted?.state, 'played');
+    assert.equal(persisted?.broadcastEvents?.length, 2);
     await restored.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('administrative mutations require an authenticated operator session', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'dsm-operations-auth-'));
+  const backend = createBackend({ databasePath: join(directory, 'operations.sqlite'), operationsKey: 'test-operations-key' });
+  try {
+    const port = await backend.listen(0, '127.0.0.1');
+    const base = `http://127.0.0.1:${port}`;
+    const unauthorised = await fetch(`${base}/api/campaigns`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: 'Test', summary: 'Test' }) });
+    assert.equal(unauthorised.status, 401);
+
+    const wrong = await fetch(`${base}/api/session`, { method: 'POST', headers: { 'x-operations-key': 'wrong', 'x-operator-label': 'Operator Test' } });
+    assert.equal(wrong.status, 401);
+    const headers = { 'content-type': 'application/json', 'x-operations-key': 'test-operations-key', 'x-operator-label': 'Operator Test' };
+    const session = await fetch(`${base}/api/session`, { method: 'POST', headers, body: '{}' });
+    assert.equal(session.status, 200);
+    const created = await fetch(`${base}/api/campaigns`, { method: 'POST', headers, body: JSON.stringify({ title: 'Flood notice', summary: 'Move to higher ground.' }) });
+    assert.equal(created.status, 201);
+  } finally {
+    await backend.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('campaign text limits are enforced in UTF-8 bytes', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'dsm-campaign-utf8-'));
+  try {
+    const backend = createBackend({ databasePath: join(directory, 'operations.sqlite') });
+    assert.throws(() => backend.operations!.createCampaign({ title: 'Flood', summary: '界'.repeat(60) }), /140 UTF-8 bytes/);
+    await backend.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('coordinator responder actions emit the complete incident lifecycle', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'dsm-responder-lifecycle-'));
+  try {
+    const backend = createBackend({ databasePath: join(directory, 'operations.sqlite') });
+    const operations = backend.operations!;
+    const responder = operations.listResponders().find((item) => item.available)!;
+    const incident = backend.incidents.list().find((item) => !['resolved', 'cancelled', 'expired'].includes(item.state))!;
+    operations.assignResponder(responder.responderRef, incident.incidentId, 'Operator Test');
+    assert.equal(operations.updateResponderState(responder.responderRef, 'accepted', 'Operator Test').status, 'accepted');
+    assert.equal(operations.updateResponderState(responder.responderRef, 'en-route', 'Operator Test').status, 'en-route');
+    assert.equal(operations.updateResponderState(responder.responderRef, 'arrived', 'Operator Test').status, 'arrived');
+    const resolved = operations.updateResponderState(responder.responderRef, 'resolved', 'Operator Test');
+    assert.equal(resolved.status, 'available');
+    assert.equal(resolved.available, true);
+    assert.equal(backend.incidents.detail(incident.incidentId)?.incident.state, 'resolved');
+    await backend.close();
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -132,6 +219,68 @@ test('reception decodes the coordinates that came back off the air, and refuses 
     const rejected = operations.verifyBroadcastReception(campaign.campaignId, tampered, 'Receiver B', 'tier2-mic');
     assert.equal(rejected.decodeResult?.passed, false);
     assert.equal(rejected.decodeResult?.decodedMessage, undefined);
+    await backend.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('ggwave centre packets project create, close, move, and reopen operations without a map renderer', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'dsm-centre-operations-'));
+  try {
+    const backend = createBackend({ databasePath: join(directory, 'operations.sqlite') });
+    const operations = backend.operations!;
+
+    const receiveCurrent = (objectId: string, title: string) => {
+      let campaign = operations.createCampaign({
+        title,
+        summary: title,
+        dataType: 'regional-record',
+        objectId,
+      });
+      campaign = operations.transitionCampaign(campaign.campaignId, 'validated');
+      campaign = operations.transitionCampaign(campaign.campaignId, 'approved');
+      campaign = operations.transitionCampaign(campaign.campaignId, 'broadcaster-ready');
+      campaign = operations.prepareBroadcastProgram(campaign.campaignId);
+      return operations.verifyBroadcastReception(campaign.campaignId, campaign.broadcastProgram!.uniqueFramesBase64, 'Map pipeline test', 'tier2-direct');
+    };
+
+    const created = operations.upsertRegionalCentre({
+      kind: 'shelter',
+      name: 'Temporary River Centre',
+      district: 'Nagaon',
+      latE7: 263501000,
+      lonE7: 926922000,
+      state: 'open',
+    });
+    assert.match(created.objectId, /^TMP-SHL-/);
+    let decoded = receiveCurrent(created.objectId, 'Create temporary centre');
+    assert.equal(decoded.decodeResult?.passed, true);
+    assert.deepEqual(decoded.decodeResult?.mapOperations?.map((op) => op.kind), ['upsert-resource']);
+    let mapOperation = decoded.decodeResult?.mapOperations?.[0];
+    if (!mapOperation || mapOperation.kind !== 'upsert-resource') assert.fail('expected a resource upsert');
+    assert.equal(mapOperation.temporary, true);
+    assert.equal(mapOperation.latE7, 263501000);
+
+    operations.updateRegionalRecord(created.objectId, 'closed');
+    decoded = receiveCurrent(created.objectId, 'Close temporary centre');
+    mapOperation = decoded.decodeResult?.mapOperations?.[0];
+    if (!mapOperation || mapOperation.kind !== 'upsert-resource') assert.fail('expected a resource upsert');
+    assert.equal(mapOperation.state, 3);
+
+    const moved = operations.upsertRegionalCentre({ objectId: created.objectId, kind: 'shelter', name: created.name, district: created.district, latE7: 263601000, lonE7: 927022000, state: 'closed' });
+    decoded = receiveCurrent(moved.objectId, 'Move temporary centre');
+    mapOperation = decoded.decodeResult?.mapOperations?.[0];
+    if (!mapOperation || mapOperation.kind !== 'upsert-resource') assert.fail('expected a resource upsert');
+    assert.equal(mapOperation.latE7, 263601000);
+    assert.equal(mapOperation.lonE7, 927022000);
+
+    operations.updateRegionalRecord(created.objectId, 'open');
+    decoded = receiveCurrent(created.objectId, 'Reopen temporary centre');
+    mapOperation = decoded.decodeResult?.mapOperations?.[0];
+    if (!mapOperation || mapOperation.kind !== 'upsert-resource') assert.fail('expected a resource upsert');
+    assert.equal(mapOperation.state, 1);
+    assert.equal(mapOperation.causedByPacketId, decoded.decodeResult?.reassembledPacketId);
     await backend.close();
   } finally {
     rmSync(directory, { recursive: true, force: true });

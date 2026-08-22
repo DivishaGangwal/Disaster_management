@@ -17,18 +17,25 @@ import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAppStore } from '@/store/useAppStore';
+import { mobileController } from '@/src/services/mobile-controller';
 
 type Status = 'pending' | 'accepted' | 'declined' | 'en-route' | 'arrived' | 'resolved';
 
 export default function ResponderIncidentScreen() {
   const router = useRouter();
   const [status, setStatus] = useState<Status>('pending');
+  const { runtimeIncidents, selectedIncidentId } = useAppStore();
+  const incident = runtimeIncidents.find((item) => item.id === selectedIncidentId);
 
   const LocationIcon = icons.location;
 
-  const transition = (next: Status, msg: string) => {
-    setStatus(next);
-    Alert.alert('Status Updated', `${msg} — packet created and relaying via mesh.`);
+  const transition = async (next: Exclude<Status, 'pending'>, msg: string) => {
+    try {
+      await mobileController.responderTransition(next);
+      setStatus(next);
+      Alert.alert('Status saved', `${msg}. The packet was saved locally and is eligible for relay.`);
+    } catch (reason) { Alert.alert('Status not saved', reason instanceof Error ? reason.message : String(reason)); }
   };
 
   return (
@@ -56,17 +63,17 @@ export default function ResponderIncidentScreen() {
                 <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 }}>CRITICAL</Text>
               </View>
             </View>
-            <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700', marginBottom: 16 }}>MEDICAL{'\n'}EMERGENCY</Text>
+            <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700', marginBottom: 16 }}>{incident ? `${categoryLabel(incident.category).toUpperCase()}\nEMERGENCY` : 'NO INCIDENT SELECTED'}</Text>
 
             {/* Stats blocks */}
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <View style={{ flex: 1, backgroundColor: '#2C2C2E', padding: 16, alignItems: 'center' }}>
                 <Text style={{ color: '#AEAEB2', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 4 }}>PEOPLE</Text>
-                <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700' }}>3</Text>
+                <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700' }}>{incident?.peopleTotal ?? '—'}</Text>
               </View>
               <View style={{ flex: 1, backgroundColor: '#2C2C2E', padding: 16, alignItems: 'center' }}>
                 <Text style={{ color: '#AEAEB2', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 4 }}>INJURED</Text>
-                <Text style={{ color: '#FF453A', fontSize: 28, fontWeight: '700' }}>1</Text>
+                <Text style={{ color: '#FF453A', fontSize: 28, fontWeight: '700' }}>{incident?.injured ?? '—'}</Text>
               </View>
             </View>
           </View>
@@ -75,7 +82,7 @@ export default function ResponderIncidentScreen() {
         {/* Action buttons — exact order from newmd */}
         {/* 1. Accept */}
         <TouchableOpacity
-          onPress={() => transition('accepted', 'Assignment accepted')}
+          onPress={() => void transition('accepted', 'Assignment accepted')}
           disabled={status !== 'pending'}
           style={{ backgroundColor: status === 'pending' ? '#2D5A27' : '#1C1C1E', paddingVertical: 18, alignItems: 'center', marginBottom: 4, opacity: status === 'pending' ? 1 : 0.4 }}
         >
@@ -84,7 +91,7 @@ export default function ResponderIncidentScreen() {
 
         {/* 2. Decline */}
         <TouchableOpacity
-          onPress={() => transition('declined', 'Assignment declined')}
+          onPress={() => void transition('declined', 'Assignment declined')}
           disabled={status !== 'pending'}
           style={{ backgroundColor: status === 'pending' ? '#93000a' : '#1C1C1E', paddingVertical: 18, alignItems: 'center', marginBottom: 4, opacity: status === 'pending' ? 1 : 0.4 }}
         >
@@ -93,7 +100,7 @@ export default function ResponderIncidentScreen() {
 
         {/* 3. Mark En Route */}
         <TouchableOpacity
-          onPress={() => transition('en-route', 'Marked en route')}
+          onPress={() => void transition('en-route', 'Marked en route')}
           disabled={status !== 'accepted'}
           style={{ backgroundColor: status === 'accepted' ? '#1E3A5F' : '#1C1C1E', paddingVertical: 18, alignItems: 'center', marginBottom: 4, opacity: status === 'accepted' ? 1 : 0.4 }}
         >
@@ -102,7 +109,7 @@ export default function ResponderIncidentScreen() {
 
         {/* 4. Mark Arrived */}
         <TouchableOpacity
-          onPress={() => transition('arrived', 'Marked arrived')}
+          onPress={() => void transition('arrived', 'Marked arrived')}
           disabled={status !== 'en-route'}
           style={{ backgroundColor: status === 'en-route' ? '#1E3A5F' : '#1C1C1E', paddingVertical: 18, alignItems: 'center', marginBottom: 4, opacity: status === 'en-route' ? 1 : 0.4 }}
         >
@@ -111,7 +118,7 @@ export default function ResponderIncidentScreen() {
 
         {/* 5. Resolve */}
         <TouchableOpacity
-          onPress={() => transition('resolved', 'Incident resolved')}
+          onPress={() => void transition('resolved', 'Incident resolved')}
           disabled={status !== 'arrived'}
           style={{ backgroundColor: status === 'arrived' ? '#2C2C2E' : '#1C1C1E', paddingVertical: 18, alignItems: 'center', marginBottom: 24, opacity: status === 'arrived' ? 1 : 0.4 }}
         >
@@ -120,7 +127,7 @@ export default function ResponderIncidentScreen() {
 
         {/* 6. Send My Location */}
         <TouchableOpacity
-          onPress={() => Alert.alert('Location Sent', 'Your location has been shared via mesh.')}
+          onPress={() => void transition('en-route', 'En-route location update saved')}
           style={{ alignSelf: 'center', flexDirection: 'row', alignItems: 'center', backgroundColor: '#2C2C2E', paddingHorizontal: 24, paddingVertical: 14, borderWidth: 1, borderColor: '#3A3A3C' }}
         >
           <LocationIcon size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
@@ -129,4 +136,8 @@ export default function ResponderIncidentScreen() {
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function categoryLabel(value: number) {
+  return ['Medical', 'Trapped', 'Fire', 'Flood', 'Violence', 'Building collapse', 'Missing person', 'Other'][value] ?? 'Other';
 }

@@ -12,11 +12,11 @@ with real GitHub usernames before the first PR.
 | WS | Owns | Directories | Can start now? |
 |---|---|---|---|
 | **A** | Product/domain + mobile app | `apps/mobile/`, `packages/incident/`, `packages/policy/` | ✅ Yes — simulated adapter, no Android needed |
-| **B** | Native Android Bluetooth + lifecycle | `native/`, `packages/transport-core/` | ✅ Yes — contract is frozen, reference impl exists |
-| **C** | Protocol, persistence, routing, simulator | `packages/codec/`, `validator/`, `store/`, `routing/`, `simulator/`, `node-runtime/` | ✅ Yes — core is built; SQLite + fuzzing remain |
+| **B** | Native Android Bluetooth + lifecycle | `native/`, `packages/transport-core/` | ✅ Implemented and compile-checked; handset evidence remains |
+| **C** | Protocol, persistence, routing, simulator | `packages/codec/`, `validator/`, `store/`, `routing/`, `simulator/`, `node-runtime/` | ✅ Core, mobile SQLite and fuzzing are built |
 | **D** | Offline map + regional data | `packages/mapkit/`, `content-packs/` | ✅ Yes — projection works; real city pack remains |
-| **E** | Backend + authority/broadcaster web | `apps/backend/`, `apps/web-*/`, `packages/gateway-client/` | ✅ Yes — services + gateway loop tested; UI remains |
-| **F** | ggwave, QA, evidence, demo | `packages/tier2/`, `tools/ggwave-artifact/`, `evidence/` | ✅ Yes — frame codec + receiver done; real audio remains |
+| **E** | Backend + authority/broadcaster web | `apps/backend/`, `apps/web-*/`, `packages/gateway-client/` | ✅ Integrated console and two-way gateway built |
+| **F** | ggwave, QA, evidence, demo | `packages/tier2/`, `tools/ggwave-artifact/`, `evidence/` | ✅ Browser microphone/WAV paths built; physical evidence remains |
 
 **Nobody is blocked on anybody.** That was the point of this pass.
 
@@ -39,46 +39,43 @@ with real GitHub usernames before the first PR.
 ## Per-workstream starting point
 
 ### A — mobile
-Start at `apps/mobile/src/screens/screen-registry.ts`. It lists all 13 required
-screens with the exact elements each must show and the requirement IDs behind
-them. Build against `AppRuntime` with `adapter: 'simulated'` — you get real
-packets, real policy decisions, and a real incident timeline in Expo Go.
+`apps/mobile/src/screens/screen-registry.ts` lists all 12 required routes and
+their current complete/partial status. The existing layouts are wired through
+`AppRuntime`; the graphical map and Android acoustic receiver remain explicit
+partials rather than simulated success.
 
 Use `DELIVERY_STATE_COPY` and `SOURCE_LABEL_COPY` for status text. Do not write
 your own wording for delivery state — that is how truthfulness regressions
 happen.
 
 ### B — native Android
-Start at `native/android-radio-bridge/README.md`. The session state machine,
-relay loop, backoff, and discovery-payload construction are already written and
-tested. You implement `TransportAdapter` and `AudioInputAdapter`, and nothing else.
+The BLE/Classic `TransportAdapter` and foreground service are implemented in
+`native/android-radio-bridge/` and compile in the generated Expo Android app.
+The remaining native task is an Android PCM/ggwave receiver if on-phone Tier 2
+reception is required, followed by real-device evidence.
 
 First deliverable is the **device capability matrix** — it decides whether DEC-006
 (Bluetooth Classic contingency) gets triggered, and that call has a deadline.
 
 ### C — protocol/persistence/routing
-The codec, validator, policy engine, routing, and simulator are built and green
-(30 tests). Remaining: the expo-sqlite repository behind the existing
-`PacketRepository` port, a malformed-input fuzz corpus, golden vectors committed
-as files, and the packet-size evidence sheet.
+The codec, validator, policy engine, routing, simulator, mobile SQLite adapters
+and malformed-input fuzz runner are built and green. Golden vector artifacts
+and a full measured packet-size sheet remain release evidence work.
 
 ### D — offline map + regional data
-`MapProjection` and `toMapOperations` are done and idempotent. Remaining: the
-real one-city pack, the base map artifact, provenance/licence note, and the
-compact ID registry. `tools/seed/src/demo-pack.ts` shows the shape — replace the
-synthetic data, keep the structure.
+`MapProjection`, `toMapOperations`, and create/open/close/move/reopen centre
+flows are done and integration-tested through ggwave recovery. The graphical
+mobile renderer, licensed base map, provenance note and sourced registry remain.
 
 ### E — backend + web
-Backend services, the gateway loop, dedup, observations, and the outbound queue
-are built and tested (6 tests, including GTW-003 and idempotent retries).
-Remaining: the two React dashboards, the campaign approval workflow UI, and the
-responder roster.
+Backend services, the gateway loop, dedup, observations, outbound queue,
+integrated React console, campaign approval, centre editor and responder roster
+are built and tested.
 
 ### F — ggwave + QA
-The Tier 2 frame codec, receiver state machine, campaign planner, and the
-mic/direct equivalence proof are done. Remaining: actual ggwave audio
-generation, the reproducible artifact package, the decode-before-broadcast tool,
-and the evidence bundle.
+The Tier 2 frame codec, independent receiver, campaign planner, browser ggwave
+generation, microphone/WAV recovery and decode-before-broadcast comparison are
+done. Physical acoustic measurements and the optional Android PCM decoder remain.
 
 ## The five gates
 

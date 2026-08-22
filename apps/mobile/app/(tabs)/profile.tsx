@@ -40,14 +40,10 @@ export default function ProfileScreen() {
   const DownloadIcon = icons.download;
   const ChevronIcon = icons.chevronDown;
 
-  const handleUpdateMap = () => {
-    if (offlinePackStatus === 'downloading') return;
-    setOfflinePackStatus('downloading');
-    setTimeout(() => {
-      setOfflinePackStatus('downloaded');
-      Alert.alert('Map Updated', `Offline map for ${selectedRegion} downloaded.`);
-    }, 3000);
-  };
+  const handleUpdateMap = () => Alert.alert(
+    'Map renderer deferred',
+    'The packet-to-map projection is active, but no licensed offline basemap bundle is installed. This control does not pretend to download one.',
+  );
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#000000' }}>
@@ -88,7 +84,7 @@ export default function ProfileScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', borderLeftWidth: 4, borderLeftColor: '#2D5A27', backgroundColor: '#1C1C1E', paddingHorizontal: 16, paddingVertical: 14, marginBottom: 16 }}>
           <CheckIcon size={18} color="#a1d494" style={{ marginRight: 12 }} />
           <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600', flex: 1 }}>
-            OFFLINE MAP: {selectedRegion} V{offlinePackVersion.replace(/\./g, '.')} ({offlinePackStatus === 'downloaded' ? '✓' : '...'})
+            LOCAL DATA PACK: {selectedRegion} V{offlinePackVersion.replace(/\./g, '.')} ({offlinePackStatus === 'downloaded' ? 'READY' : 'PLACEHOLDER'})
           </Text>
         </View>
 
@@ -109,7 +105,7 @@ export default function ProfileScreen() {
         >
           <DownloadIcon size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
           <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '700', letterSpacing: 1 }}>
-            {offlinePackStatus === 'downloading' ? 'DOWNLOADING...' : 'UPDATE OFFLINE MAP'}
+            REVIEW OFFLINE MAP STATUS
           </Text>
         </TouchableOpacity>
 
@@ -118,13 +114,13 @@ export default function ProfileScreen() {
         <View style={{ borderTopWidth: 1, borderTopColor: '#3A3A3C' }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#3A3A3C' }}>
             <Text style={{ color: '#AEAEB2', fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>CALLSIGN</Text>
-            <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '600' }}>ECHO-ACTUAL</Text>
+            <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '600' }}>LOCAL DEVICE</Text>
           </View>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#3A3A3C' }}>
             <Text style={{ color: '#AEAEB2', fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>SYS. STATUS</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <View style={{ width: 8, height: 8, backgroundColor: '#a1d494', marginRight: 8 }} />
-              <Text style={{ color: '#a1d494', fontSize: 13, fontWeight: '600' }}>SECURE</Text>
+              <Text style={{ color: '#a1d494', fontSize: 13, fontWeight: '600' }}>PROTOTYPE</Text>
             </View>
           </View>
         </View>

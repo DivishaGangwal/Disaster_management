@@ -14,17 +14,15 @@ import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAppStore } from '@/store/useAppStore';
 
 export default function MapScreen() {
   const router = useRouter();
-  const [showSheet, setShowSheet] = useState(false);
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
+  const { mapObjects, setSelectedMapObjectId } = useAppStore();
 
   const MapIcon = icons.map;
   const ListIcon = icons.list;
-  const LocationIcon = icons.location;
-  const NavigationIcon = icons.navigation;
-  const CloseIcon = icons.close;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#000000' }}>
@@ -61,49 +59,8 @@ export default function MapScreen() {
           {/* Map placeholder */}
           <View style={{ flex: 1, backgroundColor: '#1C1C1E', justifyContent: 'center', alignItems: 'center' }}>
             <MapIcon size={48} color="#3A3A3C" />
-            <Text style={{ color: '#AEAEB2', fontSize: 13, marginTop: 12, letterSpacing: 0.5 }}>MapLibre GL — workstream pending</Text>
+            <Text style={{ color: '#AEAEB2', fontSize: 13, marginTop: 12, letterSpacing: 0.5 }}>Map renderer deferred · packet projection is active</Text>
           </View>
-
-          {/* Bottom sheet (marker detail) */}
-          {showSheet && (
-            <View style={{ backgroundColor: '#1C1C1E', borderTopWidth: 2, borderTopColor: '#2D5A27', padding: 20 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <View style={{ width: 8, height: 8, backgroundColor: '#a1d494', marginRight: 8 }} />
-                  <Text style={{ color: '#a1d494', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>OPEN</Text>
-                </View>
-                <TouchableOpacity onPress={() => setShowSheet(false)}>
-                  <CloseIcon size={20} color="#AEAEB2" />
-                </TouchableOpacity>
-              </View>
-              <Text style={{ color: '#FFFFFF', fontSize: 24, fontWeight: '700', marginBottom: 12 }}>EMERGENCY SHELTER</Text>
-              <View style={{ flexDirection: 'row', borderWidth: 1, borderColor: '#3A3A3C', marginBottom: 12 }}>
-                <View style={{ flex: 1, padding: 12, borderRightWidth: 1, borderRightColor: '#3A3A3C' }}>
-                  <Text style={{ color: '#AEAEB2', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 4 }}>SOURCE</Text>
-                  <Text style={{ color: '#FFFFFF', fontSize: 14 }}>Mesh Network Peer</Text>
-                </View>
-                <View style={{ flex: 1, padding: 12 }}>
-                  <Text style={{ color: '#AEAEB2', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 4 }}>LAST UPDATE</Text>
-                  <Text style={{ color: '#a1d494', fontSize: 14 }}>2m ago</Text>
-                </View>
-              </View>
-              <TouchableOpacity
-                onPress={() => {}}
-                style={{ backgroundColor: '#2D5A27', paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', borderWidth: 1, borderColor: '#2D5A27' }}
-              >
-                <NavigationIcon size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-                <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '700', letterSpacing: 1 }}>NAVIGATE</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Tap to show sheet demo */}
-          <TouchableOpacity
-            onPress={() => setShowSheet(true)}
-            style={{ position: 'absolute', bottom: showSheet ? 260 : 20, left: 20, backgroundColor: '#2D5A27', paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: '#a1d494' }}
-          >
-            <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>TAP FOR DEMO MARKER</Text>
-          </TouchableOpacity>
         </View>
       ) : (
         /* List View */
@@ -114,28 +71,27 @@ export default function MapScreen() {
               <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>MAP VIEW</Text>
             </TouchableOpacity>
           </View>
-          {[
-            { name: 'District Hospital', type: 'Hospital', distance: '2.1 km', state: 'OPEN', barColor: '#2D5A27' },
-            { name: 'Relief Camp A', type: 'Shelter', distance: '3.4 km', state: 'OPEN', barColor: '#2D5A27' },
-            { name: 'Flooded Bridge', type: 'Hazard', distance: '0.9 km', state: 'ACTIVE', barColor: '#FF3B30' },
-          ].map((item, i) => (
+          {mapObjects.map((item) => (
             <TouchableOpacity
-              key={i}
-              onPress={() => router.push('/resource/detail')}
+              key={item.objectId}
+              onPress={() => { setSelectedMapObjectId(item.objectId); router.push('/resource/detail'); }}
               style={{ backgroundColor: '#1C1C1E', borderWidth: 1, borderColor: '#3A3A3C', marginBottom: 8, flexDirection: 'row' }}
             >
-              <View style={{ width: 4, backgroundColor: item.barColor }} />
+              <View style={{ width: 4, backgroundColor: item.kind === 'hazard' ? '#FF3B30' : '#2D5A27' }} />
               <View style={{ flex: 1, padding: 16 }}>
-                <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>{item.name}</Text>
-                <Text style={{ color: '#AEAEB2', fontSize: 13, marginTop: 4 }}>{item.type} · {item.distance}</Text>
+                <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>{item.label}</Text>
+                <Text style={{ color: '#AEAEB2', fontSize: 13, marginTop: 4 }}>{item.kind} · {item.provenance} · {ageLabel(item.asOfS)}</Text>
               </View>
               <View style={{ justifyContent: 'center', paddingRight: 16 }}>
-                <Text style={{ color: item.state === 'ACTIVE' ? '#FFD60A' : '#a1d494', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>{item.state}</Text>
+                <Text style={{ color: item.kind === 'hazard' ? '#FFD60A' : '#a1d494', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>{item.state === undefined ? '—' : String(item.state)}</Text>
               </View>
             </TouchableOpacity>
           ))}
+          {mapObjects.length === 0 && <Text style={{ color: '#AEAEB2', fontSize: 14 }}>No map-operation packets are stored on this phone.</Text>}
         </ScrollView>
       )}
     </SafeAreaView>
   );
 }
+
+function ageLabel(asOfS: number) { const age = Math.max(0, Math.round(Date.now() / 1000) - asOfS); return age < 60 ? 'just now' : `${Math.floor(age / 60)}m ago`; }

@@ -36,6 +36,8 @@ export interface CapabilityReport {
   readonly audioInputAvailable: boolean;
   readonly permissions: PermissionSnapshot;
   readonly batteryPercent?: number;
+  /** Battery sensor temperature when Android exposes ACTION_BATTERY_CHANGED. */
+  readonly batteryTemperatureC?: number;
   readonly batteryOptimisationRestricted: boolean;
   readonly thermalThrottled: boolean;
   /** True for the simulated adapter so the UI can label the demo honestly. */

@@ -16,16 +16,12 @@ import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-const mockSignals = [
-  { title: 'System Sync', time: 'Just now', status: 'VALID', statusColor: '#a1d494', barColor: '#2D5A27' },
-  { title: 'Unknown Origin Alert', time: '2m ago', status: 'CORRUPT', statusColor: '#FF453A', barColor: '#FF453A' },
-  { title: 'Repeater Ping', time: '15m ago', status: 'DUPLICATE', statusColor: '#AEAEB2', barColor: '#3A3A3C' },
-  { title: 'Node Status Update', time: '1h ago', status: 'VALID', statusColor: '#a1d494', barColor: '#2D5A27' },
-];
+import { useAppStore } from '@/store/useAppStore';
 
 export default function Tier2ListenScreen() {
   const router = useRouter();
+  const { diagnosticEvents, tier2Listening } = useAppStore();
+  const tier2Events = diagnosticEvents.filter((event) => event.category === 'tier2' || event.transport === 'tier2-mic' || event.transport === 'tier2-direct');
   const ArrowLeftIcon = icons.arrowLeft;
 
   return (
@@ -55,7 +51,7 @@ export default function Tier2ListenScreen() {
             <Text style={{ color: '#a1d494', fontSize: 48 }}>((•))</Text>
           </View>
           <Text style={{ color: '#a1d494', fontSize: 13, fontWeight: '700', letterSpacing: 2, marginTop: 16 }}>
-            SCANNING T2 FREQUENCIES
+            {tier2Listening ? 'LISTENING FOR WAVEPX FRAMES' : 'TIER 2 LISTENER INACTIVE'}
           </Text>
         </View>
 
@@ -64,24 +60,25 @@ export default function Tier2ListenScreen() {
           <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 4 }}>RECEIVED SIGNALS</Text>
           <View style={{ height: 2, backgroundColor: '#2D5A27', marginBottom: 16 }} />
 
-          {mockSignals.map((sig, i) => (
+          {tier2Events.map((event, i) => (
             <View
               key={i}
               style={{ flexDirection: 'row', backgroundColor: '#1C1C1E', borderWidth: 1, borderColor: '#3A3A3C', marginBottom: 8 }}
             >
-              <View style={{ width: 4, backgroundColor: sig.barColor }} />
+              <View style={{ width: 4, backgroundColor: event.severity === 'warn' || event.severity === 'error' ? '#FF453A' : '#2D5A27' }} />
               <View style={{ flex: 1, padding: 16 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>{sig.title}</Text>
-                  <Text style={{ color: '#AEAEB2', fontSize: 13 }}>{sig.time}</Text>
+                  <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>{event.name}</Text>
+                  <Text style={{ color: '#AEAEB2', fontSize: 13 }}>{new Date(event.atMs).toLocaleTimeString()}</Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: sig.statusColor, marginRight: 8 }} />
-                  <Text style={{ color: sig.statusColor, fontSize: 12, fontWeight: '700', letterSpacing: 0.5 }}>{sig.status}</Text>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: event.severity === 'warn' || event.severity === 'error' ? '#FF453A' : '#a1d494', marginRight: 8 }} />
+                  <Text style={{ color: event.severity === 'warn' || event.severity === 'error' ? '#FF453A' : '#a1d494', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 }}>{(event.result ?? event.reason ?? event.severity).toUpperCase()}</Text>
                 </View>
               </View>
             </View>
           ))}
+          {tier2Events.length === 0 && <Text style={{ color: '#AEAEB2', fontSize: 14 }}>No WavePX frame has been observed on this phone. The web receiving station supports both microphone and WAV-file input.</Text>}
         </View>
       </ScrollView>
     </SafeAreaView>

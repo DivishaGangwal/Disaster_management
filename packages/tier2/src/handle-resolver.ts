@@ -10,7 +10,7 @@
  * onward over Bluetooth IS the original packet, not a re-derived lookalike.
  */
 
-import { ENVELOPE, type CampaignManifest, type PacketId } from '@dsm/contracts';
+import { type CampaignManifest, type PacketId } from '@dsm/contracts';
 import type { CampaignHandleResolver } from './receiver.js';
 
 export class ManifestHandleResolver implements CampaignHandleResolver {
@@ -38,22 +38,10 @@ export class ManifestHandleResolver implements CampaignHandleResolver {
     return [...this.byHandle.values()].map((entry) => entry.packetId);
   }
 
-  /**
-   * Rebuilds canonical Tier 1 bytes: the manifest's 64-byte header plus the
-   * payload recovered from the air. If the recovered payload does not match
-   * the manifest's payload length, we refuse rather than fabricate.
-   */
-  rebuildPacketBytes(handle: number, payload: Uint8Array): Uint8Array | undefined {
+  /** Acoustic input already contains canonical bytes; the manifest verifies it. */
+  verifyPacketBytes(handle: number, canonicalBytes: Uint8Array): boolean {
     const entry = this.byHandle.get(handle);
-    if (!entry) return undefined;
-
-    const header = entry.canonical.subarray(0, ENVELOPE.HEADER_BYTES);
-    const expectedPayloadLength = entry.canonical.length - ENVELOPE.HEADER_BYTES;
-    if (payload.length !== expectedPayloadLength) return undefined;
-
-    const out = new Uint8Array(ENVELOPE.HEADER_BYTES + payload.length);
-    out.set(header, 0);
-    out.set(payload, ENVELOPE.HEADER_BYTES);
-    return out;
+    if (!entry || canonicalBytes.length !== entry.canonical.length) return false;
+    return canonicalBytes.every((byte, index) => byte === entry.canonical[index]);
   }
 }

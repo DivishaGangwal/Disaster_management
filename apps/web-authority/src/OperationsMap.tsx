@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
-import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
-import type { Incident, RegionalRecord } from './types';
+import type { Map as MapLibreMap } from 'maplibre-gl';
+import { TIME } from '@dsm/contracts';
+import type { GatewayAudit, Incident, RegionalRecord } from './types';
+import { isOperationallyUsable } from './operational-status';
 
-type Filter = 'incidents' | 'centres' | 'routes' | 'hazards';
+type Filter = 'incidents' | 'centres' | 'routes' | 'hazards' | 'gateways';
 
 interface Props {
   incidents: Incident[];
   records: RegionalRecord[];
+  gateways?: GatewayAudit;
   selected: string;
   onSelect: (id: string) => void;
   onQuickState?: (id: string, state: string) => void;
@@ -19,18 +22,20 @@ interface Props {
   compact?: boolean;
 }
 
-export function OperationsMap({ incidents, records, selected, onSelect, onQuickState, pick, onPick, compact }: Props) {
+export function OperationsMap({ incidents, records, gateways, selected, onSelect, onQuickState, pick, onPick, compact }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap>();
   const pickMarker = useRef<maplibregl.Marker>();
+  const operationMarkers = useRef<Map<string, maplibregl.Marker>>(new Map());
+  const initialSelection = useRef(selected);
   const callbacks = useRef({ onSelect, onQuickState, onPick });
   const [ready, setReady] = useState(false);
   const [created, setCreated] = useState(false);
-  const [filters, setFilters] = useState<Set<Filter>>(() => new Set(['incidents', 'centres', 'routes', 'hazards']));
+  const [filters, setFilters] = useState<Set<Filter>>(() => new Set(['incidents', 'centres', 'routes', 'hazards', 'gateways']));
   const [mapReadout, setMapReadout] = useState({ zoom: 6.1, lat: 26.1, lon: 92.5 });
   callbacks.current = { onSelect, onQuickState, onPick };
 
-  const data = useMemo(() => featureCollection(incidents, records, filters), [incidents, records, filters]);
+  const data = useMemo(() => featureCollection(incidents, records, gateways, filters), [incidents, records, gateways, filters]);
 
   useEffect(() => {
     if (!container.current || map.current) return;
@@ -65,8 +70,6 @@ export function OperationsMap({ incidents, records, selected, onSelect, onQuickS
     // place a point when the basemap tiles are slow or unreachable.
     instance.on('click', (event) => {
       if (!callbacks.current.onPick) return;
-      const layers = ['operation-points', 'clusters'].filter((layer) => instance.getLayer(layer));
-      if (layers.length > 0 && instance.queryRenderedFeatures(event.point, { layers }).length > 0) return;
       callbacks.current.onPick(event.lngLat.lat, event.lngLat.lng);
     });
     instance.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
@@ -74,44 +77,37 @@ export function OperationsMap({ incidents, records, selected, onSelect, onQuickS
     instance.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
     instance.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
     instance.on('load', () => {
-      instance.addSource('operations', { type: 'geojson', data, cluster: true, clusterRadius: 44, clusterMaxZoom: 11 });
-      instance.addLayer({ id: 'clusters', type: 'circle', source: 'operations', filter: ['has', 'point_count'], paint: { 'circle-color': '#132c3a', 'circle-radius': ['step', ['get', 'point_count'], 28, 8, 36, 20, 46], 'circle-stroke-width': 5, 'circle-stroke-color': '#ffffff' } });
-      instance.addLayer({ id: 'cluster-count', type: 'symbol', source: 'operations', filter: ['has', 'point_count'], layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 17, 'text-font': ['Noto Sans Bold'] }, paint: { 'text-color': '#ffffff' } });
-      instance.addLayer({ id: 'selected-halo', type: 'circle', source: 'operations', filter: ['==', ['get', 'id'], ''], paint: { 'circle-radius': 31, 'circle-color': 'rgba(21,101,255,.10)', 'circle-stroke-width': 5, 'circle-stroke-color': '#1565ff' } });
-      instance.addLayer({ id: 'operation-points', type: 'circle', source: 'operations', filter: ['!', ['has', 'point_count']], paint: { 'circle-radius': ['case', ['==', ['get', 'featureType'], 'incident'], 19, 16], 'circle-color': ['match', ['get', 'status'], 'critical', '#c62d42', 'urgent', '#f0782d', 'closed', '#68727a', 'blocked', '#c62d42', 'active', '#d94b38', 'open', '#1a8f6a', '#1673c9'], 'circle-stroke-width': 4.5, 'circle-stroke-color': '#ffffff' } });
-      instance.addLayer({ id: 'operation-glyphs', type: 'symbol', source: 'operations', filter: ['!', ['has', 'point_count']], layout: { 'text-field': ['get', 'glyph'], 'text-size': 15, 'text-font': ['Noto Sans Bold'], 'text-allow-overlap': true }, paint: { 'text-color': '#ffffff', 'text-halo-color': '#132c3a', 'text-halo-width': .8 } });
-      instance.addLayer({ id: 'operation-labels', type: 'symbol', source: 'operations', filter: ['!', ['has', 'point_count']], minzoom: 6.7, layout: { 'text-field': ['get', 'label'], 'text-size': 15, 'text-offset': [0, 1.6], 'text-anchor': 'top', 'text-allow-overlap': false }, paint: { 'text-color': '#10212d', 'text-halo-color': '#ffffff', 'text-halo-width': 2.4 } });
-      instance.on('click', 'clusters', async (event) => {
-        const feature = instance.queryRenderedFeatures(event.point, { layers: ['clusters'] })[0];
-        const clusterId = Number(feature?.properties?.cluster_id);
-        const source = instance.getSource('operations') as GeoJSONSource;
-        const zoom = await source.getClusterExpansionZoom(clusterId);
-        const coordinates = (feature?.geometry as GeoJSON.Point).coordinates as [number, number];
-        instance.easeTo({ center: coordinates, zoom });
-      });
-      instance.on('click', 'operation-points', (event) => {
-        const feature = event.features?.[0];
-        if (!feature) return;
-        const properties = feature.properties as Record<string, string>;
-        const coordinates = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
-        callbacks.current.onSelect(properties.id);
-        showPopup(instance, coordinates, properties, callbacks.current.onQuickState);
-      });
-      for (const layer of ['clusters', 'operation-points']) {
-        instance.on('mouseenter', layer, () => { instance.getCanvas().style.cursor = 'pointer'; });
-        instance.on('mouseleave', layer, () => { instance.getCanvas().style.cursor = callbacks.current.onPick ? 'crosshair' : ''; });
-      }
       instance.on('mousemove', (event) => setMapReadout((current) => ({ ...current, lat: event.lngLat.lat, lon: event.lngLat.lng })));
       instance.on('zoomend', () => setMapReadout((current) => ({ ...current, zoom: instance.getZoom() })));
       setReady(true);
     });
-    return () => { instance.remove(); map.current = undefined; setCreated(false); };
+    return () => { operationMarkers.current.forEach((marker) => marker.remove()); operationMarkers.current.clear(); instance.remove(); map.current = undefined; setCreated(false); };
   }, []);
 
   useEffect(() => {
     if (!ready || !map.current) return;
-    (map.current.getSource('operations') as GeoJSONSource | undefined)?.setData(data);
-  }, [data, ready]);
+    operationMarkers.current.forEach((marker) => marker.remove());
+    operationMarkers.current.clear();
+    for (const feature of data.features) {
+      if (feature.geometry.type !== 'Point' || !feature.properties) continue;
+      const properties = feature.properties as Record<string, string>;
+      const coordinates = feature.geometry.coordinates as [number, number];
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'ops-map-marker marker-' + properties.featureType + ' status-' + properties.status + (properties.id === selected ? ' selected' : '');
+      button.setAttribute('aria-label', properties.label + ': ' + properties.subtitle);
+      button.title = properties.label + ' — ' + properties.subtitle;
+      const glyph = document.createElement('span'); glyph.textContent = properties.glyph;
+      const label = document.createElement('small'); label.textContent = properties.label;
+      button.append(glyph, label);
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        callbacks.current.onSelect(properties.id);
+        showPopup(map.current!, coordinates, properties, callbacks.current.onQuickState);
+      });
+      operationMarkers.current.set(properties.id, new maplibregl.Marker({ element: button, anchor: 'center' }).setLngLat(coordinates).addTo(map.current));
+    }
+  }, [data, ready, selected]);
 
   useEffect(() => {
     const instance = map.current;
@@ -131,16 +127,17 @@ export function OperationsMap({ incidents, records, selected, onSelect, onQuickS
 
   useEffect(() => {
     if (!ready || !map.current) return;
-    map.current.setFilter('selected-halo', ['==', ['get', 'id'], selected]);
+    if (selected === initialSelection.current) return;
+    initialSelection.current = selected;
     const feature = data.features.find((item) => item.properties?.id === selected);
-    if (feature?.geometry.type === 'Point') map.current.easeTo({ center: feature.geometry.coordinates as [number, number], zoom: Math.max(map.current.getZoom(), 9), duration: 600 });
+    if (feature?.geometry.type === 'Point') map.current.easeTo({ center: feature.geometry.coordinates as [number, number], zoom: Math.max(map.current.getZoom(), 7.2), duration: 450 });
   }, [selected, data, ready]);
 
   const toggle = (filter: Filter) => setFilters((current) => { const next = new Set(current); next.has(filter) ? next.delete(filter) : next.add(filter); return next; });
-  const unavailable = records.filter((record) => ['closed', 'blocked', 'damaged', 'active'].includes(record.state)).length;
-  const selectedLabel = records.find((record) => record.objectId === selected)?.name ?? incidents.find((incident) => incident.incidentId === selected)?.incidentId;
+  const unavailable = records.filter((record) => !isOperationallyUsable(record)).length;
+  const selectedLabel = records.find((record) => record.objectId === selected)?.name ?? incidents.find((incident) => incident.incidentId === selected)?.incidentId ?? gateways?.gateways.find((gateway) => gateway.gatewayToken === selected)?.nodeToken;
   return <div className={compact ? 'maplibre-shell compact' : 'maplibre-shell'}>
-    <div className="map-toolbar" aria-label="Map layers">{(['incidents', 'centres', 'routes', 'hazards'] as Filter[]).map((filter) => <button key={filter} aria-pressed={filters.has(filter)} className={filters.has(filter) ? 'active' : ''} onClick={() => toggle(filter)}><i>{filters.has(filter) ? '✓' : ''}</i>{filter}</button>)}<button onClick={() => map.current?.fitBounds([[89.6, 23.8], [96.2, 28.3]], { padding: 44, maxZoom: 8 })}>Fit Assam</button></div>
+    <div className="map-toolbar" aria-label="Map layers">{(['incidents', 'centres', 'routes', 'hazards', ...(gateways ? ['gateways' as const] : [])] as Filter[]).map((filter) => <button key={filter} aria-pressed={filters.has(filter)} className={filters.has(filter) ? 'active' : ''} onClick={() => toggle(filter)}><i aria-hidden="true">{filters.has(filter) ? '✓' : ''}</i>{filter}</button>)}<button onClick={() => map.current?.fitBounds([[89.6, 23.8], [96.2, 28.3]], { padding: 44, maxZoom: 8 })}>Fit state</button></div>
     <div ref={container} className="maplibre-canvas" />
     {!compact && <div className="map-overview"><span><b>{data.features.length}</b> visible</span>{records.length > 0 && <><span><b>{records.length - unavailable}</b> available</span><span><b>{unavailable}</b> restricted</span></>}<span className="map-selection">{selectedLabel ?? 'No selection'}</span></div>}
     {onPick && <div className="map-pick-hint">{pick ? 'Drag the pin or click the map to move the broadcast point' : 'Click the map, or a marker, to set the broadcast point'}</div>}
@@ -149,13 +146,19 @@ export function OperationsMap({ incidents, records, selected, onSelect, onQuickS
   </div>;
 }
 
-function featureCollection(incidents: Incident[], records: RegionalRecord[], filters: Set<Filter>): GeoJSON.FeatureCollection<GeoJSON.Point> {
+function featureCollection(incidents: Incident[], records: RegionalRecord[], gateways: GatewayAudit | undefined, filters: Set<Filter>): GeoJSON.FeatureCollection<GeoJSON.Point> {
   const features: GeoJSON.Feature<GeoJSON.Point>[] = [];
-  if (filters.has('incidents')) for (const item of incidents) if (item.latE7 != null && item.lonE7 != null) features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [item.lonE7 / 1e7, item.latE7 / 1e7] }, properties: { id: item.incidentId, featureType: 'incident', glyph: `S${item.severity}`, label: categoryName(item.category), subtitle: `${item.peopleTotal ?? 0} people · ${item.observationCount} gateway observations`, status: item.severity >= 3 ? 'critical' : item.severity === 2 ? 'urgent' : 'active', state: item.state, severity: item.severity } });
+  if (filters.has('incidents')) for (const item of incidents) if (item.latE7 != null && item.lonE7 != null) features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [item.lonE7 / 1e7, item.latE7 / 1e7] }, properties: { id: item.incidentId, featureType: 'incident', glyph: `S${item.severity}`, label: categoryName(item.category), subtitle: `${item.peopleTotal ?? 0} people · ${item.observationCount} gateway observation${item.observationCount === 1 ? '' : 's'} · position ${locationAge(item)} old${item.locationAccuracyM == null ? '' : ` · ±${item.locationAccuracyM}m`}`, status: item.severity >= 3 ? 'critical' : item.severity === 2 ? 'urgent' : 'active', state: item.state, severity: item.severity } });
   for (const item of records) {
     const group: Filter = item.kind === 'route' ? 'routes' : item.kind === 'hazard' ? 'hazards' : 'centres';
     if (!filters.has(group)) continue;
     features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [item.lonE7 / 1e7, item.latE7 / 1e7] }, properties: { id: item.objectId, featureType: 'record', glyph: markerGlyph(item.kind), label: item.name, subtitle: `${item.district} · ${item.kind} · version ${item.version}`, status: item.state, state: item.state, kind: item.kind } });
+  }
+  if (gateways && filters.has('gateways')) for (const gateway of gateways.gateways) {
+    const point = gatewayPoint(gateway.gatewayToken);
+    if (!point) continue;
+    const activity = gatewayActivity(gateways, gateway.gatewayToken);
+    features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [point.lon, point.lat] }, properties: { id: gateway.gatewayToken, featureType: 'gateway', glyph: 'G', label: gateway.nodeToken.replaceAll('-', ' '), subtitle: `Synthetic demo placement · ${activity.uploads} uploaded · ${activity.downloads} downloaded · ${activity.observations} observations`, status: activity.ageMs < GATEWAY_ACTIVE_WINDOW_MS ? 'online' : 'stale', state: activity.ageMs < GATEWAY_ACTIVE_WINDOW_MS ? 'online' : 'stale', kind: 'gateway' } });
   }
   return { type: 'FeatureCollection', features };
 }
@@ -176,3 +179,7 @@ function showPopup(map: MapLibreMap, coordinates: [number, number], properties: 
 
 function categoryName(value: number): string { return ['Medical', 'Trapped', 'Fire', 'Flood', 'Violence', 'Structural collapse', 'Missing person', 'Other'][value] ?? 'Emergency'; }
 function markerGlyph(kind: string): string { return kind === 'medical' ? '+' : kind === 'hazard' ? '!' : kind === 'route' ? 'R' : kind === 'shelter' ? 'S' : kind === 'safe-zone' ? 'A' : 'W'; }
+function locationAge(item: Incident): string { const nowS = Math.floor((Date.now() - TIME.DEMO_EPOCH_MS) / 1000); const seconds = Math.max(0, nowS - (item.locationReportedAtS ?? item.updatedAtS) + (item.locationAgeS ?? 0)); return seconds < 60 ? `${seconds}s` : seconds < 3600 ? `${Math.floor(seconds / 60)}m` : `${Math.floor(seconds / 3600)}h`; }
+const GATEWAY_ACTIVE_WINDOW_MS = 10 * 60_000;
+function gatewayActivity(audit: GatewayAudit, token: string) { const transfers = audit.transfers.filter((item) => item.gatewayToken === token); const observations = audit.observations.filter((item) => item.gatewayToken === token); const lastAtMs = Math.max(0, ...transfers.map((item) => item.atMs), ...observations.map((item) => item.uploadedAtMs)); return { ageMs: lastAtMs ? Date.now() - lastAtMs : Number.POSITIVE_INFINITY, uploads: transfers.filter((item) => item.direction === 'upload').reduce((sum, item) => sum + item.itemCount, 0), downloads: transfers.filter((item) => item.direction === 'download').reduce((sum, item) => sum + item.itemCount, 0), observations: observations.length }; }
+function gatewayPoint(token: string): { lat: number; lon: number } | undefined { const known: Record<string, { lat: number; lon: number }> = { 'GW-ASSAM-OPS': { lat: 26.1445, lon: 91.7362 }, 'GW-GUWAHATI': { lat: 26.181, lon: 91.752 }, 'GW-NAGAON': { lat: 26.349, lon: 92.684 }, 'GW-DIBRUGARH': { lat: 27.472, lon: 94.912 }, 'GW-SILCHAR': { lat: 24.833, lon: 92.779 } }; return known[token]; }

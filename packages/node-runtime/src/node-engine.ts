@@ -30,6 +30,7 @@ import {
   type DiagnosticEvent,
   type EncodedPacket,
   type EventSink,
+  type FileRepository,
   type LocalProfile,
   type Packet,
   type PacketId,
@@ -58,6 +59,7 @@ export interface NodeEngineOptions {
   readonly packets?: PacketRepository;
   readonly peers?: PeerRepository;
   readonly events?: EventSink;
+  readonly files?: FileRepository;
   readonly projection?: MapProjection;
   readonly displayRadiusM?: number;
   readonly now?: () => number;
@@ -99,7 +101,7 @@ export class NodeEngine {
     this.events = options.events ?? new MemoryEventSink();
     this.projection = options.projection ?? new MapProjection();
     this.now = options.now ?? (() => Date.now());
-    this.files = new FileAssembler(new MemoryFileRepository(), this.packets, this.events);
+    this.files = new FileAssembler(options.files ?? new MemoryFileRepository(), this.packets, this.events);
   }
 
   get nodeToken(): string {

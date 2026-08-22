@@ -2,6 +2,9 @@ import '../global.css';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { View } from 'react-native';
+import { useEffect } from 'react';
+import { mobileController } from '@/src/services/mobile-controller';
+import { useAppStore } from '@/store/useAppStore';
 
 /**
  * Root layout. Pure black background, light status bar.
@@ -12,6 +15,11 @@ import { View } from 'react-native';
  *                Resource Detail, Relay, Tier 2, Diagnostics
  */
 export default function RootLayout() {
+  const role = useAppStore((state) => state.role);
+  const setRuntimeError = useAppStore((state) => state.setRuntimeError);
+  useEffect(() => {
+    void mobileController.initialize(role).catch((reason: unknown) => setRuntimeError(reason instanceof Error ? reason.message : String(reason)));
+  }, [role, setRuntimeError]);
   return (
     <View style={{ flex: 1, backgroundColor: '#000000' }}>
       <StatusBar style="light" backgroundColor="#000000" />

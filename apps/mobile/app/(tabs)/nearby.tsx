@@ -15,11 +15,11 @@ import { useAppStore } from '@/store/useAppStore';
 import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const mockIncidents = [
-  { id: '1', category: 'Medical Emergency', severity: 3, distance: '0.2km away', timeAgo: '2m ago', iconKey: 'catMedical' as const },
-  { id: '2', category: 'Structure Fire', severity: 2, distance: '1.5km away', timeAgo: '12m ago', iconKey: 'catFire' as const },
-  { id: '3', category: 'Minor Flooding', severity: 1, distance: '3.8km away', timeAgo: '45m ago', iconKey: 'catFlood' as const },
-  { id: '4', category: 'Traffic Collision', severity: 1, distance: '5.1km away', timeAgo: '1h ago', iconKey: 'catOther' as const },
+const categoryInfo = [
+  { label: 'Medical Emergency', iconKey: 'catMedical' as const }, { label: 'Trapped', iconKey: 'catOther' as const },
+  { label: 'Structure Fire', iconKey: 'catFire' as const }, { label: 'Flood', iconKey: 'catFlood' as const },
+  { label: 'Violence', iconKey: 'catViolence' as const }, { label: 'Building Collapse', iconKey: 'catBuildingCollapse' as const },
+  { label: 'Missing Person', iconKey: 'catOther' as const }, { label: 'Other Emergency', iconKey: 'catOther' as const },
 ];
 
 const sevConfig: Record<number, { label: string; color: string; barColor: string }> = {
@@ -31,13 +31,14 @@ const sevConfig: Record<number, { label: string; color: string; barColor: string
 
 export default function NearbyScreen() {
   const router = useRouter();
-  const { role } = useAppStore();
+  const { role, runtimeIncidents, setSelectedIncidentId } = useAppStore();
   const ShieldIcon = icons.shield;
   const AlertIcon = icons.alert;
   const FilterIcon = icons.filter;
   const LocationIcon = icons.location;
 
-  const handleTapIncident = () => {
+  const handleTapIncident = (incidentId: string) => {
+    setSelectedIncidentId(incidentId);
     if (role === 'responder') {
       router.push('/responder/detail');
     }
@@ -63,14 +64,15 @@ export default function NearbyScreen() {
         </View>
 
         {/* Incident Cards */}
-        {mockIncidents.map((inc) => {
+        {runtimeIncidents.slice().sort((a, b) => b.severity - a.severity || b.updatedAtS - a.updatedAtS).map((inc) => {
           const sev = sevConfig[inc.severity] ?? sevConfig[0];
-          const CategoryIcon = icons[inc.iconKey];
+          const category = categoryInfo[inc.category] ?? categoryInfo[7];
+          const CategoryIcon = icons[category.iconKey];
 
           return (
             <TouchableOpacity
               key={inc.id}
-              onPress={handleTapIncident}
+              onPress={() => handleTapIncident(inc.id)}
               style={{ backgroundColor: '#1C1C1E', marginBottom: 8, flexDirection: 'row', borderWidth: 1, borderColor: '#3A3A3C' }}
             >
               {/* Left severity bar */}
@@ -84,11 +86,11 @@ export default function NearbyScreen() {
 
                 {/* Info */}
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>{inc.category}</Text>
+                  <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>{category.label}</Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
                     <LocationIcon size={12} color="#AEAEB2" style={{ marginRight: 4 }} />
-                    <Text style={{ color: '#AEAEB2', fontSize: 13 }}>{inc.distance}</Text>
-                    <Text style={{ color: '#AEAEB2', fontSize: 13, marginLeft: 12 }}>⏱ {inc.timeAgo}</Text>
+                    <Text style={{ color: '#AEAEB2', fontSize: 13 }}>Locally received packet</Text>
+                    <Text style={{ color: '#AEAEB2', fontSize: 13, marginLeft: 12 }}>⏱ {ageLabel(inc.updatedAtS)}</Text>
                   </View>
                 </View>
 
@@ -100,7 +102,10 @@ export default function NearbyScreen() {
             </TouchableOpacity>
           );
         })}
+        {runtimeIncidents.length === 0 && <Text style={{ color: '#AEAEB2', fontSize: 14 }}>No incident packets are stored on this phone.</Text>}
       </ScrollView>
     </SafeAreaView>
   );
 }
+
+function ageLabel(updatedAtS: number) { const seconds = Math.max(0, Math.round(Date.now() / 1000) - updatedAtS); return seconds < 60 ? 'just now' : seconds < 3600 ? `${Math.floor(seconds / 60)}m ago` : `${Math.floor(seconds / 3600)}h ago`; }

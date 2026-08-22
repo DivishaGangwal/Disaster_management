@@ -49,7 +49,9 @@ npm run demo
 The command builds the single Assam Operations Console, starts the SQLite-backed
 backend, and serves both at `http://localhost:8787`. Persistent operations data is
 stored in `data/assam-operations.sqlite`. Set `DSM_DATABASE_PATH` to use a
-different file. See [`docs/WEB-CONSOLE.md`](docs/WEB-CONSOLE.md).
+different file. The demo operations key is `assam-operations-demo`; set
+`DSM_OPERATIONS_KEY` before non-demo use. See
+[`docs/WEB-CONSOLE.md`](docs/WEB-CONSOLE.md).
 
 ## About React Native, Expo, and Expo Go
 
@@ -58,8 +60,8 @@ the difference matters (DEC-004):
 
 | Runtime | Transport | What works |
 |---|---|---|
-| **Stock Expo Go** | simulated | Every screen, the offline map, SOS creation, incident timelines, policy and diagnostics output |
-| **Expo development build** | native BLE | The judged runtime: real advertise/scan/GATT, foreground relay, ggwave microphone |
+| **Stock Expo Go** | simulated | Every route, SOS creation, durable local state, projected-object list, incident timelines and diagnostics; the graphical map remains a placeholder |
+| **Expo development build** | native BLE preferred, Classic fallback | The judged Tier 1 runtime: advertise/scan/GATT or RFCOMM plus the foreground relay service |
 
 Real Bluetooth needs native code that is not in the Expo Go binary. Both runtimes
 drive the identical engine; only the injected `TransportAdapter` changes. So UI,
@@ -81,7 +83,7 @@ packages/
   store/                persistence ports + in-memory implementation
   policy/               six independent decisions per packet
   incident/             incident timeline and delivery facts
-  mapkit/               offline content pack + deterministic map projection
+  mapkit/               content pack + deterministic map-operation projection
   routing/              relay scheduler, copy budgets, session state machine
   transport-core/       TransportAdapter seam + simulated adapter
   tier2/                ggwave Tier 2: frames, receiver, campaign planner
@@ -96,7 +98,7 @@ apps/
   web-broadcaster/      radio broadcaster dashboard
 
 native/
-  android-radio-bridge/ the Expo native module (Workstream B)
+  android-radio-bridge/ compiled Expo BLE/Classic + relay module
 
 tools/
   seed/                 synthetic demo pack and actors
@@ -126,8 +128,11 @@ tools/
 - Any guaranteed range or guaranteed delivery.
 - That stock Expo Go provides full BLE mesh access.
 - That every Android device behaves identically in the background.
+- That this pass physically tested Bluetooth or acoustic reception on a handset.
 - That a link receipt is a responder or authority acknowledgement.
 - That ggwave carries maps, large media, or normal conversation efficiently.
+- That the mobile graphical map or Android acoustic decoder is complete; those
+  are the explicit remaining implementation items.
 - Production-grade authentication, encryption, or verified identities.
 
 Current build state, with honest evidence labels, is in `docs/STATUS.md`.

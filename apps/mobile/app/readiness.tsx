@@ -15,6 +15,7 @@ import { useRouter } from 'expo-router';
 import { useAppStore } from '@/store/useAppStore';
 import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { mobileController } from '@/src/services/mobile-controller';
 
 export default function ReadinessScreen() {
   const router = useRouter();
@@ -35,6 +36,16 @@ export default function ReadinessScreen() {
     router.replace('/(tabs)');
   };
 
+  const chooseRole = (nextRole: 'general-public' | 'responder') => {
+    setRole(nextRole);
+    void mobileController.reconfigureRole(nextRole).catch((reason: unknown) => Alert.alert('Runtime setup failed', reason instanceof Error ? reason.message : String(reason)));
+  };
+
+  const requestSystemAccess = async () => {
+    try { await mobileController.requestPermissions(); }
+    catch (reason) { Alert.alert('Permission request failed', reason instanceof Error ? reason.message : String(reason)); }
+  };
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#000000' }}>
       {/* Header */}
@@ -53,7 +64,7 @@ export default function ReadinessScreen() {
         <View style={{ flexDirection: 'row', gap: 12, marginBottom: 32 }}>
           {/* General Public */}
           <TouchableOpacity
-            onPress={() => setRole('general-public')}
+            onPress={() => chooseRole('general-public')}
             style={{
               flex: 1,
               borderWidth: 2,
@@ -69,7 +80,7 @@ export default function ReadinessScreen() {
 
           {/* Responder */}
           <TouchableOpacity
-            onPress={() => setRole('responder')}
+            onPress={() => chooseRole('responder')}
             style={{
               flex: 1,
               borderWidth: 2,
@@ -93,7 +104,7 @@ export default function ReadinessScreen() {
           icon="✦"
           label="Bluetooth"
           granted={bluetoothEnabled}
-          onToggle={(v) => { setBluetoothEnabled(v); if (v) Alert.alert('Bluetooth', 'Permission granted (simulated)'); }}
+          onToggle={(v) => { if (v) void requestSystemAccess(); else Alert.alert('Bluetooth access', 'Android permissions can be changed in system settings.'); }}
         />
 
         {/* Location */}
@@ -101,7 +112,7 @@ export default function ReadinessScreen() {
           icon="◎"
           label="Location"
           granted={locationEnabled}
-          onToggle={(v) => { setLocationEnabled(v); if (v) Alert.alert('Location', 'Permission granted (simulated)'); }}
+          onToggle={(v) => { if (v) void requestSystemAccess(); else Alert.alert('Location access', 'Android permissions can be changed in system settings.'); }}
         />
 
         {/* Microphone */}
@@ -109,7 +120,7 @@ export default function ReadinessScreen() {
           icon="🎙"
           label="Microphone"
           granted={microphoneEnabled}
-          onToggle={(v) => { setMicrophoneEnabled(v); if (v) Alert.alert('Microphone', 'Permission granted (simulated)'); }}
+          onToggle={(v) => { if (v) void requestSystemAccess(); else Alert.alert('Microphone access', 'Android permissions can be changed in system settings.'); }}
         />
 
         {/* Status info block with green left bar */}

@@ -5,6 +5,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export type UserRole = 'general-public' | 'responder';
 export type InternetState = 'untested' | 'unavailable' | 'probing' | 'proven gateway';
 export type TransportMode = 'SIMULATED' | 'native';
+export type SelectedRadio = 'simulated' | 'BLE' | 'Bluetooth Classic';
+export interface RuntimeIncident { id: string; category: number; severity: number; peopleTotal?: number; injured?: number; updatedAtS: number; }
+export interface RuntimeMapObject { objectId: string; kind: string; label: string; state?: number; latE7?: number; lonE7?: number; asOfS: number; provenance: string; }
+export interface RuntimeDiagnostic { category: string; name: string; severity: string; atMs: number; transport?: string; packetId?: string; result?: string; reason?: string; }
 
 interface AppState {
   // Profile & role
@@ -30,6 +34,32 @@ interface AppState {
   // Transport
   transportMode: TransportMode;
   setTransportMode: (m: TransportMode) => void;
+  selectedRadio: SelectedRadio;
+  setSelectedRadio: (m: SelectedRadio) => void;
+  batteryPercent?: number;
+  setBatteryPercent: (value?: number) => void;
+  batteryTemperatureC?: number;
+  setBatteryTemperatureC: (value?: number) => void;
+  thermalState: 'normal' | 'limited';
+  setThermalState: (value: 'normal' | 'limited') => void;
+  runtimeError?: string;
+  setRuntimeError: (value?: string) => void;
+  storedPackets: number;
+  setStoredPackets: (value: number) => void;
+  activeIncidentId?: string;
+  setActiveIncidentId: (value?: string) => void;
+  distinctPeerReceipts: number;
+  setDistinctPeerReceipts: (value: number) => void;
+  runtimeIncidents: RuntimeIncident[];
+  setRuntimeIncidents: (value: RuntimeIncident[]) => void;
+  mapObjects: RuntimeMapObject[];
+  setMapObjects: (value: RuntimeMapObject[]) => void;
+  diagnosticEvents: RuntimeDiagnostic[];
+  setDiagnosticEvents: (value: RuntimeDiagnostic[]) => void;
+  selectedIncidentId?: string;
+  setSelectedIncidentId: (value?: string) => void;
+  selectedMapObjectId?: string;
+  setSelectedMapObjectId: (value?: string) => void;
 
   // Region
   selectedRegion: string;
@@ -81,6 +111,32 @@ export const useAppStore = create<AppState>()(
       // Transport
       transportMode: 'SIMULATED',
       setTransportMode: (m) => set({ transportMode: m }),
+      selectedRadio: 'simulated',
+      setSelectedRadio: (selectedRadio) => set({ selectedRadio }),
+      batteryPercent: undefined,
+      setBatteryPercent: (batteryPercent) => set({ batteryPercent }),
+      batteryTemperatureC: undefined,
+      setBatteryTemperatureC: (batteryTemperatureC) => set({ batteryTemperatureC }),
+      thermalState: 'normal',
+      setThermalState: (thermalState) => set({ thermalState }),
+      runtimeError: undefined,
+      setRuntimeError: (runtimeError) => set({ runtimeError }),
+      storedPackets: 0,
+      setStoredPackets: (storedPackets) => set({ storedPackets }),
+      activeIncidentId: undefined,
+      setActiveIncidentId: (activeIncidentId) => set({ activeIncidentId }),
+      distinctPeerReceipts: 0,
+      setDistinctPeerReceipts: (distinctPeerReceipts) => set({ distinctPeerReceipts }),
+      runtimeIncidents: [],
+      setRuntimeIncidents: (runtimeIncidents) => set({ runtimeIncidents }),
+      mapObjects: [],
+      setMapObjects: (mapObjects) => set({ mapObjects }),
+      diagnosticEvents: [],
+      setDiagnosticEvents: (diagnosticEvents) => set({ diagnosticEvents }),
+      selectedIncidentId: undefined,
+      setSelectedIncidentId: (selectedIncidentId) => set({ selectedIncidentId }),
+      selectedMapObjectId: undefined,
+      setSelectedMapObjectId: (selectedMapObjectId) => set({ selectedMapObjectId }),
 
       // Region
       selectedRegion: 'Mumbai Metropolitan Region',

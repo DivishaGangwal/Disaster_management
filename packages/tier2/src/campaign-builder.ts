@@ -19,7 +19,6 @@ import {
   type CampaignState,
   type PacketId,
 } from '@dsm/contracts';
-import { ENVELOPE } from '@dsm/contracts';
 import { toTier2Frames, TIER2_OVERHEAD_BYTES } from './frame-codec.js';
 
 /** ggwave throughput assumption. Measure and update; never leave it implicit. */
@@ -80,7 +79,6 @@ export function planCampaign(input: CampaignInput): CampaignPlan {
     const handle = index + 1;
     handleTable.set(handle, packet.packetId);
 
-    const payload = packet.bytes.subarray(ENVELOPE.HEADER_BYTES);
     const frames = toTier2Frames({
       campaignHandle: input.campaignHandle,
       campaignVersion: input.campaignVersion,
@@ -88,7 +86,7 @@ export function planCampaign(input: CampaignInput): CampaignPlan {
       messageType: packet.messageType,
       priority: packet.priority,
       severity: packet.severity,
-      payload,
+      canonicalPacketBytes: packet.bytes,
     });
 
     const tier2Bytes = frames.reduce((sum, f) => sum + f.length, 0);

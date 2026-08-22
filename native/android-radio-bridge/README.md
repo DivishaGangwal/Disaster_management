@@ -1,12 +1,14 @@
 # Native Android radio bridge — Workstream B
 
-The Expo module that makes the **judged runtime** real. Everything above it is
-already written and tested; this package is the last mile.
+The Expo module for the judged Tier 1 runtime. The BLE/Classic transport and
+foreground relay service are implemented and compile in the generated Android
+development build. Physical-device behaviour remains unmeasured.
 
 ## The one rule
 
-Implement `TransportAdapter` and `AudioInputAdapter` from
-[`@dsm/contracts`](../../packages/contracts/src/native-bridge.ts). **Nothing more.**
+Keep `TransportAdapter` and the eventual `AudioInputAdapter` aligned with
+[`@dsm/contracts`](../../packages/contracts/src/native-bridge.ts). The transport
+adapter exists; the Android PCM/ggwave audio adapter remains separate work.
 
 If you find yourself wanting to change a packet, a policy, a map rule, or a
 screen to make Bluetooth work — stop. That is a Gate II conversation
@@ -27,19 +29,19 @@ nothing else.
 You do **not** implement inventory comparison, copy budgets, dedup, validation,
 or queueing. Those are done. You move bytes and emit normalized events.
 
-## Deliverables (03-… Workstream B)
+## Evidence still required (03-… Workstream B)
 
 1. **Capability matrix on every demo phone** — fill in `docs/device-matrix.md`.
    Runtime checks only; never infer support from a marketing label.
-2. **Native event contract** — must be event-for-event identical to the
-   simulated adapter. Gate II is not passed until both produce the same
-   semantics.
+2. **Native event contract on hardware** — the source contract is identical;
+   record actual event traces on the selected phones.
 3. **One-hop transfer evidence** on real devices.
 4. **Reconnection / backoff behaviour** — use `backoffMs()` from `@dsm/routing`.
 5. **Screen-off / foreground-service evidence.**
-6. **A dated go/no-go call on the Bluetooth Classic contingency adapter.**
+6. **A dated device decision.** Classic is implemented as the automatic
+   contingency; record which mode each demo phone actually selects.
 
-## Android surface to implement
+## Implemented Android surface
 
 - `BluetoothLeAdvertiser` — advertise the **exact bytes** from
   `buildAdvertisingPdu()` in `@dsm/transport-core`. Do NOT invent a layout: the
@@ -60,7 +62,9 @@ or queueing. Those are done. You move bytes and emit normalized events.
 - A **foreground service** with an ongoing notification that says disaster relay
   is active and offers a route to stop it (`REL-001`).
 - **Runtime capability + permission reporting** → `CapabilityReport`.
-- **`AudioRecord`** PCM capture → feed the ggwave decoder → emit `Tier2RawFrame`.
+- **Not yet implemented:** `AudioRecord` PCM capture → ggwave decode →
+  `Tier2RawFrame`. The browser admin receiver already supports microphone and
+  WAV input; this item is needed only for on-phone acoustic reception.
 
 ## Discovery is probabilistic — design for missed advertisements
 

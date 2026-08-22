@@ -10,32 +10,29 @@
  */
 
 import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Share } from 'react-native';
 import { useRouter } from 'expo-router';
 import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAppStore } from '@/store/useAppStore';
 
 type TransportFilter = 'all' | 'ble' | 'gateway' | 't2' | 'local';
-
-const mockPackets = [
-  { transport: 'BLE', id: 'PKT-8F2D-X9', status: 'VALID', statusColor: '#a1d494', barColor: '#2D5A27' },
-  { transport: 'GATEWAY', id: 'PKT-A1B2-C3', status: 'RELAYED', statusColor: '#AEAEB2', barColor: '#3A3A3C' },
-  { transport: 'T2', id: 'PKT-9K4L-M1', status: 'DROPPED', statusColor: '#FF453A', barColor: '#FF453A' },
-  { transport: 'BLE', id: 'PKT-2Y7U-P0', status: 'VALID', statusColor: '#a1d494', barColor: '#2D5A27' },
-  { transport: 'GATEWAY', id: 'PKT-4R5T-Y6', status: 'VALID', statusColor: '#a1d494', barColor: '#2D5A27' },
-  { transport: 'T2', id: 'PKT-7I80-P9', status: 'RELAYED', statusColor: '#AEAEB2', barColor: '#3A3A3C' },
-];
 
 export default function DiagnosticsScreen() {
   const router = useRouter();
   const [filter, setFilter] = useState<TransportFilter>('all');
+  const diagnosticEvents = useAppStore((state) => state.diagnosticEvents);
 
   const ArrowLeftIcon = icons.arrowLeft;
   const FilterIcon = icons.filter;
 
-  const filtered = filter === 'all'
-    ? mockPackets
-    : mockPackets.filter((p) => p.transport.toLowerCase() === filter);
+  const rows = diagnosticEvents.map((event) => ({
+    transport: transportLabel(event.transport), id: event.packetId ?? `${event.category}:${event.name}`,
+    status: (event.reason ?? event.result ?? event.severity).toUpperCase(),
+    statusColor: event.severity === 'error' || event.severity === 'warn' ? '#FF453A' : event.severity === 'info' ? '#a1d494' : '#AEAEB2',
+    barColor: event.severity === 'error' || event.severity === 'warn' ? '#FF453A' : '#2D5A27',
+  }));
+  const filtered = filter === 'all' ? rows : rows.filter((row) => row.transport.toLowerCase() === filter);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#000000' }}>
@@ -64,7 +61,7 @@ export default function DiagnosticsScreen() {
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => Alert.alert('Export', 'Diagnostic log exported.')}
+            onPress={() => void Share.share({ title: 'Disaster SOS Mesh diagnostics', message: JSON.stringify(diagnosticEvents, null, 2) })}
             style={{ flex: 1, backgroundColor: '#2C2C2E', paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: '#3A3A3C' }}
           >
             <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 }}>EXPORT LOG</Text>
@@ -97,8 +94,16 @@ export default function DiagnosticsScreen() {
               </View>
             </View>
           ))}
+          {filtered.length === 0 && <Text style={{ color: '#AEAEB2', fontSize: 14 }}>No matching runtime events have been recorded.</Text>}
         </ScrollView>
       </View>
     </SafeAreaView>
   );
+}
+
+function transportLabel(value?: string): 'BLE' | 'GATEWAY' | 'T2' | 'LOCAL' {
+  if (value === 'tier1-ble' || value === 'tier1-classic') return 'BLE';
+  if (value === 'gateway') return 'GATEWAY';
+  if (value === 'tier2-mic' || value === 'tier2-direct') return 'T2';
+  return 'LOCAL';
 }

@@ -10,7 +10,10 @@
  *   Expo Go        -> 'simulated'  : full UI, domain, map, and SOS flows, no
  *                                    Android build needed. Labelled as a
  *                                    simulation on the readiness screen.
- *   Expo dev build -> 'native-ble' : the judged runtime, real BLE + ggwave.
+ *   Expo dev build -> 'native-ble' : the judged Tier 1 runtime. BLE is
+ *                                    preferred; the native factory selects
+ *                                    Bluetooth Classic when BLE roles are
+ *                                    unavailable.
  *
  * Workstream A owns the screens above this line.
  * Workstream B owns the native adapter below it.
@@ -20,7 +23,11 @@
 import {
   SourceClass,
   type CapabilityReport,
+  type EventSink,
+  type FileRepository,
   type LocalProfile,
+  type PacketRepository,
+  type PeerRepository,
   type TransportAdapter,
 } from '@dsm/contracts';
 import { NodeEngine, RelayLoop, GatewaySynchronizer } from '@dsm/node-runtime';
@@ -33,6 +40,13 @@ export interface RuntimeConfig {
   readonly regionCode: string;
   readonly adapter: AdapterSelection;
   readonly backendBaseUrl?: string;
+  readonly localSourceId?: string;
+  readonly nodeToken?: string;
+  readonly packets?: PacketRepository;
+  readonly peers?: PeerRepository;
+  readonly files?: FileRepository;
+  readonly events?: EventSink;
+  readonly adapterFactory?: (selection: AdapterSelection) => Promise<TransportAdapter>;
 }
 
 export class AppRuntime {
@@ -43,7 +57,7 @@ export class AppRuntime {
   private constructor(
     readonly config: RuntimeConfig,
     engine: NodeEngine,
-    adapter: TransportAdapter,
+    readonly adapter: TransportAdapter,
     readonly resolver: PackResolver | undefined,
   ) {
     this.engine = engine;
@@ -56,13 +70,19 @@ export class AppRuntime {
   }
 
   static async create(config: RuntimeConfig, resolver?: PackResolver): Promise<AppRuntime> {
-    const adapter = await selectAdapter(config.adapter);
+    const adapter = config.adapterFactory
+      ? await config.adapterFactory(config.adapter)
+      : await selectAdapter(config.adapter);
 
     const engine = new NodeEngine({
       profile: config.profile,
-      localSourceId: newSourceId(),
-      nodeToken: newNodeToken(),
+      localSourceId: config.localSourceId ?? newSourceId(),
+      nodeToken: config.nodeToken ?? newNodeToken(),
       regionCode: config.regionCode,
+      ...(config.packets ? { packets: config.packets } : {}),
+      ...(config.peers ? { peers: config.peers } : {}),
+      ...(config.files ? { files: config.files } : {}),
+      ...(config.events ? { events: config.events } : {}),
       projection: new MapProjection(resolver),
     });
 
@@ -94,6 +114,14 @@ export class AppRuntime {
     const report = await this.gatewaySync.sync();
     return report.proven;
   }
+
+  getCapabilities(): Promise<CapabilityReport> {
+    return this.adapter.getCapabilities();
+  }
+
+  requestPermissions() {
+    return this.adapter.requestPermissions();
+  }
 }
 
 async function selectAdapter(selection: AdapterSelection): Promise<TransportAdapter> {
@@ -103,16 +131,9 @@ async function selectAdapter(selection: AdapterSelection): Promise<TransportAdap
     return new SimulatedTransportAdapter(newNodeToken(), new RadioMedium());
   }
 
-  // ---------------------------------------------------------------------
-  // WORKSTREAM B: implement native/android-radio-bridge and import it here.
-  // It must satisfy the same TransportAdapter interface, nothing more.
-  //
-  //   const { NativeTransportAdapter } = await import('@dsm/android-radio-bridge');
-  //   return new NativeTransportAdapter(selection);
-  //
-  // Until then, fail loudly rather than silently pretending Expo Go does BLE
-  // (working rule 11).
-  // ---------------------------------------------------------------------
+  // Native selection is deliberately injected by mobile-controller. Keeping
+  // the package import out of this shared composition root lets Expo Go load
+  // the same UI without attempting to resolve an absent native binary.
   throw new Error(
     `Transport "${selection}" needs the native module from an Expo development build. ` +
       'Stock Expo Go cannot provide real Bluetooth (DEC-004). Use "simulated" in Expo Go.',

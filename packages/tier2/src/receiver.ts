@@ -20,6 +20,7 @@ import {
   type Tier2ReceiverState,
   type Tier2RawFrame,
 } from '@dsm/contracts';
+import { decodePacket } from '@dsm/codec';
 import { decodeTier2Frame, type Tier2Frame } from './frame-codec.js';
 
 /** Resolves a compact 16-bit handle back to the full packet identity. */
@@ -30,8 +31,11 @@ export interface CampaignHandleResolver {
   resolvePacketId(handle: number): PacketId | undefined;
   /** Every packet the manifest promises, for the completeness report. */
   expectedPacketIds(): readonly PacketId[];
-  /** Rebuilds canonical Tier 1 bytes from the recovered payload. */
-  rebuildPacketBytes(handle: number, payload: Uint8Array): Uint8Array | undefined;
+  /**
+   * Confirms that self-describing canonical bytes agree with the manifest.
+   * The resolver must never add a header or otherwise create packet meaning.
+   */
+  verifyPacketBytes(handle: number, canonicalBytes: Uint8Array): boolean;
 }
 
 export interface RecoveredPacket {
@@ -60,7 +64,8 @@ export class Tier2Receiver {
   private framesCorrupt = 0;
   private framesDuplicate = 0;
 
-  private readonly assemblies = new Map<number, Assembly>();
+  /** A packet handle is only unique inside one campaign version. */
+  private readonly assemblies = new Map<string, Assembly>();
   private readonly recovered = new Set<PacketId>();
   private readonly seenFrameKeys = new Set<string>();
   private readonly listeners = new Set<Tier2Listener>();
@@ -125,33 +130,42 @@ export class Tier2Receiver {
   }
 
   private assemble(frame: Tier2Frame, raw: Tier2RawFrame): RecoveredPacket | undefined {
-    const assembly = this.assemblies.get(frame.packetHandle) ?? {
+    const assemblyKey = `${frame.campaignHandle}:${frame.campaignVersion}:${frame.packetHandle}`;
+    const assembly = this.assemblies.get(assemblyKey) ?? {
       fragmentCount: frame.fragmentCount,
       parts: new Map<number, Uint8Array>(),
       firstSeenMs: raw.receivedAtMs,
     };
     assembly.parts.set(frame.fragmentIndex, frame.payload);
-    this.assemblies.set(frame.packetHandle, assembly);
+    this.assemblies.set(assemblyKey, assembly);
 
     if (assembly.parts.size < assembly.fragmentCount) return undefined;
 
     this.state = 'packet-reassembling';
     let total = 0;
     for (const part of assembly.parts.values()) total += part.length;
-    const payload = new Uint8Array(total);
+    const canonicalBytes = new Uint8Array(total);
     let offset = 0;
     for (let i = 0; i < assembly.fragmentCount; i += 1) {
       const part = assembly.parts.get(i);
       if (!part) return undefined;
-      payload.set(part, offset);
+      canonicalBytes.set(part, offset);
       offset += part.length;
     }
 
-    const packetId = this.resolver?.resolvePacketId(frame.packetHandle);
-    const bytes = this.resolver?.rebuildPacketBytes(frame.packetHandle, payload);
-    if (!packetId || !bytes) return undefined;
+    const decoded = decodePacket(canonicalBytes);
+    if (!decoded.ok) return undefined;
+    const packetId = decoded.packet.header.packetId;
+    if (
+      decoded.packet.header.type !== frame.messageType ||
+      decoded.packet.header.priority !== frame.priority ||
+      decoded.packet.header.severity !== frame.severity
+    ) return undefined;
+    const expectedPacketId = this.resolver?.resolvePacketId(frame.packetHandle);
+    if (expectedPacketId !== undefined && expectedPacketId !== packetId) return undefined;
+    if (this.resolver && !this.resolver.verifyPacketBytes(frame.packetHandle, canonicalBytes)) return undefined;
 
-    this.assemblies.delete(frame.packetHandle);
+    this.assemblies.delete(assemblyKey);
 
     if (this.recovered.has(packetId)) {
       this.framesDuplicate += 1;
@@ -162,7 +176,7 @@ export class Tier2Receiver {
 
     const packet: RecoveredPacket = {
       packetId,
-      bytes,
+      bytes: canonicalBytes,
       source: raw.source,
       recoveredAtMs: raw.receivedAtMs,
     };

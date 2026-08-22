@@ -2,9 +2,9 @@
  * In-memory implementation of the persistence ports.
  *
  * WHY THIS EXISTS: every other workstream needs a working store TODAY. This
- * one satisfies @dsm/contracts ports exactly, so when Workstream C lands the
- * expo-sqlite implementation (see docs/STATUS.md, "Remaining: persistence"),
- * nobody else changes a line -- they swap the constructor.
+ * one satisfies @dsm/contracts ports exactly and remains the deterministic
+ * simulator/test implementation. The mobile app injects the durable
+ * expo-sqlite repositories through the same ports.
  *
  * It implements the real rules, not a stub:
  *  - packet ID + digest is idempotent; ID with a different digest is a conflict

@@ -39,7 +39,7 @@ process**, not a side effect of someone's local edit.
 | peer/session/bytes/error events agreed | ✅ `TransportEvent` union |
 | start/stop/session commands agreed | ✅ `TransportAdapter` |
 | simulated adapter implements the same contract | ✅ `SimulatedTransportAdapter`, used by 8 acceptance tests |
-| real dev build produces the same semantics | ❌ **blocked on WS-B** — this is the one gate not yet proven on both sides |
+| real dev build implements the same semantics | ✅ native BLE/Classic adapter compile-checked; physical event-equivalence evidence remains |
 
 `CapabilityReport.simulated` must stay honest: `true` in the simulated adapter,
 `false` in native. The readiness screen renders it verbatim (working rule 11).
@@ -55,6 +55,7 @@ process**, not a side effect of someone's local edit.
 | allowed operations and precedence documented | ✅ 12 typed operations, nothing else can touch the map |
 | missing/stale/tombstone behaviour tested | ✅ `MISSING_OBJECT_FALLBACK`, freshness classes, tombstones |
 | all inputs use one projection path | ✅ `toMapOperations()` is the only translation |
+| centre create/open/close/move/reopen agree | ✅ recovered ggwave bytes produce the same typed resource operation in integration tests |
 
 A packet can never supply a path, URL, query, or command — only a typed opcode
 resolved through the pack registry.
@@ -81,8 +82,9 @@ only when an acknowledgement packet actually reaches it.
 | Requirement | Status |
 |---|---|
 | manifest, operation mapping, profile, repetition, duration budget fixed | ✅ `planCampaign()` |
-| expected packets and map actions fixed | ✅ manifest carries the expected packet list |
+| expected packets and map actions fixed | ✅ manifest verifies expected packet bytes; it is not required to reconstruct a packet |
 | both receiver paths use the same packet/policy inputs | ✅ **tested**: mic and direct recover byte-identical packets |
+| Tier 2 carries the canonical packet contract | ✅ fragments contain complete Tier 1 canonical bytes, decoded independently after reassembly |
 | post-approval edits reset approval | ✅ `contentEdited()` returns approved-or-later to `draft` |
 
 An over-budget campaign is **reported** as over budget. It is never silently

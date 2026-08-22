@@ -1,8 +1,17 @@
+import type { CampaignState, IncidentState, WebRole } from '@dsm/contracts';
+
 export type SectionKey = 'coordinate' | 'publish' | 'campaigns' | 'network';
+
+export interface OperatorSession {
+  readonly operatorLabel: string;
+  readonly operationsKey: string;
+  readonly roles: readonly WebRole[];
+  readonly regionCode: 'IN-AS';
+}
 
 export interface Incident {
   readonly incidentId: string;
-  readonly state: string;
+  readonly state: IncidentState;
   readonly severity: number;
   readonly category: number;
   readonly peopleTotal?: number;
@@ -11,6 +20,7 @@ export interface Incident {
   readonly lonE7?: number;
   readonly locationAccuracyM?: number;
   readonly locationAgeS?: number;
+  readonly locationReportedAtS?: number;
   readonly updatedAtS: number;
   readonly observationCount: number;
   readonly assignmentId?: string;
@@ -27,7 +37,7 @@ export interface Responder {
   readonly provisionedByDemo: true;
   readonly assignmentId?: string;
   readonly incidentId?: string;
-  readonly status: string;
+  readonly status: 'available' | 'assigned' | 'accepted' | 'en-route' | 'arrived';
   readonly lastUpdatedAtMs: number;
 }
 
@@ -66,6 +76,7 @@ export interface Campaign {
   readonly instruction: number;
   readonly broadcastProgram?: BroadcastProgram;
   readonly decodeResult?: BroadcastDecodeResult;
+  readonly broadcastEvents?: readonly BroadcastEvent[];
   readonly preview: {
     readonly totalTier2Bytes: number;
     readonly totalDurationS: number;
@@ -83,6 +94,16 @@ export interface Campaign {
   };
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
+}
+
+export interface BroadcastEvent {
+  readonly eventId: string;
+  readonly event: 'exported' | 'played';
+  readonly programId: string;
+  readonly campaignVersion: number;
+  readonly artifactDigest: string;
+  readonly operatorLabel: string;
+  readonly atMs: number;
 }
 
 export interface BroadcastProgram {
@@ -109,8 +130,20 @@ export interface BroadcastDecodeResult {
   readonly reassembledDigest?: string;
   readonly receiverLabel: string;
   readonly receptionTransport: 'tier2-mic' | 'tier2-direct';
+  readonly mapOperations?: readonly DecodedMapOperation[];
   readonly decodedMessage?: DecodedBroadcastMessage;
   readonly testedAtMs: number;
+}
+
+export interface DecodedMapOperation {
+  readonly kind: string;
+  readonly causedByPacketId: string;
+  readonly transport: string;
+  readonly objectId?: string;
+  readonly state?: number | string;
+  readonly latE7?: number;
+  readonly lonE7?: number;
+  readonly temporary?: boolean;
 }
 
 export interface DecodedBroadcastMessage {
@@ -193,6 +226,7 @@ export interface GatewayAudit {
     readonly transport: string;
   }[];
   readonly outbound: readonly { readonly regionCode: string; readonly queued: number }[];
+  readonly transfers: readonly { readonly gatewayToken: string; readonly direction: 'upload' | 'download' | 'ack'; readonly regionCode: string; readonly itemCount: number; readonly atMs: number }[];
 }
 
 export interface Overview {

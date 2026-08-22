@@ -15,10 +15,11 @@ import { useRouter } from 'expo-router';
 import { useAppStore } from '@/store/useAppStore';
 import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { mobileController } from '@/src/services/mobile-controller';
 
 export default function ActiveSosScreen() {
   const router = useRouter();
-  const { setHasActiveSos } = useAppStore();
+  const { setHasActiveSos, activeIncidentId, distinctPeerReceipts } = useAppStore();
 
   const ShieldIcon = icons.shield;
   const AlertIcon = icons.alert;
@@ -28,7 +29,7 @@ export default function ActiveSosScreen() {
   const handleCancel = () => {
     Alert.alert('Cancel SOS', 'Are you sure?', [
       { text: 'No', style: 'cancel' },
-      { text: 'Yes', style: 'destructive', onPress: () => { setHasActiveSos(false); router.back(); } },
+      { text: 'Yes', style: 'destructive', onPress: () => { void mobileController.cancelSos().then(() => { setHasActiveSos(false); router.back(); }).catch((reason: unknown) => Alert.alert('Cancel failed', reason instanceof Error ? reason.message : String(reason))); } },
     ]);
   };
 
@@ -46,7 +47,7 @@ export default function ActiveSosScreen() {
         <Text style={{ color: '#FF3B30', fontSize: 24, fontWeight: '700', textAlign: 'center', marginBottom: 8 }}>ACTIVE SOS</Text>
         <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginBottom: 32 }}>
           <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#FF3B30', marginRight: 8 }} />
-          <Text style={{ color: '#AEAEB2', fontSize: 14 }}>Transmitting Data</Text>
+          <Text style={{ color: '#AEAEB2', fontSize: 14 }}>Stored locally · relay is opportunistic</Text>
         </View>
 
         {/* Timeline */}
@@ -55,28 +56,21 @@ export default function ActiveSosScreen() {
           <TimelineStep
             completed
             label="Saved locally"
-            detail="10:42 AM"
+            detail={activeIncidentId ?? 'Local incident ID unavailable'}
             isFirst
           />
 
           {/* Step 2 — Received by nearby devices ✓ */}
           <TimelineStep
-            completed
-            label="Received by nearby devices (12)"
-            detail="10:43 AM"
+            completed={distinctPeerReceipts > 0}
+            label={distinctPeerReceipts > 0 ? `Validated by ${distinctPeerReceipts} nearby phone${distinctPeerReceipts === 1 ? '' : 's'}` : 'No direct peer receipt observed yet'}
+            detail={distinctPeerReceipts > 0 ? 'This proves a nearby phone stored a copy, not that help is coming.' : 'The app cannot monitor copies after they leave this phone.'}
           />
 
           {/* Step 3 — Responder acknowledged — WAITING */}
           <TimelineStep
-            label="Responder acknowledged"
-            chipLabel="WAITING"
-            chipColor="#3A3A3C"
-          />
-
-          {/* Step 4 — Gateway/backend — QUEUED */}
-          <TimelineStep
-            label="Gateway/backend acknowledged"
-            chipLabel="QUEUED"
+            label="No responder acknowledgement observed"
+            chipLabel="UNKNOWN"
             chipColor="#3A3A3C"
             isLast
           />
@@ -86,10 +80,10 @@ export default function ActiveSosScreen() {
         <View style={{ alignItems: 'center', marginTop: 48 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
             <LocationIcon size={16} color="#AEAEB2" style={{ marginRight: 6 }} />
-            <Text style={{ color: '#AEAEB2', fontSize: 14 }}>Location age: 2m ago</Text>
+            <Text style={{ color: '#AEAEB2', fontSize: 14 }}>Location age is carried in each SOS packet when a fix is available.</Text>
           </View>
-          <TouchableOpacity onPress={() => Alert.alert('Location Updated', 'GPS coordinates refreshed.')}>
-            <Text style={{ color: '#a1d494', fontSize: 14, fontWeight: '600', textDecorationLine: 'underline' }}>Update Location</Text>
+          <TouchableOpacity onPress={() => router.push('/sos/composer')}>
+            <Text style={{ color: '#a1d494', fontSize: 14, fontWeight: '600', textDecorationLine: 'underline' }}>Create an SOS update</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

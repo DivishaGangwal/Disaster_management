@@ -5,6 +5,8 @@ build/
 .expo/
 .expo-shared/
 android/
+!native/android-radio-bridge/android/
+!native/android-radio-bridge/android/**
 ios/
 .env
 .env.local

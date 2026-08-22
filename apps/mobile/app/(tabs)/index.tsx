@@ -16,6 +16,7 @@ import { useRouter } from 'expo-router';
 import { useAppStore } from '@/store/useAppStore';
 import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { mobileController } from '@/src/services/mobile-controller';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SOS_SIZE = Math.min(SCREEN_WIDTH * 0.7, 280);
@@ -25,17 +26,25 @@ export default function HomeScreen() {
   const {
     role,
     hasActiveSos,
-    setHasActiveSos,
     relayActive,
     peersRecentlySeen,
     internetState,
+    batteryPercent,
+    batteryTemperatureC,
+    thermalState,
+    selectedRadio,
   } = useAppStore();
 
   const ShieldIcon = icons.shield;
   const AlertIcon = icons.alert;
 
-  const handleSendSos = () => {
-    setHasActiveSos(true);
+  const handleSendSos = async () => {
+    try {
+      await mobileController.sendRapidSos();
+      router.push('/sos/active');
+    } catch (reason) {
+      Alert.alert('SOS not saved', reason instanceof Error ? reason.message : String(reason));
+    }
   };
 
   return (
@@ -60,9 +69,12 @@ export default function HomeScreen() {
       </View>
 
       {/* Status strip */}
-      <View style={{ flexDirection: 'row', paddingHorizontal: 20, paddingVertical: 10, gap: 16 }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 20, paddingVertical: 10, gap: 16 }}>
         <StatusChip label="RELAY" value={relayActive ? 'ON' : 'OFF'} color={relayActive ? '#a1d494' : '#AEAEB2'} />
-        <StatusChip label="PEERS" value={String(peersRecentlySeen)} color="#a1d494" />
+        <StatusChip label="LINK" value={`${selectedRadio} · ${peersRecentlySeen}`} color={relayActive ? '#a1d494' : '#AEAEB2'} />
+        <StatusChip label="BATTERY" value={batteryPercent === undefined ? '—' : `${batteryPercent}%`} color={batteryPercent !== undefined && batteryPercent < 20 ? '#FFD60A' : '#a1d494'} />
+        <StatusChip label="TEMP" value={batteryTemperatureC === undefined ? '—' : `${batteryTemperatureC.toFixed(1)}°C`} color="#a1d494" />
+        <StatusChip label="THERMAL" value={thermalState.toUpperCase()} color={thermalState === 'limited' ? '#FFD60A' : '#a1d494'} />
         <StatusChip label="NET" value={internetState === 'proven gateway' ? 'GW' : internetState.toUpperCase()} color={internetState === 'proven gateway' ? '#a1d494' : '#FFD60A'} />
       </View>
 

@@ -9,13 +9,16 @@
  */
 
 import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAppStore } from '@/store/useAppStore';
 
 export default function ResourceDetailScreen() {
   const router = useRouter();
+  const { mapObjects, selectedMapObjectId } = useAppStore();
+  const object = mapObjects.find((item) => item.objectId === selectedMapObjectId);
 
   const ArrowLeftIcon = icons.arrowLeft;
   const NavigationIcon = icons.navigation;
@@ -37,14 +40,14 @@ export default function ResourceDetailScreen() {
       <ScrollView style={{ flex: 1, padding: 20 }} contentContainerStyle={{ paddingBottom: 100 }}>
         {/* Type + Name + Status */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-          <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>EMERGENCY SHELTER</Text>
+          <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>{object?.kind.toUpperCase() ?? 'NO LOCAL RECORD'}</Text>
           <View style={{ backgroundColor: '#2D5A27', paddingHorizontal: 12, paddingVertical: 4 }}>
-            <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>OPEN</Text>
+            <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>{object?.state === undefined ? 'UNKNOWN' : String(object.state)}</Text>
           </View>
         </View>
-        <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700', marginBottom: 8 }}>CENTRAL SHELTER</Text>
+        <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700', marginBottom: 8 }}>{object?.label ?? 'No object selected'}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24 }}>
-          <Text style={{ color: '#AEAEB2', fontSize: 13 }}>⏱ Last updated: 5m ago</Text>
+          <Text style={{ color: '#AEAEB2', fontSize: 13 }}>⏱ {object ? `Packet time ${ageLabel(object.asOfS)} · ${object.provenance}` : 'No packet evidence'}</Text>
         </View>
 
         {/* Capacity card with green left bar */}
@@ -57,13 +60,12 @@ export default function ResourceDetailScreen() {
                 <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>CAPACITY</Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                <Text style={{ color: '#FFFFFF', fontSize: 32, fontWeight: '700' }}>45</Text>
-                <Text style={{ color: '#AEAEB2', fontSize: 14 }}> / 100 BEDS</Text>
+                <Text style={{ color: '#FFFFFF', fontSize: 20, fontWeight: '700' }}>NOT SUPPLIED</Text>
               </View>
             </View>
             <View style={{ borderTopWidth: 1, borderTopColor: '#3A3A3C', paddingTop: 12, flexDirection: 'row', alignItems: 'center' }}>
               <AlertIcon size={16} color="#AEAEB2" style={{ marginRight: 8 }} />
-              <Text style={{ color: '#AEAEB2', fontSize: 14, flex: 1 }}>Medical personnel on site. Power available via backup generator.</Text>
+              <Text style={{ color: '#AEAEB2', fontSize: 14, flex: 1 }}>No capacity or facility claim is shown unless it is present in a validated packet.</Text>
             </View>
           </View>
         </View>
@@ -78,7 +80,7 @@ export default function ResourceDetailScreen() {
             </View>
           </View>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderTopWidth: 1, borderTopColor: '#3A3A3C' }}>
-            <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>1.2 MILES AWAY</Text>
+            <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>{coordinateLabel(object?.latE7, object?.lonE7)}</Text>
             <NavigationIcon size={18} color="#AEAEB2" />
           </View>
         </View>
@@ -87,7 +89,7 @@ export default function ResourceDetailScreen() {
       {/* Bottom navigate button */}
       <View style={{ padding: 20, backgroundColor: '#000000', borderTopWidth: 1, borderTopColor: '#3A3A3C' }}>
         <TouchableOpacity
-          onPress={() => {}}
+          onPress={() => Alert.alert('Map renderer deferred', 'The validated coordinate is stored locally. Turn-by-turn map rendering is the one deferred implementation.')}
           style={{ backgroundColor: '#2D5A27', paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', borderWidth: 1, borderColor: '#2D5A27' }}
         >
           <Text style={{ color: '#FFFFFF', fontSize: 18, marginRight: 8 }}>△</Text>
@@ -97,3 +99,6 @@ export default function ResourceDetailScreen() {
     </SafeAreaView>
   );
 }
+
+function ageLabel(asOfS: number) { const age = Math.max(0, Math.round(Date.now() / 1000) - asOfS); return age < 60 ? 'just now' : `${Math.floor(age / 60)}m ago`; }
+function coordinateLabel(latE7?: number, lonE7?: number) { return latE7 === undefined || lonE7 === undefined ? 'NO COORDINATE IN PACKET' : `${(latE7 / 1e7).toFixed(5)}, ${(lonE7 / 1e7).toFixed(5)}`; }

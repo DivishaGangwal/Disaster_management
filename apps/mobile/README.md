@@ -5,8 +5,8 @@ trips people up:
 
 | Runtime | Transport | What you can build |
 |---|---|---|
-| **Stock Expo Go** | `simulated` | Every screen, all navigation, the offline map, SOS creation, incident timelines, policy/diagnostics output. No Android build needed. |
-| **Expo development build** | `native-ble` | The judged runtime. Real BLE advertise/scan/GATT, foreground relay service, ggwave microphone. |
+| **Stock Expo Go** | `simulated` | All routes, navigation, SOS creation, SQLite state, projected-object list and diagnostics. The graphical map stays a placeholder. |
+| **Expo development build** | `native-ble` or `native-classic` | The judged Tier 1 runtime. BLE is preferred; Classic is selected when BLE roles are unavailable. Includes the foreground relay service. |
 
 Both drive the identical `NodeEngine`. The only thing that changes is which
 `TransportAdapter` gets injected in `src/services/app-runtime.ts`.
@@ -29,6 +29,13 @@ cd apps/mobile && npm install && npx expo start
 ```bash
 cd apps/mobile && npx expo prebuild --platform android && npx expo run:android
 ```
+
+Set `EXPO_PUBLIC_DSM_BACKEND_URL` to the coordination backend origin to enable
+the live-probed mesh-to-network and network-to-mesh gateway cycle.
+
+The admin web console implements ggwave microphone and WAV-file reception. The
+Android on-phone PCM decoder is not implemented and the Tier 2 screen says so;
+do not describe the phone as acoustically listening until that adapter exists.
 
 ## Rules for this app
 

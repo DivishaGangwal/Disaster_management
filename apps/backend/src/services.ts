@@ -42,6 +42,14 @@ export interface GatewayObservation {
   readonly transport: string;
 }
 
+export interface GatewayTransfer {
+  readonly gatewayToken: string;
+  readonly direction: 'upload' | 'download' | 'ack';
+  readonly regionCode: string;
+  readonly itemCount: number;
+  readonly atMs: number;
+}
+
 export class BackendStore {
   /** One canonical packet per ID. */
   readonly packets = new Map<PacketId, StoredCanonicalPacket>();
@@ -54,6 +62,7 @@ export class BackendStore {
   readonly outbound = new Map<string, { packetId: PacketId; bytes: Uint8Array; seq: number }[]>();
   protected outboundSeq = 0;
   readonly gatewayTokens = new Map<string, { nodeToken: string; regionCode: string }>();
+  readonly gatewayTransfers: GatewayTransfer[] = [];
 
   isDuplicateBatch(batchId: string): boolean {
     return this.seenBatches.has(batchId);
@@ -71,6 +80,12 @@ export class BackendStore {
 
   addObservation(observation: GatewayObservation): void {
     this.observations.push(observation);
+    this.changed();
+  }
+
+  recordGatewayTransfer(transfer: GatewayTransfer): void {
+    this.gatewayTransfers.unshift(transfer);
+    if (this.gatewayTransfers.length > 500) this.gatewayTransfers.length = 500;
     this.changed();
   }
 
@@ -105,6 +120,7 @@ export class BackendStore {
       })),
       outboundSeq: this.outboundSeq,
       gatewayTokens: [...this.gatewayTokens.entries()],
+      gatewayTransfers: this.gatewayTransfers,
     };
   }
 
@@ -114,6 +130,7 @@ export class BackendStore {
     this.seenBatches.clear();
     this.outbound.clear();
     this.gatewayTokens.clear();
+    this.gatewayTransfers.splice(0);
     this.incidents = new IncidentReducer();
     for (const packet of snapshot.packets) {
       const { bytesBase64, ...rest } = packet;
@@ -135,6 +152,7 @@ export class BackendStore {
     }
     this.outboundSeq = snapshot.outboundSeq;
     for (const [token, value] of snapshot.gatewayTokens) this.gatewayTokens.set(token, value);
+    this.gatewayTransfers.push(...(snapshot.gatewayTransfers ?? []));
   }
 
   readOutbound(regionCode: string, cursor: string | undefined, max: number) {

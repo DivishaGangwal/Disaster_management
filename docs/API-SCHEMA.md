@@ -11,6 +11,11 @@ Content type: `application/json` on every endpoint.
 Binary packets travel as **base64** in a `bytesBase64` field — never as raw JSON
 objects. The canonical bytes are the source of truth, not any JSON rendering.
 
+Administrative `/api` mutations require `x-operations-key` and
+`x-operator-label`. `POST /api/session` validates those headers and returns the
+integrated authority-publisher, coordinator and radio-broadcaster session.
+Gateway protocol endpoints keep their separate gateway-token contract.
+
 Status legend: ✅ implemented · 🟡 partial · ❌ planned
 
 ---
@@ -216,7 +221,8 @@ campaign counts plus recent audit entries.
 
 ### `GET /api/packets` ✅
 
-Returns the live canonical read model used by Packet Network. Each item includes
+Returns the stored canonical read model used by Packet Network. This is locally
+observed backend evidence, not a live or global packet tracker. Each item includes
 packet, type and source identity; family, priority, severity and flags; hop and
 fragment facts; digest and expiry; decoded payload; gateway observations;
 outbound regions; and both base64 and exact hexadecimal bytes. Its direction is
@@ -236,21 +242,37 @@ derived from recorded evidence rather than invented topology.
 
 ### `POST /api/responders/:ref/assign` ✅
 ```json
-{ "incidentId": "INC-7A2C", "dispatcherLabel": "Assam Operations Coordinator" }
+{ "incidentId": "INC-7A2C" }
 ```
 → `{ "responder": { "responderRef": "RSP-AS-01", "assignmentId": "ASG-…", "incidentId": "INC-…", "status": "assigned" } }`
 
 Emits a `RESPONDER_ASSIGNED` packet onto the outbound queue. State changes
 happen **by emitting packets**, never by mutating history invisibly.
 
+### `POST /api/responders/:ref/state` ✅
+
+Body: `{ "action": "accepted|en-route|arrived|resolved" }`. Each legal action
+emits the matching responder-provisioned packet, advances the incident reducer,
+and records the authenticated operator who entered the field report. Illegal
+state shortcuts are rejected.
+
 ### `GET /api/region/IN-AS/records` ✅
 
 Returns the prepared Assam operational register. The current records remain
 development data until Workstream D supplies a sourced and licensed pack.
 
+### `POST /api/region/IN-AS/records` ✅
+
+Creates a temporary shelter, medical post, food/water point or safe zone. Body:
+`{ "kind", "name", "district", "latE7", "lonE7", "state" }`. The backend
+assigns a stable temporary object ID and emits the same canonical regional
+packet consumed by gateway, Tier 1 and Tier 2 projection paths.
+
 ### `POST /api/region/IN-AS/records/:objectId` ✅
 
-Body: `{ "state": "open|full|closed|damaged|active|watch|cleared|restricted|blocked" }`.
+Body may contain only `{ "state": "open|full|closed|damaged|active|watch|cleared|restricted|blocked" }`
+or a full edit with `kind`, `name`, `district`, `latE7`, `lonE7` and `state` to
+move or rename the object.
 The backend emits the appropriate resource, hazard, or route packet using the
 stable compact object ID.
 
@@ -282,17 +304,15 @@ Body: `{ "state": "validated|approved|broadcaster-ready|..." }`. The backend
 enforces `CAMPAIGN_TRANSITIONS`; approval fails if content changed after
 validation.
 
-### `GET /api/campaigns/:id/preview` 🟡
+### `GET /api/campaigns/:id/preview` ✅
 
-Preview data is currently returned inside each campaign record rather than by a
-separate endpoint.
+Returns the immutable calculated preview for the current campaign version.
 ```json
 { "totalTier2Bytes": 1840, "totalDurationS": 115,
   "budgetS": 180, "overBudget": false,
   "items": [{ "packetId": "…", "tier1Bytes": 121, "tier2Bytes": 69,
               "frameCount": 1, "repeats": 3, "estimatedAudioMs": 4313 }] }
 ```
-Already computable — `planCampaign()` returns exactly this (WEB-005).
 An over-budget campaign reports `overBudget: true`; it is never silently
 truncated.
 
@@ -305,15 +325,24 @@ records a SHA-256 artifact digest, and advances `broadcaster-ready` to
 
 ### `POST /api/campaigns/:id/broadcast-reception` ✅
 
-Body: `{ "framesBase64": ["..."], "receiverLabel": "Browser receiving station" }`.
+Body: `{ "framesBase64": ["..."], "receptionTransport": "tier2-mic|tier2-direct" }`.
 Each recovered frame is decoded through the Tier 2 CRC gate and compared with
 the exact program frame set. A complete match persists `passed: true` and
 advances `audio-generated` to `decode-tested`; incomplete/corrupt input leaves
 the campaign at `audio-generated`.
 
+### `POST /api/campaigns/:id/broadcast-events` ✅
+
+Body: `{ "event": "exported|played" }`. Export requires a passed exact decode
+test and records/schedules the tested artifact. Playback additionally requires
+the campaign to be scheduled. Every event persists the program ID, campaign
+version, artifact digest, authenticated operator and timestamp; playback then
+advances the campaign to `played`.
+
 ### `GET /api/gateway-audit` ✅ · `GET /api/audit` ✅
 
-Return gateway/observation/outbound evidence and the append-only operations log.
+Return per-gateway upload/download/ack history, packet observations,
+region-bounded outbound queues, and the append-only operations log.
 
 ### `POST /api/demo/reset` ✅
 Controlled non-production only. Restores deterministic synthetic Assam

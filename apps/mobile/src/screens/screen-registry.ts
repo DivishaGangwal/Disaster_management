@@ -39,7 +39,7 @@ export const SCREENS: readonly ScreenSpec[] = [
       'whether the transport is SIMULATED or native (DEC-004, working rule 11)',
       'a prominent route to Home even when permissions are incomplete',
     ],
-    status: 'scaffold',
+    status: 'complete',
   },
   {
     route: 'Home',
@@ -56,7 +56,7 @@ export const SCREENS: readonly ScreenSpec[] = [
       'offline map entry',
       'NO generic "Connected" label -- say what is connected',
     ],
-    status: 'scaffold',
+    status: 'partial',
   },
   {
     route: 'SosComposer',
@@ -71,7 +71,7 @@ export const SCREENS: readonly ScreenSpec[] = [
       'confirmation of what will be shared locally',
       'creation must succeed with NO location and NO internet',
     ],
-    status: 'scaffold',
+    status: 'complete',
   },
   {
     route: 'ActiveSos',
@@ -88,7 +88,7 @@ export const SCREENS: readonly ScreenSpec[] = [
       'location age and an update-location action',
       'a relay copy is NEVER described as "help is coming" (use DELIVERY_STATE_COPY)',
     ],
-    status: 'scaffold',
+    status: 'partial',
   },
   {
     route: 'Map',
@@ -101,7 +101,7 @@ export const SCREENS: readonly ScreenSpec[] = [
       'detail sheet: source category, last update, location quality, state, action',
       'a LIST equivalent for accessibility and low-performance devices',
     ],
-    status: 'scaffold',
+    status: 'partial',
   },
   {
     route: 'NearbyIncidents',
@@ -111,7 +111,7 @@ export const SCREENS: readonly ScreenSpec[] = [
       'General Public: the configured MINIMAL public view only',
       'Responder: sort by severity ONLY',
     ],
-    status: 'scaffold',
+    status: 'complete',
   },
   {
     route: 'ResponderIncident',
@@ -127,7 +127,7 @@ export const SCREENS: readonly ScreenSpec[] = [
       'resolve with a reason, or escalate/reopen where the demo workflow allows',
       'every transition produces a compact state packet',
     ],
-    status: 'scaffold',
+    status: 'complete',
   },
   {
     route: 'ResourceDetail',
@@ -143,7 +143,7 @@ export const SCREENS: readonly ScreenSpec[] = [
       'whether the value came from base pack, Tier 1, Tier 2, or gateway',
       'superseded / stale warning',
     ],
-    status: 'scaffold',
+    status: 'complete',
   },
   {
     route: 'RelayStatus',
@@ -159,7 +159,7 @@ export const SCREENS: readonly ScreenSpec[] = [
       'last upload / last download',
       'battery mode',
     ],
-    status: 'scaffold',
+    status: 'partial',
   },
 
   {
@@ -173,7 +173,7 @@ export const SCREENS: readonly ScreenSpec[] = [
       'packets recovered versus the expected manifest',
       'resulting alerts and map actions',
     ],
-    status: 'scaffold',
+    status: 'partial',
   },
   {
     route: 'Diagnostics',
@@ -188,7 +188,7 @@ export const SCREENS: readonly ScreenSpec[] = [
       'resulting map or incident action',
       'kept separable from the normal citizen experience',
     ],
-    status: 'scaffold',
+    status: 'complete',
   },
   {
     route: 'Profile',
@@ -198,7 +198,7 @@ export const SCREENS: readonly ScreenSpec[] = [
       'update district/region setting',
       'trigger download of new offline map/content pack for selected region',
     ],
-    status: 'scaffold',
+    status: 'partial',
   },
 ];
 

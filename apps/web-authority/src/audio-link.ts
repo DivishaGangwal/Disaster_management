@@ -24,6 +24,7 @@ export class Tier2AudioLink {
   private stream?: MediaStream;
   private source?: MediaStreamAudioSourceNode;
   private processor?: ScriptProcessorNode;
+  private transmissionToken = 0;
 
   constructor(private readonly options: AudioLinkOptions = {}) {}
 
@@ -61,10 +62,13 @@ export class Tier2AudioLink {
   async transmit(frames: readonly Uint8Array[], profile: AudioProfile, onProgress?: (sent: number, total: number) => void): Promise<void> {
     await this.init();
     this.stopListening();
+    const token = ++this.transmissionToken;
     this.options.onState?.('transmitting');
     try {
       for (let index = 0; index < frames.length; index += 1) {
+        if (token !== this.transmissionToken) return;
         await this.audio!.play(this.transport.encode(frames[index]!, profile));
+        if (token !== this.transmissionToken) return;
         onProgress?.(index + 1, frames.length);
         if (index < frames.length - 1) await delay(FRAME_GAP_MS);
       }
@@ -131,6 +135,7 @@ export class Tier2AudioLink {
   }
 
   stopTransmission(): void {
+    this.transmissionToken += 1;
     this.audio?.stop();
   }
 

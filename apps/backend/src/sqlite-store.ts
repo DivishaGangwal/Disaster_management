@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { BackendStore } from './services.js';
 import { IncidentReducer } from '@dsm/incident';
+import type { MapOperation } from '@dsm/contracts';
 
 export interface ResponderRecord {
   readonly responderRef: string;
@@ -13,7 +14,7 @@ export interface ResponderRecord {
   readonly provisionedByDemo: true;
   readonly assignmentId?: string;
   readonly incidentId?: string;
-  readonly status: 'available' | 'assigned' | 'en-route' | 'arrived';
+  readonly status: 'available' | 'assigned' | 'accepted' | 'en-route' | 'arrived';
   readonly lastUpdatedAtMs: number;
 }
 
@@ -56,6 +57,7 @@ export interface CampaignRecord {
   readonly instruction: number;
   readonly broadcastProgram?: BroadcastProgramRecord;
   readonly decodeResult?: BroadcastDecodeResult;
+  readonly broadcastEvents?: readonly BroadcastEventRecord[];
   readonly preview: {
     readonly totalTier2Bytes: number;
     readonly totalDurationS: number;
@@ -73,6 +75,16 @@ export interface CampaignRecord {
   };
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
+}
+
+export interface BroadcastEventRecord {
+  readonly eventId: string;
+  readonly event: 'exported' | 'played';
+  readonly programId: string;
+  readonly campaignVersion: number;
+  readonly artifactDigest: string;
+  readonly operatorLabel: string;
+  readonly atMs: number;
 }
 
 export interface BroadcastProgramRecord {
@@ -100,6 +112,8 @@ export interface BroadcastDecodeResult {
   readonly reassembledDigest?: string;
   readonly receiverLabel: string;
   readonly receptionTransport: 'tier2-mic' | 'tier2-direct';
+  /** Typed operations derived from the recovered bytes, never from the draft. */
+  readonly mapOperations?: readonly MapOperation[];
   readonly decodedMessage?: {
     readonly packetId: string;
     readonly messageType: number;
@@ -215,6 +229,7 @@ export class SqliteBackendStore extends BackendStore {
     this.seenBatches.clear();
     this.outbound.clear();
     this.gatewayTokens.clear();
+    this.gatewayTransfers.splice(0);
     this.outboundSeq = 0;
     this.incidents = new IncidentReducer();
     this.responders.clear();

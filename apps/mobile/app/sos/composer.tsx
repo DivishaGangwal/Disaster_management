@@ -13,6 +13,7 @@ import { useRouter } from 'expo-router';
 import { useAppStore } from '@/store/useAppStore';
 import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { mobileController } from '@/src/services/mobile-controller';
 
 const categories = ['Medical Emergency', 'Fire', 'Flood', 'Earthquake', 'Landslide', 'Cyclone', 'Building Collapse', 'Chemical/Gas', 'Violence', 'Other'];
 const mobilityOptions = ['Mobile (Can walk)', 'Limited mobility', 'Immobile', 'Trapped', 'Unknown'];
@@ -44,11 +45,27 @@ export default function SosComposerScreen() {
   const BroadcastIcon = icons.relay;
   const ChevronIcon = icons.chevronDown;
 
-  const handleConfirm = () => {
-    setHasActiveSos(true);
-    Alert.alert('SOS Updated', 'Packet created locally and queued for relay.', [
-      { text: 'VIEW TIMELINE', onPress: () => router.replace('/sos/active') },
-    ]);
+  const handleConfirm = async () => {
+    const categoryWire = [0, 2, 3, 7, 7, 7, 5, 7, 4, 7];
+    const mobilityWire = [1, 2, 3, 4, 0];
+    const languageTags = ['en', 'hi', 'mr', 'as'];
+    try {
+      await mobileController.saveSos({
+        category: categoryWire[selectedCategory] ?? 7,
+        severity,
+        peopleTotal: peopleCount,
+        injured: injuredCount,
+        mobility: mobilityWire[mobilityIdx] ?? 0,
+        shortNote: note.trim() || undefined,
+        language: languageTags[langIdx] ?? 'en',
+      });
+      setHasActiveSos(true);
+      Alert.alert('SOS saved', 'Saved on this phone and eligible for nearby relay.', [
+        { text: 'VIEW TIMELINE', onPress: () => router.replace('/sos/active') },
+      ]);
+    } catch (reason) {
+      Alert.alert('SOS not saved', reason instanceof Error ? reason.message : String(reason));
+    }
   };
 
   return (

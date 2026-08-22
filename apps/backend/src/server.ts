@@ -13,12 +13,13 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
-import { GATEWAY } from '@dsm/contracts';
+import { CAMPAIGN_TRANSITIONS, GATEWAY, type CampaignState } from '@dsm/contracts';
 import { BackendStore, IngestService, IncidentQueryService, OutboundService } from './services.js';
 import { OperationsService, type CampaignCreateInput } from './operations.js';
-import { ASSAM_SEED_VERSION, seedAssamDemo } from './demo-seed.js';
+import { ASSAM_SEED_VERSION, ensureAssamDemoPopulation, seedAssamDemo } from './demo-seed.js';
 import { SqliteBackendStore } from './sqlite-store.js';
 
 export const BACKEND_IDENTITY = 'dsm-backend-demo-v1';
@@ -29,6 +30,7 @@ export interface ServerOptions {
   readonly databasePath?: string;
   readonly seed?: boolean;
   readonly staticDir?: string;
+  readonly operationsKey?: string;
 }
 
 export function createBackend(options: ServerOptions = {}) {
@@ -38,8 +40,12 @@ export function createBackend(options: ServerOptions = {}) {
   const outbound = new OutboundService(store);
   const sqliteStore = store instanceof SqliteBackendStore ? store : undefined;
   const operations = sqliteStore ? new OperationsService(sqliteStore, ingest, outbound) : undefined;
+  const demoMode = process.env['DSM_DEMO_MODE'] !== 'false';
+  const operationsKey = options.operationsKey ?? process.env['DSM_OPERATIONS_KEY'] ?? (demoMode ? 'assam-operations-demo' : '');
   if (sqliteStore && (options.seed ?? true) && sqliteStore.responders.size === 0 && sqliteStore.packets.size === 0) {
     seedAssamDemo(sqliteStore, ingest);
+  } else if (sqliteStore && (options.seed ?? true) && demoMode) {
+    ensureAssamDemoPopulation(sqliteStore, ingest);
   }
   const staticDir = options.staticDir ?? resolve(process.cwd(), 'apps', 'web-authority', 'dist');
 
@@ -60,6 +66,12 @@ export function createBackend(options: ServerOptions = {}) {
     // --- live probe (GTW-001) --------------------------------------------
     if (path === '/health') {
       return send(res, 200, { identity: BACKEND_IDENTITY, atMs: Date.now() });
+    }
+
+    if (path === '/api/session' && req.method === 'POST') {
+      const operatorLabel = authorizeOperations(req, operationsKey);
+      if (!operatorLabel) return send(res, 401, { error: 'A valid operations key and operator name are required.' });
+      return send(res, 200, { operatorLabel, roles: ['authority-publisher', 'coordinator', 'radio-broadcaster'], regionCode: 'IN-AS' });
     }
 
     if (path === '/gateway/register') {
@@ -89,6 +101,7 @@ export function createBackend(options: ServerOptions = {}) {
         },
         Date.now(),
       );
+      store.recordGatewayTransfer({ gatewayToken: String(body['gatewayToken'] ?? ''), direction: 'upload', regionCode: store.gatewayTokens.get(String(body['gatewayToken'] ?? ''))?.regionCode ?? 'UNKNOWN', itemCount: items.length, atMs: Date.now() });
       return send(res, 200, response);
     }
 
@@ -101,6 +114,7 @@ export function createBackend(options: ServerOptions = {}) {
         body['cursor'] ? String(body['cursor']) : undefined,
         Math.min(Number(body['maxItems'] ?? GATEWAY.MAX_DOWNLOAD_BATCH), GATEWAY.MAX_DOWNLOAD_BATCH),
       );
+      store.recordGatewayTransfer({ gatewayToken: String(body['gatewayToken'] ?? ''), direction: 'download', regionCode: String(body['regionCode'] ?? ''), itemCount: page.items.length, atMs: Date.now() });
       return send(res, 200, {
         items: page.items.map((item) => ({
           packetId: item.packetId,
@@ -113,7 +127,8 @@ export function createBackend(options: ServerOptions = {}) {
 
     if (path === '/gateway/outbound/ack') {
       if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' });
-      await readJson(req);
+      const body = await readJson(req);
+      store.recordGatewayTransfer({ gatewayToken: String(body['gatewayToken'] ?? ''), direction: 'ack', regionCode: store.gatewayTokens.get(String(body['gatewayToken'] ?? ''))?.regionCode ?? 'UNKNOWN', itemCount: Array.isArray(body['packetIds']) ? body['packetIds'].length : 0, atMs: Date.now() });
       // The cursor is client-held; acking is what makes advancing it safe.
       return send(res, 200, { ok: true });
     }
@@ -142,13 +157,34 @@ export function createBackend(options: ServerOptions = {}) {
     const assignMatch = path.match(/^\/api\/responders\/([^/]+)\/assign$/);
     if (assignMatch && req.method === 'POST') {
       if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
+      const operatorLabel = authorizeOperations(req, operationsKey);
+      if (!operatorLabel) return send(res, 401, { error: 'Operator session required.' });
       const body = await readJson(req);
       const responder = operations.assignResponder(
         decodeURIComponent(assignMatch[1]!),
         String(body['incidentId'] ?? ''),
-        String(body['dispatcherLabel'] ?? 'Assam Operations Coordinator'),
+        operatorLabel,
       );
       return send(res, 200, { responder });
+    }
+
+    const responderStateMatch = path.match(/^\/api\/responders\/([^/]+)\/state$/);
+    if (responderStateMatch && req.method === 'POST') {
+      if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
+      const operatorLabel = authorizeOperations(req, operationsKey);
+      if (!operatorLabel) return send(res, 401, { error: 'Operator session required.' });
+      const body = await readJson(req);
+      const action = body['action'];
+      if (!['accepted', 'en-route', 'arrived', 'resolved'].includes(String(action))) {
+        return send(res, 400, { error: 'Invalid responder action.' });
+      }
+      return send(res, 200, {
+        responder: operations.updateResponderState(
+          decodeURIComponent(responderStateMatch[1]!),
+          action as 'accepted' | 'en-route' | 'arrived' | 'resolved',
+          operatorLabel,
+        ),
+      });
     }
 
     if ((path === '/api/region/IN-AS/records' || path === '/api/region/IN-AS-DEMO/records') && req.method === 'GET') {
@@ -156,13 +192,26 @@ export function createBackend(options: ServerOptions = {}) {
       return send(res, 200, { records: operations.listRegionalRecords() });
     }
 
+    if ((path === '/api/region/IN-AS/records' || path === '/api/region/IN-AS-DEMO/records') && req.method === 'POST') {
+      if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
+      if (!authorizeOperations(req, operationsKey)) return send(res, 401, { error: 'Operator session required.' });
+      const body = await readJson(req);
+      return send(res, 201, { record: operations.upsertRegionalCentre(regionalRecordInput(body)) });
+    }
+
     const regionalMatch = path.match(/^\/api\/region\/(?:IN-AS|IN-AS-DEMO)\/records\/([^/]+)$/);
     if (regionalMatch && req.method === 'POST') {
       if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
+      if (!authorizeOperations(req, operationsKey)) return send(res, 401, { error: 'Operator session required.' });
       const body = await readJson(req);
-      return send(res, 200, {
-        record: operations.updateRegionalRecord(decodeURIComponent(regionalMatch[1]!), String(body['state'] ?? 'unknown')),
-      });
+      const objectId = decodeURIComponent(regionalMatch[1]!);
+      const hasLocationOrIdentity = ['kind', 'name', 'district', 'latE7', 'lonE7'].some((key) => body[key] !== undefined);
+      const current = operations.listRegionalRecords().find((record) => record.objectId === objectId);
+      if (hasLocationOrIdentity) {
+        if (!current) return send(res, 404, { error: 'unknown regional object' });
+        return send(res, 200, { record: operations.upsertRegionalCentre(regionalRecordInput({ ...current, ...body, objectId })) });
+      }
+      return send(res, 200, { record: operations.updateRegionalRecord(objectId, String(body['state'] ?? 'unknown')) });
     }
 
     if (path === '/api/campaigns' && req.method === 'GET') {
@@ -177,6 +226,7 @@ export function createBackend(options: ServerOptions = {}) {
 
     if (path === '/api/campaigns' && req.method === 'POST') {
       if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
+      if (!authorizeOperations(req, operationsKey)) return send(res, 401, { error: 'Operator session required.' });
       const body = await readJson(req);
       return send(res, 201, { campaign: operations.createCampaign(campaignInput(body)) });
     }
@@ -184,28 +234,40 @@ export function createBackend(options: ServerOptions = {}) {
     const campaignMatch = path.match(/^\/api\/campaigns\/([^/]+)$/);
     if (campaignMatch && req.method === 'PUT') {
       if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
+      if (!authorizeOperations(req, operationsKey)) return send(res, 401, { error: 'Operator session required.' });
       const body = await readJson(req);
       return send(res, 200, { campaign: operations.updateCampaign(decodeURIComponent(campaignMatch[1]!), campaignInput(body)) });
+    }
+
+    const previewMatch = path.match(/^\/api\/campaigns\/([^/]+)\/preview$/);
+    if (previewMatch && req.method === 'GET') {
+      if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
+      return send(res, 200, { preview: operations.campaignPreview(decodeURIComponent(previewMatch[1]!)) });
     }
 
     const transitionMatch = path.match(/^\/api\/campaigns\/([^/]+)\/transition$/);
     if (transitionMatch && req.method === 'POST') {
       if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
+      if (!authorizeOperations(req, operationsKey)) return send(res, 401, { error: 'Operator session required.' });
       const body = await readJson(req);
+      if (!isCampaignState(body['state'])) return send(res, 400, { error: 'Invalid campaign state.' });
       return send(res, 200, {
-        campaign: operations.transitionCampaign(decodeURIComponent(transitionMatch[1]!), String(body['state'] ?? 'draft') as never),
+        campaign: operations.transitionCampaign(decodeURIComponent(transitionMatch[1]!), body['state']),
       });
     }
 
     const programMatch = path.match(/^\/api\/campaigns\/([^/]+)\/broadcast-program$/);
     if (programMatch && req.method === 'POST') {
       if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
+      if (!authorizeOperations(req, operationsKey)) return send(res, 401, { error: 'Operator session required.' });
       return send(res, 200, { campaign: operations.prepareBroadcastProgram(decodeURIComponent(programMatch[1]!)) });
     }
 
     const receptionMatch = path.match(/^\/api\/campaigns\/([^/]+)\/broadcast-reception$/);
     if (receptionMatch && req.method === 'POST') {
       if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
+      const operatorLabel = authorizeOperations(req, operationsKey);
+      if (!operatorLabel) return send(res, 401, { error: 'Operator session required.' });
       const body = await readJson(req);
       const frames = Array.isArray(body['framesBase64'])
         ? body['framesBase64'].filter((value): value is string => typeof value === 'string')
@@ -214,9 +276,22 @@ export function createBackend(options: ServerOptions = {}) {
         campaign: operations.verifyBroadcastReception(
           decodeURIComponent(receptionMatch[1]!),
           frames,
-          String(body['receiverLabel'] ?? 'Web receiving station'),
+          operatorLabel,
           body['receptionTransport'] === 'tier2-mic' ? 'tier2-mic' : 'tier2-direct',
         ),
+      });
+    }
+
+    const broadcastEventMatch = path.match(/^\/api\/campaigns\/([^/]+)\/broadcast-events$/);
+    if (broadcastEventMatch && req.method === 'POST') {
+      if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
+      const operatorLabel = authorizeOperations(req, operationsKey);
+      if (!operatorLabel) return send(res, 401, { error: 'Operator session required.' });
+      const body = await readJson(req);
+      const event = body['event'];
+      if (event !== 'exported' && event !== 'played') return send(res, 400, { error: 'Invalid broadcast event.' });
+      return send(res, 200, {
+        campaign: operations.recordBroadcastEvent(decodeURIComponent(broadcastEventMatch[1]!), event, operatorLabel),
       });
     }
 
@@ -224,6 +299,7 @@ export function createBackend(options: ServerOptions = {}) {
       return send(res, 200, {
         gateways: [...store.gatewayTokens.entries()].map(([gatewayToken, value]) => ({ gatewayToken, ...value })),
         observations: store.observations.slice(-100).reverse(),
+        transfers: store.gatewayTransfers.slice(0, 200),
         outbound: [...store.outbound.entries()].map(([regionCode, items]) => ({ regionCode, queued: items.length })),
       });
     }
@@ -235,6 +311,7 @@ export function createBackend(options: ServerOptions = {}) {
 
     if (path === '/api/demo/reset' && req.method === 'POST') {
       if (!sqliteStore) return send(res, 503, { error: 'operations storage unavailable' });
+      if (!authorizeOperations(req, operationsKey)) return send(res, 401, { error: 'Operator session required.' });
       if (process.env['DSM_DEMO_MODE'] === 'false') return send(res, 403, { error: 'demo reset disabled' });
       sqliteStore.resetAll();
       seedAssamDemo(sqliteStore, ingest);
@@ -253,9 +330,12 @@ export function createBackend(options: ServerOptions = {}) {
     incidents,
     outbound,
     operations,
-    listen(port = options.port ?? 8787): Promise<number> {
+    listen(port = options.port ?? 8787, host?: string): Promise<number> {
       return new Promise((resolve) => {
-        server.listen(port, () => resolve(port));
+        server.listen(port, host, () => {
+          const address = server.address();
+          resolve(typeof address === 'object' && address ? address.port : port);
+        });
       });
     },
     close(): Promise<void> {
@@ -264,6 +344,18 @@ export function createBackend(options: ServerOptions = {}) {
         resolve();
       }));
     },
+  };
+}
+
+function regionalRecordInput(body: Record<string, unknown>) {
+  return {
+    ...(typeof body['objectId'] === 'string' ? { objectId: body['objectId'] } : {}),
+    kind: String(body['kind'] ?? 'shelter') as 'shelter' | 'medical' | 'food-water' | 'safe-zone',
+    name: String(body['name'] ?? ''),
+    district: String(body['district'] ?? ''),
+    latE7: Math.round(Number(body['latE7'])),
+    lonE7: Math.round(Number(body['lonE7'])),
+    state: String(body['state'] ?? 'open'),
   };
 }
 
@@ -295,8 +387,23 @@ function corsHeaders(): Record<string, string> {
   return {
     'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET,POST,PUT,OPTIONS',
-    'access-control-allow-headers': 'content-type',
+    'access-control-allow-headers': 'content-type,x-operations-key,x-operator-label',
   };
+}
+
+function authorizeOperations(req: IncomingMessage, expectedKey: string): string | undefined {
+  const suppliedKey = req.headers['x-operations-key'];
+  const suppliedLabel = req.headers['x-operator-label'];
+  if (!expectedKey || typeof suppliedKey !== 'string' || typeof suppliedLabel !== 'string') return undefined;
+  const expected = Buffer.from(expectedKey);
+  const supplied = Buffer.from(suppliedKey);
+  if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) return undefined;
+  const operatorLabel = suppliedLabel.trim();
+  return operatorLabel.length >= 2 && operatorLabel.length <= 48 ? operatorLabel : undefined;
+}
+
+function isCampaignState(value: unknown): value is CampaignState {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(CAMPAIGN_TRANSITIONS, value);
 }
 
 function campaignInput(body: Record<string, unknown>): CampaignCreateInput {
@@ -304,11 +411,14 @@ function campaignInput(body: Record<string, unknown>): CampaignCreateInput {
     title: typeof body['title'] === 'string' ? body['title'] : '',
     summary: typeof body['summary'] === 'string' ? body['summary'] : '',
     ...(typeof body['severity'] === 'number' ? { severity: body['severity'] } : {}),
+    ...(typeof body['category'] === 'number' ? { category: body['category'] } : {}),
+    ...(typeof body['instruction'] === 'number' ? { instruction: body['instruction'] } : {}),
     ...(body['dataType'] === 'official-alert' || body['dataType'] === 'regional-record' ? { dataType: body['dataType'] } : {}),
     ...(typeof body['objectId'] === 'string' ? { objectId: body['objectId'] } : {}),
     ...(typeof body['latE7'] === 'number' ? { latE7: body['latE7'] } : {}),
     ...(typeof body['lonE7'] === 'number' ? { lonE7: body['lonE7'] } : {}),
     ...(typeof body['radiusM'] === 'number' ? { radiusM: body['radiusM'] } : {}),
+    ...(body['clearLocation'] === true ? { clearLocation: true } : {}),
     ...(body['profile'] === 'audible-fast' || body['profile'] === 'audible-normal' || body['profile'] === 'ultrasound-normal'
       ? { profile: body['profile'] }
       : {}),

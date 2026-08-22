@@ -16,6 +16,19 @@ npm run demo
 
 Open `http://localhost:8787`.
 
+The console requires an operator name and operations key before it exposes any
+authority, coordinator, or broadcaster controls. In demo mode the default key is
+`assam-operations-demo`. Override it for any shared deployment:
+
+```bash
+DSM_OPERATIONS_KEY='replace-with-a-long-random-value' npm run demo
+```
+
+When `DSM_DEMO_MODE=false`, there is no default key and
+`DSM_OPERATIONS_KEY` is required. The shared key authorises an integrated
+operations session and the supplied operator name is written to audit records;
+it is not cryptographic proof of a person's identity.
+
 The command builds the TypeScript packages and Vite application, starts the
 backend, seeds the database when it is empty, and serves the console and API
 from the same process.
@@ -33,8 +46,8 @@ outbound queues, responder assignments, regional updates, campaign versions,
 approval digests and audit history. The backend replays canonical packet bytes
 through the existing incident reducer after restart.
 
-This persistence is backend-only. Android OFF-003 still requires the separate
-`expo-sqlite` repository behind `PacketRepository`.
+Android uses its own `expo-sqlite` repositories behind the same packet, peer and
+file ports; backend and mobile databases remain deliberately separate.
 
 ## Workspaces and surfaces
 
@@ -43,7 +56,8 @@ contract entries from `surface-registry.ts`, but presents them as four coherent
 workspaces instead of nine disconnected pages: Coordinate merges incident and
 responder work; Publish merges the interactive map, regional register, state
 change, mesh publication, and delivery evidence; Campaigns contains the entire
-approval-to-audio-to-reception path; Packet Network exposes the live internals.
+approval-to-audio-to-reception path; Packet Network exposes only evidence
+stored by this backend.
 
 Those workspaces cover the original nine registered surfaces:
 
@@ -76,7 +90,7 @@ wrapped as WavePX text, so the frozen frame contract remains consumable by the
 future Android receiver. Attribution is in
 `apps/web-authority/src/vendor/wavepx/`.
 
-## MapLibre operations map
+## Centre publication and map-operation pipeline
 
 Coordinate and Publish use MapLibre GL JS with live GeoJSON. The map clusters
 dense points and provides incident/centre/route/hazard filters, navigation,
@@ -84,14 +98,18 @@ fullscreen, scale, fit-to-Assam, state-coloured markers, enlarged selectable
 objects, cursor coordinates, zoom level, visible-object totals, selection
 fly-to, and safe DOM popups. Publish is a single map-first workspace: selecting
 an object on the map or regional register opens the same state control and its
-packet delivery trail. A regional object can be closed, blocked, cleared, or
-reopened; the action uses the versioned publication endpoint, and both map and
-packet stream update on the next three-second poll.
+packet delivery trail. A regional object can be created, moved/edited, closed,
+blocked, cleared, or reopened; every action uses the versioned publication
+endpoint and emits a canonical packet. Recovered packets use the shared
+`toMapOperations()` translation. The mobile graphical map remains the requested
+placeholder while its projected-object list uses live engine state.
 
 ## Evidence inspection
 
 Packet evidence is available in Publish and Packet Network through the same
-inspector. The three views expose only stored protocol facts:
+inspector. It is not a global packet tracker: after a packet leaves an observed
+phone, the system knows nothing more until a direct receipt or gateway
+observation arrives. The three views expose only stored protocol facts:
 
 - **Decoded:** message and source headers, fragment position, flags, priority,
   severity, and the complete decoded payload.
@@ -118,21 +136,27 @@ incident or record marker, or type the degrees directly — and is encoded as th
 `latE7`, `lonE7` and `radiusM` fields of the same OFFICIAL_ALERT packet the
 radio carries.
 
-Reception verification does not compare frame tallies alone. Recovered frames
-are replayed through the same `Tier2Receiver` a phone runs, the campaign's
-canonical header rebuilds the Tier 1 packet, and those bytes are compared with
-the approved packet byte-for-byte. Only then is the payload decoded, so the
+Reception verification does not compare frame tallies alone. `Tier2Receiver`
+reassembles the complete canonical Tier 1 bytes without needing a campaign
+manifest. When an approved campaign is selected, the manifest additionally
+compares those recovered bytes with the approved packet byte-for-byte. Only
+then is the payload decoded, so the
 message and coordinates shown as "decoded from the recovered audio" came off the
 air rather than from the stored draft. A campaign reaches `decode-tested` only
-when every expected frame arrived AND the rebuilt packet is byte-identical.
+when every expected frame arrived and the recovered packet is byte-identical.
 
-The current basemap is online. It does not satisfy MAP-001 offline-map evidence;
-that remains Workstream D and requires a licensed packaged tile artifact.
+The current web basemap is online. The mobile graphical/offline renderer remains
+deferred and requires a licensed packaged tile artifact.
 
 Program preparation advances `broadcaster-ready → audio-generated`. Only a
 complete recovered frame set advances `audio-generated → decode-tested`.
-Preparation and reception results are stored in SQLite and written to the
-append-only broadcast register.
+Playback remains disabled until the tested program is explicitly scheduled.
+WAV export records the exact program ID, campaign version, artifact digest,
+operator and time and advances a decode-tested campaign to `scheduled`;
+successful speaker playback records the same immutable evidence and advances
+`scheduled → played`. Operators can then archive the played campaign.
+Preparation, reception, export and playback results are stored in SQLite and
+written to the append-only broadcast register.
 
 ## Assam data boundary
 

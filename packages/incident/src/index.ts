@@ -63,6 +63,8 @@ export interface IncidentView {
   readonly locationAccuracyM?: number;
   /** Age of the LOCATION FIX at packet-creation time (DEC-020). */
   readonly locationAgeS?: number;
+  /** Packet creation time carrying the current location; later lifecycle packets do not reset freshness. */
+  readonly locationReportedAtS?: number;
   readonly locationSource?: number;
   readonly createdAtS: number;
   readonly updatedAtS: number;
@@ -272,6 +274,7 @@ export class IncidentReducer {
       lonE7: inc.lonE7,
       locationAccuracyM: inc.locationAccuracyM,
       locationAgeS: inc.locationAgeS,
+      locationReportedAtS: inc.locationReportedAtS,
       locationSource: inc.locationSource,
       createdAtS: inc.createdAtS,
       updatedAtS: inc.updatedAtS,
@@ -324,6 +327,7 @@ export class IncidentReducer {
     target.lonE7 = lonE7;
     target.locationAccuracyM = numberOf(loc?.['accuracyM']) ?? packet.geo?.accuracyM;
     target.locationAgeS = numberOf(loc?.['ageS']);
+    target.locationReportedAtS = packet.header.createdAt;
     target.locationSource = numberOf(loc?.['source']);
   }
 }
@@ -355,6 +359,7 @@ interface MutableIncident {
   lonE7?: number;
   locationAccuracyM?: number;
   locationAgeS?: number;
+  locationReportedAtS?: number;
   locationSource?: number;
   createdAtS: number;
   updatedAtS: number;

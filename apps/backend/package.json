@@ -13,6 +13,7 @@
     "@dsm/contracts": "*",
     "@dsm/codec": "*",
     "@dsm/validator": "*",
-    "@dsm/incident": "*"
+    "@dsm/incident": "*",
+    "@dsm/mapkit": "*"
   }
 }
