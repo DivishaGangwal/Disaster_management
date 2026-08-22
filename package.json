@@ -1,0 +1,28 @@
+{
+  "name": "disaster-sos-mesh",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Disaster SOS Mesh - offline-first Bluetooth mesh emergency communication (SIH hackathon prototype)",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "packages/*",
+    "tools/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc --build tsconfig.build.json",
+    "clean": "tsc --build tsconfig.build.json --clean",
+    "typecheck": "tsc --build tsconfig.build.json",
+    "test": "npm run build && node --test --test-reporter=spec \"packages/*/dist/**/*.test.js\" \"apps/backend/dist/**/*.test.js\"",
+    "sim": "npm run build && node packages/simulator/dist/cli.js",
+    "seed": "npm run build && node tools/seed/dist/cli.js",
+    "boundaries": "node tools/boundaries/check-boundaries.mjs",
+    "backend": "npm run build && node apps/backend/dist/main.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/contracts" },
+    { "path": "packages/codec" },
+    { "path": "packages/validator" },
+    { "path": "packages/store" },
+    { "path": "packages/policy" },
+    { "path": "packages/incident" },
+    { "path": "packages/mapkit" },
+    { "path": "packages/routing" },
+    { "path": "packages/transport-core" },
+    { "path": "packages/tier2" },
+    { "path": "packages/gateway-client" },
+    { "path": "packages/node-runtime" },
+    { "path": "packages/simulator" },
+    { "path": "tools/seed" },
+    { "path": "apps/backend" }
+  ]
+}

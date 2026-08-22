@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*"],
+  "references": [
+    { "path": "../contracts" },
+    { "path": "../codec" },
+    { "path": "../validator" },
+    { "path": "../store" },
+    { "path": "../policy" },
+    { "path": "../incident" },
+    { "path": "../mapkit" },
+    { "path": "../routing" },
+    { "path": "../transport-core" },
+    { "path": "../tier2" },
+    { "path": "../gateway-client" }
+  ]
+}

@@ -1,0 +1,457 @@
+/**
+ * NODE ENGINE -- the composition root of one participating phone.
+ *
+ * This is where the pipeline from 02-... is actually assembled:
+ *
+ *   transport/gateway/tier2 bytes
+ *        -> ONE validator            (@dsm/validator)
+ *        -> ONE repository           (@dsm/store)
+ *        -> ONE policy engine        (@dsm/policy)   [6 independent decisions]
+ *        -> incident reducer + map projection
+ *        -> relay scheduler          (@dsm/routing)
+ *
+ * Invariant 4: "All transports feed one packet validator, local store, policy
+ * engine, and map projection." That is enforced structurally here: `ingest()`
+ * is the ONLY entry point, and every transport calls it.
+ *
+ * The mobile app consumes this class. So does the simulator. So does any test.
+ * Nothing in here imports React, Expo, Android, or ggwave.
+ */
+
+import {
+  CLASS_BUDGETS,
+  EventCategory,
+  FRESHNESS,
+  MessageType,
+  Priority,
+  STORAGE,
+  SourceClass,
+  type CustodyRecord,
+  type DiagnosticEvent,
+  type EncodedPacket,
+  type EventSink,
+  type LocalProfile,
+  type Packet,
+  type PacketId,
+  type PacketObservation,
+  type PacketRepository,
+  type PeerRepository,
+  type PolicyContext,
+  type PolicyOutcome,
+  type StoredPacket,
+  type TransportKind,
+} from '@dsm/contracts';
+import { budgetClassFor, toEpochS } from '@dsm/codec';
+import { validate, type ValidationResult } from '@dsm/validator';
+import { DefaultPolicyEngine } from '@dsm/policy';
+import { IncidentReducer, type IncidentView } from '@dsm/incident';
+import { MapProjection, toMapOperations } from '@dsm/mapkit';
+import { afterTransfer, planTransfer, type NeighborContext, type RelayCandidate } from '@dsm/routing';
+import { MemoryEventSink, MemoryPacketRepository, MemoryPeerRepository } from '@dsm/store';
+
+export interface NodeEngineOptions {
+  readonly profile: LocalProfile;
+  readonly localSourceId: string;
+  readonly nodeToken: string;
+  readonly regionCode: string;
+  readonly packets?: PacketRepository;
+  readonly peers?: PeerRepository;
+  readonly events?: EventSink;
+  readonly projection?: MapProjection;
+  readonly displayRadiusM?: number;
+  readonly now?: () => number;
+}
+
+export interface IngestResult {
+  readonly accepted: boolean;
+  readonly packetId?: PacketId;
+  readonly validation: ValidationResult;
+  readonly policy?: PolicyOutcome;
+  readonly storeOutcome?: 'inserted' | 'duplicate' | 'conflict';
+  readonly incident?: IncidentView;
+  readonly mapOperationsApplied: number;
+}
+
+export class NodeEngine {
+  readonly packets: PacketRepository;
+  readonly peers: PeerRepository;
+  readonly events: EventSink;
+  readonly projection: MapProjection;
+  readonly incidents = new IncidentReducer();
+
+  private readonly policyEngine = new DefaultPolicyEngine();
+  private readonly ownIncidentIds = new Set<string>();
+  private readonly previousHopByPacket = new Map<string, string>();
+  private readonly now: () => number;
+
+  private batteryBand = 3;
+  private storagePressure: 'ok' | 'high' | 'critical' = 'ok';
+  private coarseLocation?: { latE7: number; lonE7: number };
+  private queueEpoch = 0;
+  private gatewayProven = false;
+  private gatewayProvenAtMs?: number;
+
+  constructor(private readonly options: NodeEngineOptions) {
+    this.packets = options.packets ?? new MemoryPacketRepository();
+    this.peers = options.peers ?? new MemoryPeerRepository();
+    this.events = options.events ?? new MemoryEventSink();
+    this.projection = options.projection ?? new MapProjection();
+    this.now = options.now ?? (() => Date.now());
+  }
+
+  get nodeToken(): string {
+    return this.options.nodeToken;
+  }
+
+  get localSourceId(): string {
+    return this.options.localSourceId;
+  }
+
+  get profile(): LocalProfile {
+    return this.options.profile;
+  }
+
+  get currentQueueEpoch(): number {
+    return this.queueEpoch;
+  }
+
+  setBatteryBand(band: number): void {
+    this.batteryBand = band;
+  }
+
+  setStoragePressure(pressure: 'ok' | 'high' | 'critical'): void {
+    this.storagePressure = pressure;
+  }
+
+  setCoarseLocation(latE7: number, lonE7: number): void {
+    this.coarseLocation = { latE7, lonE7 };
+  }
+
+  /** GTW-001: only a live probe result may set this. */
+  setGatewayProven(proven: boolean, atMs: number): void {
+    this.gatewayProven = proven;
+    this.gatewayProvenAtMs = proven ? atMs : undefined;
+    this.emit({
+      category: EventCategory.GATEWAY,
+      name: proven ? 'gateway-proven' : 'gateway-lost',
+      severity: 'info',
+      atMs,
+    });
+  }
+
+  isGatewayProven(nowMs: number): boolean {
+    if (!this.gatewayProven || this.gatewayProvenAtMs === undefined) return false;
+    return nowMs - this.gatewayProvenAtMs <= FRESHNESS.GATEWAY_PROOF_S * 1000;
+  }
+
+  /** Registers an incident this device owns, so policy shows it in full. */
+  claimIncident(incidentId: string): void {
+    this.ownIncidentIds.add(incidentId);
+  }
+
+  /**
+   * THE ONE INGRESS. Tier 1 BLE, gateway downloads, and Tier 2 all land here.
+   * Adding a transport must never add a second version of this method.
+   */
+  async ingest(
+    bytes: Uint8Array,
+    transport: TransportKind,
+    meta: { readonly previousHopToken?: string; readonly atMs?: number; readonly campaignId?: string } = {},
+  ): Promise<IngestResult> {
+    const atMs = meta.atMs ?? this.now();
+    const nowS = toEpochS(atMs);
+
+    // Pre-validation lookups the validator needs but must not perform itself.
+    const peek = peekPacketId(bytes);
+    const conflictingDigest = peek ? await this.packets.getDigest(peek) : undefined;
+    const alreadyStored = peek ? await this.packets.hasSeen(peek) : false;
+
+    const validation = validate(bytes, {
+      nowS,
+      transport,
+      hopCountOnArrival: 0,
+      isKnownDuplicate: alreadyStored,
+      ...(conflictingDigest ? { conflictingDigest } : {}),
+      streamTerminated: false,
+      storagePressure: this.storagePressure,
+      queueDepth: await this.packets.count(),
+      maxQueueDepth: STORAGE.MAX_STORED_PACKETS,
+      regionCode: this.options.regionCode,
+    });
+
+    if (!validation.ok) {
+      this.emit({
+        category: EventCategory.VALIDATION,
+        name: 'rejected',
+        severity: 'warn',
+        atMs,
+        reason: validation.reason,
+        transport,
+        bytes: bytes.length,
+        ...(validation.packetId ? { packetId: validation.packetId } : {}),
+        result: validation.gate,
+      });
+      return { accepted: false, validation, mapOperationsApplied: 0 };
+    }
+
+    const packet = validation.packet;
+    const packetId = packet.header.packetId;
+
+    this.emit({
+      category: EventCategory.VALIDATION,
+      name: 'accepted',
+      severity: 'debug',
+      atMs,
+      packetId,
+      packetType: packet.header.type,
+      transport,
+      bytes: validation.totalBytes,
+      result: validation.sourceLabel,
+    });
+
+    // Six independent decisions (invariant 6).
+    const policy = this.policyEngine.decide(packet, this.policyContext(transport, nowS));
+    this.emit({
+      category: EventCategory.POLICY,
+      name: 'decided',
+      severity: 'debug',
+      atMs,
+      packetId,
+      packetType: packet.header.type,
+      reason: policy.reasons.relay,
+      result: `${policy.store}/${policy.display}/${policy.alert}/${policy.relay}/${policy.upload}/${policy.act}`,
+    });
+
+    let storeOutcome: 'inserted' | 'duplicate' | 'conflict' | undefined;
+    if (policy.store !== 'discard') {
+      const stored: StoredPacket = {
+        packet,
+        encoded: {
+          bytes,
+          packetId,
+          headerBytes: 64,
+          payloadBytes: packet.header.payloadLength,
+          totalBytes: validation.totalBytes,
+        },
+        digest: validation.digest,
+        storedAtMs: atMs,
+        retentionUntilS: nowS + policy.retentionS,
+      };
+      const observation: PacketObservation = {
+        packetId,
+        transport,
+        receivedAtMs: atMs,
+        hopCountOnArrival: packet.header.hopCount,
+        bytes: validation.totalBytes,
+        ...(meta.previousHopToken ? { previousHopToken: meta.previousHopToken } : {}),
+        ...(meta.campaignId ? { campaignId: meta.campaignId } : {}),
+      };
+      storeOutcome = await this.packets.insert(stored, observation, this.newCustody(packet, policy, atMs));
+
+      if (storeOutcome === 'inserted') {
+        this.queueEpoch = (this.queueEpoch + 1) & 0xffff;
+      }
+      if (storeOutcome === 'conflict') {
+        // 02-... "Same packet ID/different digest: quarantine conflict."
+        this.emit({
+          category: EventCategory.VALIDATION,
+          name: 'conflict-quarantined',
+          severity: 'error',
+          atMs,
+          packetId,
+          reason: 'reject.digest-conflict',
+        });
+        return { accepted: false, packetId, validation, policy, storeOutcome, mapOperationsApplied: 0 };
+      }
+    }
+
+    if (meta.previousHopToken) this.previousHopByPacket.set(packetId, meta.previousHopToken);
+
+    // A duplicate records the observation but must not repeat any action
+    // (REL-006, 02-... "Duplicate packet: suppress duplicate action/display
+    // while recording useful observation").
+    if (storeOutcome === 'duplicate') {
+      this.emit({
+        category: EventCategory.POLICY,
+        name: 'duplicate-suppressed',
+        severity: 'debug',
+        atMs,
+        packetId,
+        reason: 'policy.duplicate-suppressed',
+      });
+      return { accepted: true, packetId, validation, policy, storeOutcome, mapOperationsApplied: 0 };
+    }
+
+    let mapOperationsApplied = 0;
+    if (policy.act === 'apply-map' || policy.act === 'update-incident') {
+      for (const operation of toMapOperations(packet, transport, nowS)) {
+        const result = this.projection.apply(operation);
+        if (result.applied) mapOperationsApplied += 1;
+        this.emit({
+          category: EventCategory.PROJECTION,
+          name: operation.kind,
+          severity: 'debug',
+          atMs,
+          packetId,
+          reason: result.reason,
+          transport,
+          result: result.applied ? 'applied' : 'ignored',
+        });
+      }
+    }
+
+    let incident: IncidentView | undefined;
+    if (policy.act === 'update-incident' || packet.header.type === MessageType.BACKEND_ACKNOWLEDGEMENT) {
+      incident = this.incidents.apply(packet, {
+        localSourceId: this.options.localSourceId,
+        ...(meta.previousHopToken ? { viaPeerToken: meta.previousHopToken } : {}),
+      });
+      if (incident) {
+        this.emit({
+          category: EventCategory.INCIDENT,
+          name: 'state',
+          severity: 'info',
+          atMs,
+          packetId,
+          incidentId: incident.incidentId,
+          result: incident.state,
+        });
+      }
+    }
+
+    return { accepted: true, packetId, validation, policy, storeOutcome, incident, mapOperationsApplied };
+  }
+
+  /** Local packet creation. OFF-002: durable BEFORE the UI claims success. */
+  async createLocal(encoded: EncodedPacket, incidentId?: string): Promise<IngestResult> {
+    if (incidentId) this.claimIncident(incidentId);
+    const result = await this.ingest(encoded.bytes, 'local', { atMs: this.now() });
+    this.emit({
+      category: EventCategory.CUSTODY,
+      name: 'created-locally',
+      severity: 'info',
+      atMs: this.now(),
+      packetId: encoded.packetId,
+      bytes: encoded.totalBytes,
+    });
+    return result;
+  }
+
+  /** Builds the relay plan for one peer session. */
+  async planSessionTransfer(
+    peerToken: string,
+    peerInventory: ReadonlySet<string>,
+    nowMs: number,
+  ): Promise<ReturnType<typeof planTransfer>> {
+    const peer = (await this.peers.get(peerToken)) ?? {
+      peerToken,
+      lastSeenAtMs: nowMs,
+      gatewayProven: false,
+      queueEpoch: 0,
+      sessionsCompleted: 0,
+      sessionsFailed: 0,
+    };
+
+    const custodies = await this.packets.listRelayable(64);
+    const candidates: RelayCandidate[] = [];
+    for (const custody of custodies) {
+      const stored = await this.packets.get(custody.packetId);
+      if (!stored) continue;
+      candidates.push({ packetId: custody.packetId, packet: stored.packet, custody });
+    }
+
+    const ctx: NeighborContext = {
+      peer,
+      peerInventory,
+      nowMs,
+      localBatteryBand: this.batteryBand,
+      previousHopByPacket: this.previousHopByPacket,
+    };
+    return planTransfer(candidates, ctx);
+  }
+
+  async recordTransfer(packetId: PacketId, peerToken: string, nowMs: number): Promise<void> {
+    const custody = await this.packets.getCustody(packetId);
+    const stored = await this.packets.get(packetId);
+    if (!custody || !stored) return;
+    await this.packets.updateCustody(
+      afterTransfer(custody, peerToken, nowMs, stored.packet.header.type, stored.packet.header.severity),
+    );
+    this.emit({
+      category: EventCategory.TRANSFER,
+      name: 'record-sent',
+      severity: 'debug',
+      atMs: nowMs,
+      packetId,
+      peerToken,
+      bytes: stored.encoded.totalBytes,
+    });
+  }
+
+  /** Packet IDs this node can offer, for the inventory phase. */
+  async inventoryIds(limit = 48): Promise<readonly string[]> {
+    const custodies = await this.packets.listRelayable(limit);
+    return custodies.map((c) => c.packetId);
+  }
+
+  /** Housekeeping: expiry, peer eviction, incident expiry. */
+  async maintain(nowMs: number): Promise<{ evicted: number; peersEvicted: number; incidentsExpired: number }> {
+    const nowS = toEpochS(nowMs);
+    const evicted = await this.packets.evictExpired(nowS);
+    const peersEvicted = await this.peers.evictStale(nowMs);
+    const incidentsExpired = this.incidents.expireOlderThan(nowS, CLASS_BUDGETS.HIGH.ttlS).length;
+    return { evicted, peersEvicted, incidentsExpired };
+  }
+
+  private policyContext(transport: TransportKind, nowS: number): PolicyContext {
+    return {
+      role: this.options.profile.role,
+      localSourceId: this.options.localSourceId,
+      ownIncidentIds: this.ownIncidentIds,
+      transport,
+      nowS,
+      ...(this.coarseLocation ? { coarseLocation: this.coarseLocation } : {}),
+      displayRadiusM: this.options.displayRadiusM ?? 5000,
+      regionCode: this.options.regionCode,
+      batteryBand: this.batteryBand as PolicyContext['batteryBand'],
+      storagePressure: this.storagePressure,
+      queueDepth: 0,
+      packRegionKnown: true,
+      nonCriticalAlertsEnabled: true,
+    };
+  }
+
+  private newCustody(packet: Packet, policy: PolicyOutcome, atMs: number): CustodyRecord {
+    const budget = CLASS_BUDGETS[budgetClassFor(packet.header.type, packet.header.severity)];
+    const isOwn = packet.header.sourceId === this.options.localSourceId;
+    return {
+      packetId: packet.header.packetId,
+      state: isOwn ? 'created-locally' : 'stored',
+      copyBudgetRemaining: policy.relay === 'never' ? 0 : budget.copyBudget,
+      copiesMade: 0,
+      knownHolders: [],
+      uploadState:
+        policy.upload === 'never'
+          ? 'not-eligible'
+          : packet.header.sourceClass === SourceClass.BACKEND
+            ? 'not-eligible'
+            : 'queued',
+      linkReceiptCount: 0,
+      lastOfferedAtMs: atMs,
+    };
+  }
+
+  private emit(event: DiagnosticEvent): void {
+    this.events.emit(event);
+  }
+}
+
+/** Reads the packet ID from raw bytes without a full parse (offset 8, 16 bytes). */
+function peekPacketId(bytes: Uint8Array): string | undefined {
+  if (bytes.length < 24) return undefined;
+  let out = '';
+  for (let i = 8; i < 24; i += 1) out += bytes[i]!.toString(16).padStart(2, '0');
+  return out;
+}
+
+export { Priority, MessageType };

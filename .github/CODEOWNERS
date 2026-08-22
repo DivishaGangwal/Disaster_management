@@ -1,0 +1,47 @@
+# Disaster SOS Mesh - ownership map
+#
+# ACTION REQUIRED: replace every @ws-X placeholder with real GitHub usernames
+# before the first pull request. One primary owner + one integration reviewer
+# per path (03-HACKATHON-BUILD-PLAN-AND-ACCEPTANCE.md, "Workstream ownership").
+#
+# Rule of the repo: you may edit files you own without asking. Editing a file
+# you do NOT own requires the owner as reviewer. Editing packages/contracts
+# requires the Gate process in docs/CONTRACT-FREEZE.md.
+
+# --- Shared frozen contracts: change requires a gate, not a PR opinion -------
+/packages/contracts/            @ws-c @ws-a @ws-b @ws-d @ws-e @ws-f
+/docs/CONTRACT-FREEZE.md        @ws-c @ws-a @ws-b @ws-d @ws-e @ws-f
+/docs/agent-reference/          @product-owner
+
+# --- Workstream A: product/domain + mobile app ------------------------------
+/apps/mobile/                   @ws-a
+/packages/incident/             @ws-a @ws-c
+/packages/policy/               @ws-a @ws-c
+
+# --- Workstream B: native Android Bluetooth + lifecycle ---------------------
+/native/                        @ws-b
+/packages/transport-core/       @ws-b @ws-c
+
+# --- Workstream C: protocol, persistence, routing, simulator ----------------
+/packages/codec/                @ws-c
+/packages/validator/            @ws-c
+/packages/store/                @ws-c
+/packages/routing/              @ws-c
+/packages/simulator/            @ws-c
+/packages/node-runtime/         @ws-c
+
+# --- Workstream D: offline map + regional data ------------------------------
+/packages/mapkit/               @ws-d
+/content-packs/                 @ws-d
+
+# --- Workstream E: backend + authority/broadcaster web ----------------------
+/apps/backend/                  @ws-e
+/apps/web-authority/            @ws-e
+/apps/web-broadcaster/          @ws-e
+/packages/gateway-client/       @ws-e @ws-c
+
+# --- Workstream F: ggwave, QA, evidence, demo -------------------------------
+/packages/tier2/                @ws-f
+/tools/ggwave-artifact/         @ws-f
+/evidence/                      @ws-f
+/tools/seed/                    @ws-f @ws-d
