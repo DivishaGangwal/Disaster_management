@@ -165,6 +165,100 @@ const RULES: Readonly<Record<number, readonly Rule[]>> = {
     { kind: 'id', field: 'fileId', maxBytes: 32 },
     { kind: 'int', field: 'fragmentIndex', min: 0, max: 63 },
   ],
+
+  // --- previously unguarded: these accepted a completely empty payload ------
+  [MessageType.RESPONDER_ACCEPTED]: [
+    { kind: 'required', field: 'incidentId' },
+    { kind: 'id', field: 'incidentId', maxBytes: 32 },
+    { kind: 'required', field: 'assignmentId' },
+    { kind: 'id', field: 'assignmentId', maxBytes: 32 },
+    { kind: 'id', field: 'responderRef', maxBytes: 32 },
+  ],
+  [MessageType.RESPONDER_DECLINED]: [
+    { kind: 'required', field: 'incidentId' },
+    { kind: 'id', field: 'incidentId', maxBytes: 32 },
+    { kind: 'required', field: 'assignmentId' },
+    { kind: 'id', field: 'assignmentId', maxBytes: 32 },
+    { kind: 'id', field: 'responderRef', maxBytes: 32 },
+    { kind: 'int', field: 'reasonCode', min: 0, max: 255 },
+  ],
+  [MessageType.WEATHER_BULLETIN]: [
+    { kind: 'required', field: 'bulletinId' },
+    { kind: 'id', field: 'bulletinId', maxBytes: 32 },
+    { kind: 'array', field: 'codes', maxItems: 16 },
+    { kind: 'text', field: 'fallbackText', maxBytes: FIELD_LIMITS.FALLBACK_TEXT_BYTES },
+  ],
+  [MessageType.CACHE_CATALOG]: [
+    { kind: 'required', field: 'bundles' },
+    { kind: 'array', field: 'bundles', maxItems: 16 },
+  ],
+  [MessageType.CONTENT_ACTIVATE]: [
+    { kind: 'required', field: 'bundleId' },
+    { kind: 'id', field: 'bundleId', maxBytes: 32 },
+    { kind: 'required', field: 'objectId' },
+    { kind: 'id', field: 'objectId', maxBytes: 32 },
+    { kind: 'required', field: 'opcode' },
+    { kind: 'int', field: 'opcode', min: 0, max: 255 },
+    { kind: 'text', field: 'fallbackText', maxBytes: FIELD_LIMITS.FALLBACK_TEXT_BYTES },
+  ],
+  [MessageType.RECORD_UPSERT]: [
+    { kind: 'required', field: 'bundleId' },
+    { kind: 'id', field: 'bundleId', maxBytes: 32 },
+    { kind: 'required', field: 'objectId' },
+    { kind: 'id', field: 'objectId', maxBytes: 32 },
+    { kind: 'required', field: 'recordVersion' },
+    { kind: 'int', field: 'recordVersion', min: 0, max: 65535 },
+  ],
+  [MessageType.RECORD_TOMBSTONE]: [
+    { kind: 'required', field: 'bundleId' },
+    { kind: 'id', field: 'bundleId', maxBytes: 32 },
+    { kind: 'required', field: 'objectId' },
+    { kind: 'id', field: 'objectId', maxBytes: 32 },
+    { kind: 'required', field: 'recordVersion' },
+    { kind: 'int', field: 'recordVersion', min: 0, max: 65535 },
+    { kind: 'int', field: 'reasonCode', min: 0, max: 255 },
+  ],
+  [MessageType.CACHE_INVALIDATE]: [
+    { kind: 'required', field: 'bundleId' },
+    { kind: 'id', field: 'bundleId', maxBytes: 32 },
+    { kind: 'required', field: 'version' },
+    { kind: 'int', field: 'version', min: 0, max: 65535 },
+    { kind: 'int', field: 'reasonCode', min: 0, max: 255 },
+  ],
+  [MessageType.HELLO_CAPABILITY]: [
+    { kind: 'required', field: 'nodeToken' },
+    { kind: 'id', field: 'nodeToken', maxBytes: 16 },
+    { kind: 'required', field: 'protocolMin' },
+    { kind: 'int', field: 'protocolMin', min: 0, max: 255 },
+    { kind: 'required', field: 'protocolMax' },
+    { kind: 'int', field: 'protocolMax', min: 0, max: 255 },
+    { kind: 'int', field: 'batteryBand', min: 0, max: 3 },
+    { kind: 'int', field: 'storageBand', min: 0, max: 3 },
+    { kind: 'int', field: 'maxRecordBytes', min: 0, max: 65535 },
+    { kind: 'int', field: 'maxFragmentBytes', min: 0, max: 65535 },
+    { kind: 'int', field: 'queueEpoch', min: 0, max: 65535 },
+    { kind: 'int', field: 'highestWaitingPriority', min: 0, max: 7 },
+  ],
+  [MessageType.INVENTORY]: [
+    { kind: 'required', field: 'queueEpoch' },
+    { kind: 'int', field: 'queueEpoch', min: 0, max: 65535 },
+    { kind: 'array', field: 'criticalIds', maxItems: 16 },
+    { kind: 'array', field: 'entries', maxItems: 48 },
+    { kind: 'array', field: 'terminalIds', maxItems: 48 },
+  ],
+  [MessageType.PACKET_REQUEST]: [
+    { kind: 'required', field: 'packetIds' },
+    { kind: 'array', field: 'packetIds', maxItems: 48 },
+    { kind: 'array', field: 'fragmentRequests', maxItems: 16 },
+  ],
+  [MessageType.NETWORK_STATUS_OBSERVATION]: [
+    { kind: 'required', field: 'observerToken' },
+    { kind: 'id', field: 'observerToken', maxBytes: 16 },
+    { kind: 'required', field: 'peerToken' },
+    { kind: 'id', field: 'peerToken', maxBytes: 16 },
+    { kind: 'required', field: 'edgeKind' },
+    { kind: 'int', field: 'edgeKind', min: 0, max: 4 },
+  ],
 };
 
 /** Resource records share one rule set across SHELTER/MEDICAL/FOOD/SAFE_ZONE. */
@@ -264,9 +358,23 @@ function checkRules(rules: readonly Rule[], value: Record<string, unknown>): Sch
   return { ok: true };
 }
 
+/**
+ * FAILS CLOSED.
+ *
+ * This previously returned ok for any message type without a rules entry, so
+ * 12 of 33 types accepted a completely empty payload -- including
+ * RECORD_UPSERT and CONTENT_ACTIVATE, which mutate the map projection.
+ *
+ * Registering a new message type now requires registering its rules too.
+ */
 export function validateSchema(messageType: number, payload: Record<string, unknown>): SchemaResult {
   const rules = RESOURCE_TYPES.has(messageType) ? RESOURCE_RULES : RULES[messageType];
-  // A family without explicit rules still passed the codec's bounded parse.
-  if (!rules) return { ok: true };
+  if (!rules) {
+    return {
+      ok: false,
+      reason: RejectReason.SCHEMA_INVALID,
+      detail: `no schema rules registered for message type 0x${messageType.toString(16)}`,
+    };
+  }
   return checkRules(rules, payload);
 }

@@ -46,36 +46,51 @@ crash would actually live.
 A finding is: an uncaught exception, a hang, or an **accepted** packet that is
 structurally impossible. The RNG is seeded, so findings reproduce exactly.
 
-## Current state — 4,005 mutations
+## Current state — 4,005 mutations, 0 findings
 
-**Zero crashes. Zero hangs.** Length bombs, varint overflow, nesting bombs and
-lying field counts are all rejected before allocation, so INT-001 holds.
+**Zero crashes, zero hangs, zero bad acceptances.** Length bombs, varint
+overflow, nesting bombs and lying field counts are all rejected before
+allocation, so INT-001 holds.
 
-**One open finding:** `type-confusion`. Field keys are per-type but overlap —
-key 1 is `incidentId` in `SOS_CREATE` and `forPacketId` in `LINK_RECEIPT` — so
-flipping the type byte and repairing the CRC reinterprets the payload under a
-different schema.
+## Three fail-open bugs this fuzzer found (all now fixed)
 
-Accidental corruption does **not** reach this: `bitflip-header` is rejected
-267/267 by the CRC. Getting here requires deliberately recomputing the checksum,
-which is a signature problem, and DEC-019 puts production cryptography outside
-hackathon scope. Recorded under the security boundary (INT-008), not as a bug.
+**1. The GEO header extension was silently discarded.** `writeFieldsBody`
+skipped every field of a nested object that had no registered field map, and
+wrote an empty map instead. Coordinates went in, `{}` came out, no error.
+Fixed by registering every nested shape in `NESTED_FIELD_MAPS` (geo, bundles,
+inventory entries, fragment requests) and making the encoder **throw** on an
+unregistered one.
 
-**The actionable gap it exposed:** `validateSchema` **fails open** — a message
-type with no rules entry is waved through. 12 of 33 types accept a completely
-empty payload:
+**2. `validateSchema` failed open.** A message type with no rules entry was
+waved through, so 12 of 33 types accepted a completely empty payload --
+including `RECORD_UPSERT` and `CONTENT_ACTIVATE`, which mutate the map
+projection. Fixed by failing closed and adding rules for all 12.
 
-`RESPONDER_ACCEPTED` · `RESPONDER_DECLINED` · `WEATHER_BULLETIN` ·
-`CACHE_CATALOG` · `CONTENT_ACTIVATE` · `RECORD_UPSERT` · `RECORD_TOMBSTONE` ·
-`CACHE_INVALIDATE` · `HELLO_CAPABILITY` · `INVENTORY` · `PACKET_REQUEST` ·
-`NETWORK_STATUS_OBSERVATION`
+**3. Type confusion.** Field keys are per-type but overlap (key 1 is
+`incidentId` in `SOS_CREATE` and `forPacketId` in `LINK_RECEIPT`), so flipping
+the type byte and repairing the CRC reinterpreted the payload under another
+schema. Fixed by binding the message type into the payload digest
+(`payloadDigest(payload, type)` hashes the type byte with the payload).
+Costs no wire bytes -- the type already travels at offset 3.
 
-`RECORD_UPSERT` and `CONTENT_ACTIVATE` matter most — they mutate the map
-projection. Fix: make `validateSchema` fail closed and add the missing rules.
+Regression tests for all three live in `packages/codec/src/packet-codec.test.ts`
+and `packages/validator/src/schemas.test.ts`.
+
+### A note on the digest change
+
+Binding the type into the digest changes the digest VALUE for every packet,
+though not the byte layout. It is therefore a Gate I change. It was safe to
+make when it was made: no golden vectors existed, and no packets were
+persisted (the SQLite demo seed regenerates on an empty database). Anything
+encoded before this change will now fail gate 10.
 
 ## Correction to an earlier reading
 
 An initial run reported fragment and hop-limit acceptances. That was the
-fuzzer's own error — it asserted against `decodePacket`, which does not own
+fuzzer's own error -- it asserted against `decodePacket`, which does not own
 those gates (they are gates 8 and 9, in `validate()`). Asserting at the right
-layer, those strategies produce **zero** bad acceptances.
+layer, those strategies produce zero bad acceptances.
+
+A later run reported 8 `type 0x10` acceptances. Also a false positive: the
+strategy was picking the seed's own type, so the "relabel" was a no-op. The
+strategy now excludes it.

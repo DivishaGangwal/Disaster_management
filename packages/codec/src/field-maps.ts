@@ -22,9 +22,42 @@ export const LOCATION_FIELDS: FieldMap = {
   ageS: 5,
 };
 
-/** Nested object shapes, resolved by field NAME wherever they appear. */
+/** Nested GeoExtension (blueprint 7.3). Rides on reserved key 252. */
+export const GEO_FIELDS: FieldMap = {
+  latE7: 1,
+  lonE7: 2,
+  accuracyM: 3,
+  scopeRadiusM: 4,
+};
+
+/** One entry of CACHE_CATALOG.bundles. */
+export const BUNDLE_FIELDS: FieldMap = { bundleId: 1, version: 2 };
+
+/** One entry of INVENTORY.entries. */
+export const INVENTORY_ENTRY_FIELDS: FieldMap = {
+  packetId: 1,
+  type: 2,
+  priority: 3,
+  fragmentsHeld: 4,
+  fragmentCount: 5,
+};
+
+/** One entry of PACKET_REQUEST.fragmentRequests. */
+export const FRAGMENT_REQUEST_FIELDS: FieldMap = { fileId: 1, from: 2, to: 3 };
+
+/**
+ * Nested object shapes, resolved by field NAME wherever they appear.
+ *
+ * EVERY nested object must be registered here. The encoder refuses to write an
+ * unregistered one rather than silently emitting an empty map -- that
+ * fail-open behaviour silently discarded the whole GEO extension.
+ */
 export const NESTED_FIELD_MAPS: Readonly<Record<string, FieldMap>> = {
   location: LOCATION_FIELDS,
+  __geo: GEO_FIELDS,
+  bundles: BUNDLE_FIELDS,
+  entries: INVENTORY_ENTRY_FIELDS,
+  fragmentRequests: FRAGMENT_REQUEST_FIELDS,
 };
 
 const SOS_CREATE: FieldMap = {

@@ -22,7 +22,7 @@ import {
 import { buildSosCreate, budgetClassFor } from './builders.js';
 import { decodePacket, encodePacket, reencode } from './packet-codec.js';
 import { decodeHeader, incrementHopInPlace } from './envelope-codec.js';
-import { crc32, digestPrefix, sha256Hex } from './integrity.js';
+import { crc32, digestPrefix, payloadDigest } from './integrity.js';
 import { FIELD_MAP_BY_TYPE } from './field-maps.js';
 
 const ctx = { sourceId: '0011223344556677', sourceClass: SourceClass.GENERAL_PUBLIC, nowS: 20_000_000 };
@@ -231,12 +231,12 @@ test('header decodes to the exact blueprint offsets', () => {
   assert.equal(header.sourceId, ctx.sourceId);
   assert.equal(header.createdAt, ctx.nowS);
   assert.equal(header.fragmentCount, 1);
-  assert.equal(header.digestPrefix, digestPrefix(encoded.bytes.subarray(ENVELOPE.HEADER_BYTES)));
+  assert.equal(header.digestPrefix, digestPrefix(encoded.bytes.subarray(ENVELOPE.HEADER_BYTES), MessageType.SOS_CREATE));
 });
 
 test('digest helpers agree with the stored prefix', () => {
   const payload = new Uint8Array([1, 2, 3, 4]);
-  assert.equal(digestPrefix(payload), sha256Hex(payload).slice(0, 16));
+  assert.equal(digestPrefix(payload, MessageType.SOS_CREATE), payloadDigest(payload, MessageType.SOS_CREATE).slice(0, 16));
 });
 
 test('budget classes follow the specified relative order', () => {
@@ -245,4 +245,72 @@ test('budget classes follow the specified relative order', () => {
   assert.equal(budgetClassFor(MessageType.HAZARD, Severity.URGENT), 'MEDIUM_HIGH');
   assert.equal(budgetClassFor(MessageType.SHELTER, Severity.INFO), 'MEDIUM');
   assert.equal(budgetClassFor(MessageType.FILE_FRAGMENT, Severity.INFO), 'LOW');
+});
+
+// --- regressions: three fail-open bugs found by tools/fuzz -------------------
+
+test('regression: the GEO header extension survives a round trip', () => {
+  // Previously the encoder wrote an empty map for any nested object with no
+  // registered field map, silently discarding every geo coordinate.
+  const geo = { latE7: 285355000, lonE7: 771234000, accuracyM: 12, scopeRadiusM: 500 };
+  const encoded = encodePacket({
+    type: MessageType.SOS_CANCEL,
+    payload: { incidentId: 'INC-1', reason: 0, terminalRetentionS: 600 },
+    sourceId: ctx.sourceId,
+    sourceClass: ctx.sourceClass,
+    createdAt: ctx.nowS,
+    ttlS: 3600,
+    hopLimit: 6,
+    streamId: 'INC-1',
+    geo,
+  });
+  const decoded = decodePacket(encoded.bytes);
+  assert.equal(decoded.ok, true);
+  if (!decoded.ok) return;
+  assert.deepEqual(decoded.packet.geo, geo);
+});
+
+test('regression: encoding an unregistered nested object throws, never silently empties', () => {
+  assert.throws(
+    () =>
+      encodePacket({
+        type: MessageType.RECORD_UPSERT,
+        // `fields` holds caller-defined keys and has no registered field map.
+        payload: { bundleId: 'B1', objectId: 'O1', recordVersion: 1, fields: { anything: 1 } },
+        sourceId: ctx.sourceId,
+        sourceClass: SourceClass.AUTHORITY_PROVISIONED,
+        createdAt: ctx.nowS,
+        ttlS: 3600,
+        hopLimit: 4,
+      }),
+    /no registered field map/,
+  );
+});
+
+test('regression: relabelling a packet breaks its digest', () => {
+  // Field keys are per-type but overlap (key 1 is incidentId in SOS_CREATE and
+  // forPacketId in LINK_RECEIPT), so the type is bound into the payload digest.
+  const encoded = sampleSos();
+  let accepted = 0;
+
+  for (const code of Object.values(MessageType)) {
+    if (code === MessageType.SOS_CREATE) continue;
+    const relabelled = encoded.bytes.slice();
+    relabelled[3] = code;
+    // Repair the header CRC so the type gate, not the CRC gate, is exercised.
+    const view = new DataView(relabelled.buffer, relabelled.byteOffset, relabelled.byteLength);
+    view.setUint32(60, crc32(relabelled, 0, 60), false);
+    if (decodePacket(relabelled).ok) accepted += 1;
+  }
+
+  assert.equal(accepted, 0, 'no relabelled packet may decode');
+});
+
+test('regression: the digest binds the message type', () => {
+  const payload = new Uint8Array([1, 2, 3, 4]);
+  assert.notEqual(
+    payloadDigest(payload, MessageType.SOS_CREATE),
+    payloadDigest(payload, MessageType.LINK_RECEIPT),
+    'identical bytes under different types must digest differently',
+  );
 });

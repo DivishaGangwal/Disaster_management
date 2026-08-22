@@ -87,6 +87,13 @@ function writeValue(w: ByteWriter, value: Encodable, limits: EncodeLimits, depth
     return;
   }
   if (typeof value === 'object' && value !== null) {
+    if (!nestedMap) {
+      // FAIL CLOSED. Previously this wrote an empty map and silently dropped
+      // every field -- which is how the entire GEO extension went missing.
+      throw new Error(
+        'nested object has no registered field map; add it to NESTED_FIELD_MAPS before encoding',
+      );
+    }
     w.u8(TAG.MAP);
     writeFieldsBody(w, value as Record<string, unknown>, nestedMap, limits, depth + 1);
     return;
@@ -106,8 +113,7 @@ function writeFieldsBody(
     if (value === undefined || value === null) continue;
     const key = map?.[name];
     if (key === undefined) {
-      if (map) throw new Error(`field "${name}" has no wire key in its field map`);
-      continue;
+      throw new Error(`field "${name}" has no wire key in its field map`);
     }
     entries.push({ key, name, value: value as Encodable });
   }

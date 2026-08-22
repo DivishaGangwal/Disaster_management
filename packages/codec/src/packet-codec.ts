@@ -30,7 +30,7 @@ import {
 import { decodeHeader, encodeHeader, HEADER_BYTES } from './envelope-codec.js';
 import { FIELD_MAP_BY_TYPE } from './field-maps.js';
 import { decodeFields, encodeFields, type EncodeLimits } from './value-codec.js';
-import { digestPrefix, newPacketId, sha256Hex } from './integrity.js';
+import { digestPrefix, newPacketId, payloadDigest } from './integrity.js';
 import { maxPayloadBytesFor } from './size-limits.js';
 
 /** Wire-level keys for the small set of envelope-adjacent fields. */
@@ -124,7 +124,7 @@ export function encodePacket(options: EncodeOptions): EncodedPacket {
     payloadLength: payloadBytes.length,
     fragmentIndex: options.fragmentIndex ?? 0,
     fragmentCount: options.fragmentCount ?? 1,
-    digestPrefix: digestPrefix(payloadBytes),
+    digestPrefix: digestPrefix(payloadBytes, options.type),
   };
 
   const headerBytes = encodeHeader(header);
@@ -180,7 +180,7 @@ export function decodePacket(bytes: Uint8Array): DecodeResult {
   }
 
   const payloadBytes = bytes.subarray(HEADER_BYTES);
-  if (digestPrefix(payloadBytes) !== header.digestPrefix) {
+  if (digestPrefix(payloadBytes, header.type) !== header.digestPrefix) {
     return { ok: false, reason: RejectReason.PAYLOAD_DIGEST_MISMATCH };
   }
 
@@ -221,7 +221,7 @@ export function decodePacket(bytes: Uint8Array): DecodeResult {
     payload: fields,
   };
 
-  return { ok: true, packet, digest: sha256Hex(payloadBytes), totalBytes: bytes.length };
+  return { ok: true, packet, digest: payloadDigest(payloadBytes, header.type), totalBytes: bytes.length };
 }
 
 /** Re-encode a decoded packet to canonical bytes. Used to prove determinism. */

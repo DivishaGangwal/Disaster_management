@@ -35,9 +35,27 @@ export function sha256Hex(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-/** First 8 bytes of the payload digest -- the envelope's fast conflict check. */
-export function digestPrefix(bytes: Uint8Array): string {
-  return sha256Hex(bytes).slice(0, 16);
+/**
+ * Digest of a payload, BOUND TO ITS MESSAGE TYPE (domain separation).
+ *
+ * The type byte is hashed with the payload so relabelling a packet -- flipping
+ * the type field and recomputing the header CRC -- invalidates the digest.
+ * Without this, field keys being per-type-but-overlapping meant an SOS payload
+ * could be reinterpreted under another schema (key 1 is `incidentId` in
+ * SOS_CREATE and `forPacketId` in LINK_RECEIPT).
+ *
+ * Costs no wire bytes: the type already travels at offset 3.
+ */
+export function payloadDigest(bytes: Uint8Array, messageType: number): string {
+  const bound = new Uint8Array(bytes.length + 1);
+  bound[0] = messageType & 0xff;
+  bound.set(bytes, 1);
+  return sha256Hex(bound);
+}
+
+/** First 8 bytes of the type-bound payload digest -- the fast conflict check. */
+export function digestPrefix(bytes: Uint8Array, messageType: number): string {
+  return payloadDigest(bytes, messageType).slice(0, 16);
 }
 
 export function toHex(bytes: Uint8Array): string {

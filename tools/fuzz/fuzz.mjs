@@ -90,9 +90,13 @@ const strategies = {
     return repairCrc(o);
   },
 
-  /** Rewrite the message type, keeping a payload that belongs to another type. */
+  /**
+   * Rewrite the message type, keeping a payload that belongs to another type.
+   * Skips SOS_CREATE, the seed's own type -- relabelling to itself is a no-op,
+   * not a finding.
+   */
   'type-confusion': (b) => {
-    const codes = Object.values(MessageType);
+    const codes = Object.values(MessageType).filter((c) => c !== MessageType.SOS_CREATE);
     const o = b.slice(); o[3] = codes[randInt(codes.length)]; return repairCrc(o);
   },
 
