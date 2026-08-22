@@ -15,7 +15,9 @@ Smart India Hackathon prototype. **Not a production emergency service.**
 | New to the project | `docs/agent-reference/01-PRODUCT-DECISIONS-AND-SCOPE.md` |
 | Picking up a workstream | `docs/WORKSTREAMS.md` |
 | About to write code | `docs/MODULE-BOUNDARIES.md` |
-| Wondering what's left | `docs/STATUS.md` |
+| Wondering what's left | `docs/FEATURE-MATRIX.md` — per-feature status + why it isn't working |
+| Building against the backend | `docs/API-SCHEMA.md` |
+| Wanting the summary view | `docs/STATUS.md` |
 | Changing a shared type | `docs/CONTRACT-FREEZE.md` |
 
 The four specification documents in `docs/agent-reference/` are **binding**, in

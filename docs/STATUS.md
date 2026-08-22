@@ -6,6 +6,10 @@
 Nothing below claims real-device evidence, because no real device has been run
 yet. That row is honest and stays honest until Workstream B measures it.
 
+> Per-feature detail, including the **likely cause** for everything not working,
+> is in [`FEATURE-MATRIX.md`](FEATURE-MATRIX.md). Backend endpoints are in
+> [`API-SCHEMA.md`](API-SCHEMA.md).
+
 ## Verification the first pass actually has
 
 ```
