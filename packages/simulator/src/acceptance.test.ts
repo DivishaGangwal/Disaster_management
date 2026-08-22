@@ -17,6 +17,8 @@ import test from 'node:test';
 import {
   ArrivalEvidence,
   EmergencyCategory,
+  FILE_TRANSFER,
+  MimeCategory,
   FRESHNESS,
   LocationSource,
   MessageType,
@@ -224,19 +226,24 @@ test('scenario J: a queued file transfer never starves an SOS', async () => {
   };
 
   // Queue a file first, so only priority ordering can save the SOS.
-  const payload = new Uint8Array(512).fill(7);
+  // TEXT ONLY, and each fragment is sized to fit one BLE write.
+  const size = FILE_TRANSFER.FRAGMENT_DATA_BYTES;
+  const payload = new TextEncoder().encode('situation report line. '.repeat(20));
+  const count = Math.ceil(payload.length / size);
   const manifest = buildFileManifest(ctx, 'FILE-1', {
     purposeCode: 1,
-    mimeCategory: 1,
+    mimeCategory: MimeCategory.TEXT,
     totalBytes: payload.length,
-    fragmentSize: 128,
-    fragmentCount: 4,
+    fragmentSize: size,
+    fragmentCount: count,
     digest: sha256Hex(payload),
   });
   await victim.engine.createLocal(manifest);
-  for (let i = 0; i < 4; i += 1) {
-    const slice = payload.slice(i * 128, (i + 1) * 128);
-    await victim.engine.createLocal(buildFileFragment(ctx, 'FILE-1', i, 4, sha256Hex(slice), slice));
+  for (let i = 0; i < count; i += 1) {
+    const slice = payload.slice(i * size, (i + 1) * size);
+    await victim.engine.createLocal(
+      buildFileFragment(ctx, 'FILE-1', i, count, sha256Hex(slice).slice(0, FILE_TRANSFER.FRAGMENT_DIGEST_CHARS), slice),
+    );
   }
 
   const sos = makeSos(scenario, 'victim', 'INC-J1');

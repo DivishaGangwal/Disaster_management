@@ -15,7 +15,7 @@
 
 import {
   Priority,
-  REFUSED_MIME_CATEGORIES,
+  ACCEPTED_MIME_CATEGORIES,
   STORAGE,
   type AssembledFile,
   type CustodyRecord,
@@ -269,9 +269,9 @@ export class MemoryFileRepository implements FileRepository {
   private readonly files = new Map<string, AssembledFile>();
 
   async putManifest(file: AssembledFile): Promise<boolean> {
-    // FIL-006: refuse executables and archives at manifest time, before a
-    // single fragment is requested or stored.
-    if (REFUSED_MIME_CATEGORIES.has(file.mimeCategory)) return false;
+    // FIL-006 allow-list: text only, refused before a single fragment is
+    // requested or stored.
+    if (!ACCEPTED_MIME_CATEGORIES.has(file.mimeCategory)) return false;
     if (file.totalBytes > STORAGE.MAX_FILE_BYTES) return false;
     if (file.fragmentCount < 1 || file.fragmentCount > STORAGE.MAX_FRAGMENTS_PER_OBJECT) return false;
 

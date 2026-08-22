@@ -24,7 +24,7 @@
 import {
   EventCategory,
   MessageType,
-  REFUSED_MIME_CATEGORIES,
+  ACCEPTED_MIME_CATEGORIES,
   STORAGE,
   type AssembledFile,
   type EventSink,
@@ -66,8 +66,11 @@ export class FileAssembler {
     const expectedDigest = String(p['digest'] ?? '');
 
     // FIL-006, checked FIRST so a hostile object never causes fragment work.
-    if (REFUSED_MIME_CATEGORIES.has(mimeCategory)) {
-      return this.refuse(fileId, `refused content category ${mimeCategory}`, atMs);
+    // ALLOW-LIST: text only. Images, audio, executables and archives are all
+    // refused, and the prototype has no decoder or decompressor for any of
+    // them, so the capability does not exist to be abused.
+    if (!ACCEPTED_MIME_CATEGORIES.has(mimeCategory)) {
+      return this.refuse(fileId, `content category ${mimeCategory} is not accepted (text only)`, atMs);
     }
     if (totalBytes > STORAGE.MAX_FILE_BYTES) {
       return this.refuse(fileId, `${totalBytes}B over the ${STORAGE.MAX_FILE_BYTES}B demo maximum`, atMs);
@@ -178,6 +181,15 @@ export class FileAssembler {
     if (bytes.length !== manifest.totalBytes) {
       await this.discard(fileId);
       return this.fail(fileId, `assembled ${bytes.length}B, manifest declared ${manifest.totalBytes}B`, atMs);
+    }
+
+    // Text-only: the object must actually BE valid UTF-8, not merely claim to
+    // be. A strict decode is the last gate before anything becomes visible.
+    try {
+      new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    } catch {
+      await this.discard(fileId);
+      return this.fail(fileId, 'declared text but is not valid UTF-8', atMs);
     }
 
     await this.files.markComplete(fileId, bytes, atMs);

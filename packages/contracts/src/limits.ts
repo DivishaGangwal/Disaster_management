@@ -24,20 +24,70 @@ export const PACKET_ID_BYTES = 16;
 export const SOURCE_ID_BYTES = 8;
 export const DIGEST_PREFIX_BYTES = 8;
 
-/** Per-type maximum encoded payload. Enforced before allocation. */
+/**
+ * BLE LINK BUDGET -- why every record must fit one write.
+ *
+ * A GATT write or notification carries `ATT_MTU - 3` bytes. Android's default
+ * ATT MTU is 23 (20 usable); `requestMtu()` can raise it, and 247 is widely
+ * supported. We require 247, giving 244 usable bytes.
+ *
+ * Every record is therefore capped so `64-byte header + payload <= 244`. That
+ * removes the need for a link-layer chunking layer entirely: application-level
+ * fragmentation already exists (FILE_FRAGMENT), so a file is split into
+ * packets that each fit a single write.
+ *
+ * Workstream B must negotiate 247 and FAIL LOUDLY if the peer will not, rather
+ * than silently truncating a record.
+ */
+export const FILE_TRANSFER = {
+  /**
+   * Bytes of TEXT carried in one FILE_FRAGMENT.
+   *
+   * Derived, not guessed: the 180-byte payload budget minus roughly 60 bytes of
+   * fragment metadata (fileId, index, digest prefix, field keys and tags).
+   */
+  FRAGMENT_DATA_BYTES: 120,
+  /**
+   * Per-fragment integrity is a 16-hex-char PREFIX, not a full digest.
+   * A full SHA-256 hex string is 64 chars and would consume a third of the
+   * fragment budget for a check the whole-object digest already guarantees.
+   * The prefix is an early-reject hint; FIL-004 integrity is the whole-object
+   * digest in the manifest.
+   */
+  FRAGMENT_DIGEST_CHARS: 16,
+} as const;
+
+export const LINK = {
+  /** ATT MTU this build requires. */
+  REQUIRED_ATT_MTU: 247,
+  /** Usable bytes per write: MTU minus the 3-byte ATT header. */
+  MAX_RECORD_BYTES: 244,
+  /** 244 minus the 64-byte envelope. No payload may exceed this. */
+  MAX_PAYLOAD_BYTES: 180,
+} as const;
+
+/**
+ * Per-type maximum encoded payload. Enforced before allocation.
+ *
+ * Every value is <= LINK.MAX_PAYLOAD_BYTES so no record ever needs chunking.
+ * Measured real payloads for comparison: full SOS 84 B, official alert 69 B,
+ * hazard 44 B, shelter 32 B -- so these caps are headroom, not constraints.
+ */
 export const MAX_PAYLOAD_BY_CLASS = {
-  EMERGENCY: 320,
-  RESPONSE_CONTROL: 192,
+  EMERGENCY: 180,
+  RESPONSE_CONTROL: 180,
   RECEIPT: 128,
-  RESOURCE: 400,
-  HAZARD_ROUTE: 400,
-  AUTHORITY: 512,
-  CHECKIN: 320,
-  REQUEST: 256,
-  CONTENT_OP: 256,
-  FILE_MANIFEST: 1024,
-  FILE_FRAGMENT: 4096,
-  SESSION_CONTROL: 1024,
+  RESOURCE: 180,
+  HAZARD_ROUTE: 180,
+  AUTHORITY: 180,
+  CHECKIN: 180,
+  REQUEST: 180,
+  CONTENT_OP: 180,
+  FILE_MANIFEST: 180,
+  /** Text fragment data, sized so header + payload fits one BLE write. */
+  FILE_FRAGMENT: 180,
+  /** Inventory truncates itself to fit rather than overflowing (see INVENTORY.truncated). */
+  SESSION_CONTROL: 180,
 } as const;
 
 export const FIELD_LIMITS = {
@@ -120,9 +170,16 @@ export const STORAGE = {
   MAX_STORED_PACKETS: 2_000,
   MAX_INCOMPLETE_OBJECTS: 8,
   MAX_FRAGMENTS_PER_OBJECT: 64,
-  MAX_REASSEMBLY_BYTES: 256 * 1024,
-  /** FIL-007: one strict maximum size for the demo. */
-  MAX_FILE_BYTES: 128 * 1024,
+  MAX_REASSEMBLY_BYTES: 16 * 1024,
+  /**
+   * FIL-007: the ONE strict maximum, and it is now derived rather than guessed.
+   *
+   * The demo carries TEXT ONLY. A fragment's data field gets roughly 140 bytes
+   * once the fileId, index and digest fields are encoded, and there are at most
+   * 64 fragments, so ~8 KB is the real ceiling. 8 KB of text is about 1,400
+   * words -- ample for a situation report, and far too small to be abused.
+   */
+  MAX_FILE_BYTES: 8 * 1024,
   /** Seen-ID records survive payload eviction so duplicates stay suppressed. */
   SEEN_ID_RETENTION_S: 12 * 3600,
   MAX_SEEN_IDS: 20_000,

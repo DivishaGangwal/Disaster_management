@@ -288,3 +288,101 @@ Workstream B was blocked without these:
   31 bytes and leave only 10.
 - A magic byte `0xd5` leads our payload so other developers' `0xffff`
   advertisements are ignored rather than mis-parsed.
+
+---
+
+## HD-011 — Files are TEXT ONLY, and every record fits one BLE write
+
+**Decision:** the file channel accepts **UTF-8 text and nothing else**.
+`MimeCategory` became an allow-list: `TEXT` is accepted, `IMAGE` / `AUDIO` /
+`EXECUTABLE` / `ARCHIVE` / `OTHER` are all refused at manifest time, before a
+single fragment is requested. A strict UTF-8 decode runs before an object
+becomes visible, so declaring `TEXT` and sending binary is caught too.
+
+This makes FIL-006 true **by construction**: the prototype contains no image
+decoder, no audio decoder, and no decompressor, so "no executables" and "no
+unbounded decompression" hold because the capability does not exist.
+
+**It also removed a latent transport bug.** BLE carries `ATT_MTU - 3` bytes per
+write. Android's default MTU is 23; 247 is widely supported and is what this
+build requires:
+
+```
+247   required ATT MTU
+ -3   ATT header
+---
+244   usable per write
+-64   our envelope
+---
+180   maximum payload      <- every packet class is now capped here
+```
+
+Every record therefore fits **one write**, and no link-layer chunking layer is
+needed — application-level fragmentation already exists, so a file is split
+into packets that each fit the radio. Fragment data is 120 bytes, and the
+per-fragment digest was cut from a full 64-char SHA-256 to a 16-char prefix
+(the whole-object digest is the real FIL-004 guarantee; the prefix is an
+early-reject hint). Maximum file size is now a derived **8 KB**, about 1,400
+words.
+
+Workstream B must negotiate MTU 247 and **fail loudly** if the peer refuses,
+never silently truncate a record.
+
+---
+
+## HD-012 — Inventory truncates to fit, and the failure is no longer silent
+
+Capping session-control payloads at 180 bytes exposed a bug that had been
+introduced in the same change: `announceInventory` still tried to send up to 16
+packet IDs. A packet ID is 32 hex characters, so **only 4 fit** in 180 bytes.
+The encoder threw, the throw was swallowed by a `.catch(() => undefined)`, and
+**the entire exchange stopped** for any node holding four or more packets.
+
+Single-packet tests passed throughout, which is why nothing caught it.
+
+Two fixes: the inventory now grows its ID list until the next entry would
+overflow and sets `truncated` honestly, and the swallowed catch became an
+`announce-failed` error event. A protocol step that cannot run must never fail
+quietly.
+
+**Known capacity limit:** only ~4 packet IDs fit per inventory. A node holding
+40 packets can only tell a peer about 4 of them per contact, so convergence
+takes several contacts. Sending 8-byte ID prefixes as raw bytes instead of
+32-character hex strings would raise this to roughly 21 — worth doing, but it
+is a wire change and has not been made.
+
+---
+
+## HD-013 — Skip sessions when neither queue has changed
+
+`DiscoverySummary.queueEpoch` existed and nothing used it;
+`SessionStateMachine.hasUsefulDifference()` was written and never called. So
+every advertisement produced a full session — connection, two inventory
+records, two transfer plans — even when both sides had been identical for
+minutes. Peers re-advertise constantly, so this was a fixed tax per contact per
+round.
+
+The relay loop now remembers the `(their epoch, our epoch)` pair at the last
+completed reconciliation and skips the session entirely when neither has moved,
+which is exactly what 02-… asks for: *"Do not connect when compact inventory
+and epochs indicate no useful difference."*
+
+**Measured, same scenarios before and after:**
+
+| Scenario | Records before | After | Saved |
+|---|---:|---:|---:|
+| 4-node chain, 1 packet | 81 | 37 | 54% |
+| 4-node full mesh, 1 packet | 159 | 75 | 53% |
+| 6-node full mesh, 1 packet | 394 | 208 | 47% |
+| 4-node mesh, 10 packets | 334 | 274 | 18% |
+| 4-node mesh, 40 packets | 528 | 480 | 9% |
+
+Delivery is unchanged in every case. The saving is largest in quiet, converged
+neighbourhoods and smallest under genuine churn — which is the correct shape,
+because churn means there is real work to do.
+
+**On flooding generally:** the sync-what-you-lack design does **not** duplicate
+packets. Redundant sends stayed at 0 in the chain case and were low elsewhere;
+copy budgets, per-neighbour known-holder tracking, and previous-hop suppression
+already bound replication. The cost that actually scales badly is the
+**inventory tax per contact**, which is what HD-013 addresses.

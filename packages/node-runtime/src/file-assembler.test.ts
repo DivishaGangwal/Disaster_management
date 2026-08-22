@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { MessageType, MimeCategory, SourceClass, STORAGE } from '@dsm/contracts';
+import { FILE_TRANSFER, MessageType, MimeCategory, SourceClass, STORAGE } from '@dsm/contracts';
 import { buildFileFragment, buildFileManifest, decodePacket, sha256Hex, toEpochS } from '@dsm/codec';
 import { MemoryEventSink, MemoryFileRepository, MemoryPacketRepository } from '@dsm/store';
 import { FileAssembler } from './file-assembler.js';
@@ -42,16 +42,25 @@ function makeFile(fileId: string, content: Uint8Array, fragmentSize: number, mim
   const fragments = [];
   for (let i = 0; i < count; i += 1) {
     const slice = content.slice(i * fragmentSize, (i + 1) * fragmentSize);
-    fragments.push(buildFileFragment(ctx, fileId, i, count, sha256Hex(slice), slice));
+    // Per-fragment integrity is a prefix; the whole-object digest is the real
+    // guarantee (FIL-004).
+    fragments.push(
+      buildFileFragment(ctx, fileId, i, count, sha256Hex(slice).slice(0, FILE_TRANSFER.FRAGMENT_DIGEST_CHARS), slice),
+    );
   }
   return { manifest, fragments, content };
 }
 
-const CONTENT = Uint8Array.from(Array.from({ length: 300 }, (_, i) => (i * 13) & 0xff));
+// Text only: the assembler strictly decodes UTF-8 before anything is visible.
+const CONTENT = new TextEncoder().encode(
+  'Situation report: water level rising near the river road crossing. ' +
+    'Two families moved to the hill assembly area. Medical post has supplies for one more day. ' +
+    'Route RTE-001 impassable to light vehicles.',
+);
 
 test('FIL-004: a complete file assembles and its whole-object digest is verified', async () => {
   const { assembler } = makeAssembler();
-  const { manifest, fragments } = makeFile('F1', CONTENT, 128, MimeCategory.IMAGE);
+  const { manifest, fragments } = makeFile('F1', CONTENT, FILE_TRANSFER.FRAGMENT_DATA_BYTES, MimeCategory.TEXT);
 
   const first = await assembler.accept(payloadOf(manifest.bytes), NOW_S, NOW_MS);
   assert.equal(first.kind, 'manifest-accepted');
@@ -69,7 +78,7 @@ test('FIL-004: a complete file assembles and its whole-object digest is verified
 
 test('FIL-003: an incomplete file stays hidden', async () => {
   const { assembler } = makeAssembler();
-  const { manifest, fragments } = makeFile('F2', CONTENT, 128, MimeCategory.IMAGE);
+  const { manifest, fragments } = makeFile('F2', CONTENT, FILE_TRANSFER.FRAGMENT_DATA_BYTES, MimeCategory.TEXT);
 
   await assembler.accept(payloadOf(manifest.bytes), NOW_S, NOW_MS);
   // Deliberately withhold the last fragment.
@@ -83,7 +92,7 @@ test('FIL-003: an incomplete file stays hidden', async () => {
 
 test('FIL-004: a corrupted fragment fails the whole-object digest and nothing becomes visible', async () => {
   const { assembler } = makeAssembler();
-  const { manifest, fragments } = makeFile('F3', CONTENT, 128, MimeCategory.IMAGE);
+  const { manifest, fragments } = makeFile('F3', CONTENT, FILE_TRANSFER.FRAGMENT_DATA_BYTES, MimeCategory.TEXT);
 
   await assembler.accept(payloadOf(manifest.bytes), NOW_S, NOW_MS);
 
@@ -104,7 +113,7 @@ test('FIL-004: a corrupted fragment fails the whole-object digest and nothing be
 
 test('FIL-006: an executable is refused at manifest time', async () => {
   const { assembler } = makeAssembler();
-  const { manifest } = makeFile('F4', CONTENT, 128, MimeCategory.EXECUTABLE);
+  const { manifest } = makeFile('F4', CONTENT, FILE_TRANSFER.FRAGMENT_DATA_BYTES, MimeCategory.EXECUTABLE);
 
   const outcome = await assembler.accept(payloadOf(manifest.bytes), NOW_S, NOW_MS);
   assert.equal(outcome.kind, 'manifest-refused');
@@ -112,15 +121,38 @@ test('FIL-006: an executable is refused at manifest time', async () => {
 
 test('FIL-006: an archive is refused -- the prototype never decompresses', async () => {
   const { assembler } = makeAssembler();
-  const { manifest } = makeFile('F5', CONTENT, 128, MimeCategory.ARCHIVE);
+  const { manifest } = makeFile('F5', CONTENT, FILE_TRANSFER.FRAGMENT_DATA_BYTES, MimeCategory.ARCHIVE);
 
   const outcome = await assembler.accept(payloadOf(manifest.bytes), NOW_S, NOW_MS);
   assert.equal(outcome.kind, 'manifest-refused');
 });
 
+test('TEXT ONLY: images, audio and unknown categories are all refused', async () => {
+  for (const category of [MimeCategory.IMAGE, MimeCategory.AUDIO, MimeCategory.OTHER]) {
+    const { assembler } = makeAssembler();
+    const { manifest } = makeFile(`F-${category}`, CONTENT, FILE_TRANSFER.FRAGMENT_DATA_BYTES, category);
+    const outcome = await assembler.accept(payloadOf(manifest.bytes), NOW_S, NOW_MS);
+    assert.equal(outcome.kind, 'manifest-refused', `category ${category} must be refused`);
+  }
+});
+
+test('TEXT ONLY: content that is not valid UTF-8 is refused at completion', async () => {
+  const { assembler } = makeAssembler();
+  // Declared TEXT, but the bytes are an invalid UTF-8 sequence.
+  const notText = Uint8Array.from([0xff, 0xfe, 0xfd, 0xfc, 0x80, 0x81]);
+  const { manifest, fragments } = makeFile('F-BADTEXT', notText, FILE_TRANSFER.FRAGMENT_DATA_BYTES, MimeCategory.TEXT);
+
+  await assembler.accept(payloadOf(manifest.bytes), NOW_S, NOW_MS);
+  let last;
+  for (const fragment of fragments) last = await assembler.accept(payloadOf(fragment.bytes), NOW_S, NOW_MS);
+
+  assert.equal(last?.kind, 'integrity-failed');
+  assert.deepEqual(await assembler.visibleFiles(), [], 'non-text must never become visible');
+});
+
 test('FIL-006: fragments with no manifest are orphaned, never stored blind', async () => {
   const { assembler, packets } = makeAssembler();
-  const { fragments } = makeFile('F6', CONTENT, 128, MimeCategory.IMAGE);
+  const { fragments } = makeFile('F6', CONTENT, FILE_TRANSFER.FRAGMENT_DATA_BYTES, MimeCategory.TEXT);
 
   const outcome = await assembler.accept(payloadOf(fragments[0]!.bytes), NOW_S, NOW_MS);
   assert.equal(outcome.kind, 'fragment-orphaned');
@@ -131,9 +163,9 @@ test('FIL-007: an oversized object is refused against the one documented maximum
   const { assembler } = makeAssembler();
   const manifest = buildFileManifest(ctx, 'F7', {
     purposeCode: 1,
-    mimeCategory: MimeCategory.IMAGE,
+    mimeCategory: MimeCategory.TEXT,
     totalBytes: STORAGE.MAX_FILE_BYTES + 1,
-    fragmentSize: 512,
+    fragmentSize: FILE_TRANSFER.FRAGMENT_DATA_BYTES,
     fragmentCount: 8,
     digest: 'a'.repeat(64),
   });
@@ -144,7 +176,7 @@ test('FIL-007: an oversized object is refused against the one documented maximum
 
 test('FIL-005: fragments arriving out of order still assemble', async () => {
   const { assembler } = makeAssembler();
-  const { manifest, fragments } = makeFile('F8', CONTENT, 128, MimeCategory.DOCUMENT);
+  const { manifest, fragments } = makeFile('F8', CONTENT, FILE_TRANSFER.FRAGMENT_DATA_BYTES, MimeCategory.TEXT);
 
   await assembler.accept(payloadOf(manifest.bytes), NOW_S, NOW_MS);
   const shuffled = [...fragments].reverse();
@@ -158,7 +190,7 @@ test('FIL-005: fragments arriving out of order still assemble', async () => {
 
 test('a manifest arriving after its fragments still completes the object', async () => {
   const { assembler } = makeAssembler();
-  const { manifest, fragments } = makeFile('F9', CONTENT, 128, MimeCategory.IMAGE);
+  const { manifest, fragments } = makeFile('F9', CONTENT, FILE_TRANSFER.FRAGMENT_DATA_BYTES, MimeCategory.TEXT);
 
   // Fragments first: they are orphaned, because nothing bounds them yet.
   for (const fragment of fragments) {
@@ -179,7 +211,7 @@ test('a manifest arriving after its fragments still completes the object', async
 
 test('assembly is idempotent: replaying every fragment does not corrupt the object', async () => {
   const { assembler } = makeAssembler();
-  const { manifest, fragments } = makeFile('F10', CONTENT, 128, MimeCategory.IMAGE);
+  const { manifest, fragments } = makeFile('F10', CONTENT, FILE_TRANSFER.FRAGMENT_DATA_BYTES, MimeCategory.TEXT);
 
   await assembler.accept(payloadOf(manifest.bytes), NOW_S, NOW_MS);
   for (const fragment of fragments) await assembler.accept(payloadOf(fragment.bytes), NOW_S, NOW_MS);

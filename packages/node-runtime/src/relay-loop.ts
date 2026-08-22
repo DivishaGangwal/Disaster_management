@@ -10,6 +10,7 @@
 
 import {
   EventCategory,
+  SESSION,
   MessageType,
   SourceClass,
   type Packet,
@@ -38,6 +39,12 @@ export class RelayLoop {
   private readonly pushed = new Set<string>();
   /** REL-007: earliest next connection attempt per peer, from backoffMs(). */
   private readonly nextAttemptAtMs = new Map<string, number>();
+  /**
+   * REL-003 optimisation: the (their epoch, our epoch) pair at the last
+   * completed reconciliation with a peer. If neither side's queue has changed
+   * since, there is nothing to exchange and the whole session is skipped.
+   */
+  private readonly lastReconciled = new Map<string, { theirs: number; ours: number }>();
   private unsubscribe?: () => void;
   private running = false;
 
@@ -129,6 +136,30 @@ export class RelayLoop {
         // jittered backoff rather than at full advertisement rate.
         const retryAt = this.nextAttemptAtMs.get(event.nodeToken) ?? 0;
         const backoffElapsed = event.observedAtMs >= retryAt;
+
+        // 02-...: "Do not connect when compact inventory and epochs indicate no
+        // useful difference." A session costs two inventory records plus a
+        // connection even when it moves nothing, and peers re-advertise
+        // constantly -- so this is the difference between a fixed per-contact
+        // tax and near-silence once a neighbourhood has converged.
+        const reconciled = this.lastReconciled.get(event.nodeToken);
+        const nothingChanged =
+          reconciled !== undefined &&
+          reconciled.theirs === event.summary.queueEpoch &&
+          reconciled.ours === engine.currentQueueEpoch;
+
+        if (nothingChanged) {
+          engine.events.emit({
+            category: EventCategory.INVENTORY,
+            name: 'session-skipped',
+            severity: 'debug',
+            atMs: event.observedAtMs,
+            peerToken: event.nodeToken,
+            reason: 'no useful difference',
+            metrics: { queueEpoch: event.summary.queueEpoch },
+          });
+          break;
+        }
 
         if (this.running && backoffElapsed && shouldInitiate(engine.nodeToken, event.nodeToken)) {
           if (!this.hasSessionWith(event.nodeToken) && event.summary.acceptingConnections) {
@@ -364,12 +395,33 @@ export class RelayLoop {
     // The accepting side has not announced yet; do it now so the initiator can
     // filter too.
     if (!this.announced.has(sessionId)) {
-      await this.announceInventory(sessionId).catch(() => undefined);
+      try {
+        await this.announceInventory(sessionId);
+      } catch (error) {
+        // This used to be swallowed. An inventory that fails to send stops the
+        // whole exchange, so it must be visible.
+        engine.events.emit({
+          category: EventCategory.INVENTORY,
+          name: 'announce-failed',
+          severity: 'error',
+          atMs,
+          sessionId,
+          peerToken,
+          reason: String(error),
+        });
+      }
     }
 
     if (this.pushed.has(sessionId)) return;
     this.pushed.add(sessionId);
     await this.pushOffers(sessionId, peerToken);
+
+    // Both sides have now announced and pushed. Remember the epoch pair so a
+    // repeat contact with no change on either side is skipped entirely.
+    this.lastReconciled.set(peerToken, {
+      theirs: Number(payload['queueEpoch'] ?? 0),
+      ours: engine.currentQueueEpoch,
+    });
 
     // ONLY the initiator closes. If the accepting side closed here it would
     // tear the session down before the initiator had seen this inventory and
@@ -383,33 +435,67 @@ export class RelayLoop {
     }
   }
 
-  /** Sends this node's inventory once per session. */
+  /**
+   * Sends this node's inventory once per session.
+   *
+   * The list is TRUNCATED TO FIT the session-control payload budget. A packet
+   * ID is 32 hex characters, so only a handful fit in 180 bytes -- and an
+   * inventory that overflows does not merely lose entries, it throws and takes
+   * the whole exchange down with it. `truncated` tells the peer the list is
+   * partial so it does not conclude we hold nothing else.
+   */
   private async announceInventory(sessionId: string): Promise<void> {
     if (this.announced.has(sessionId)) return;
     this.announced.add(sessionId);
 
     const { engine, adapter, now } = this.options;
-    const ids = await engine.inventoryIds();
-    await adapter.sendRecord(
-      sessionId,
-      buildInventory(
-        {
-          sourceId: engine.localSourceId,
-          sourceClass:
-            engine.profile.role === 'responder'
-              ? SourceClass.RESPONDER_PROVISIONED
-              : SourceClass.GENERAL_PUBLIC,
-          nowS: toEpochS(now()),
-        },
-        {
-          criticalIds: ids.slice(0, 16),
+    const buildCtx = {
+      sourceId: engine.localSourceId,
+      sourceClass:
+        engine.profile.role === 'responder' ? SourceClass.RESPONDER_PROVISIONED : SourceClass.GENERAL_PUBLIC,
+      nowS: toEpochS(now()),
+    };
+
+    const available = await engine.inventoryIds();
+    const carried: string[] = [];
+
+    // Grow the list until it no longer encodes. Measuring beats guessing a
+    // count, because the budget is in bytes and IDs are fixed-width.
+    for (const id of available.slice(0, SESSION.MAX_CRITICAL_EXPLICIT_IDS)) {
+      const attempt = [...carried, id];
+      try {
+        buildInventory(buildCtx, {
+          criticalIds: attempt,
           entries: [],
           terminalIds: [],
           queueEpoch: engine.currentQueueEpoch,
-          truncated: ids.length > 16,
-        },
-      ),
-    );
+          truncated: true,
+        });
+      } catch {
+        break; // this ID would overflow the payload budget
+      }
+      carried.push(id);
+    }
+
+    const record = buildInventory(buildCtx, {
+      criticalIds: carried,
+      entries: [],
+      terminalIds: [],
+      queueEpoch: engine.currentQueueEpoch,
+      truncated: carried.length < available.length,
+    });
+
+    engine.events.emit({
+      category: EventCategory.INVENTORY,
+      name: 'announced',
+      severity: 'debug',
+      atMs: now(),
+      sessionId,
+      bytes: record.totalBytes,
+      metrics: { carried: carried.length, held: available.length },
+    });
+
+    await adapter.sendRecord(sessionId, record);
   }
 
   /**

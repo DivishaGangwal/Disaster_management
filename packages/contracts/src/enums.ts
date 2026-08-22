@@ -199,29 +199,31 @@ export type BackendDedupOutcomeValue = (typeof BackendDedupOutcome)[keyof typeof
 /**
  * File content categories (FIL-006).
  *
- * The wire previously carried `mimeCategory` as a bare number with no defined
- * meaning, so "reject executables" was unimplementable. These are the only
- * accepted values; anything else is refused.
+ * HACKATHON DECISION: **the demo transfers UTF-8 TEXT ONLY.** Every other
+ * category is refused at manifest time. The codes are kept in the registry so
+ * they can be refused by name and so the meaning of the wire value is fixed --
+ * not so they can be enabled later without a decision.
  *
- * HACKATHON DECISION: the demo transfers images and small documents only.
- * ARCHIVE exists purely so it can be REFUSED -- the prototype never
- * decompresses anything, which is how "no unbounded decompression" is
- * satisfied (02-... "File and image rules").
+ * This is what makes the file channel safe by construction rather than by
+ * checking: there is no image decoder, no audio decoder, and no decompressor
+ * anywhere in the prototype, so "no unbounded decompression" and "no
+ * executables" hold because the capability does not exist.
  */
 export const MimeCategory = {
-  IMAGE: 0,
-  DOCUMENT: 1,
+  /** The ONLY accepted category: UTF-8 text. */
+  TEXT: 0,
+  /** Refused: no image decoding in the prototype. */
+  IMAGE: 1,
+  /** Refused: no audio decoding in the prototype. */
   AUDIO: 2,
-  /** Always refused: no executables or automatic installation. */
+  /** Refused: no executables or automatic installation. */
   EXECUTABLE: 3,
-  /** Always refused: the prototype never decompresses. */
+  /** Refused: the prototype has no decompressor at all. */
   ARCHIVE: 4,
+  /** Refused: unknown content cannot be bounded. */
   OTHER: 5,
 } as const;
 export type MimeCategoryValue = (typeof MimeCategory)[keyof typeof MimeCategory];
 
-/** FIL-006: categories the receiver refuses at manifest time. */
-export const REFUSED_MIME_CATEGORIES: ReadonlySet<number> = new Set([
-  MimeCategory.EXECUTABLE,
-  MimeCategory.ARCHIVE,
-]);
+/** FIL-006: the allow-list. Anything not here is refused at manifest time. */
+export const ACCEPTED_MIME_CATEGORIES: ReadonlySet<number> = new Set([MimeCategory.TEXT]);
