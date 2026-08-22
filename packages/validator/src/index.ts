@@ -61,6 +61,12 @@ export interface ValidationSuccess {
   /** True when this packet supersedes an earlier state for its stream. */
   readonly supersedes: boolean;
   readonly gatesPassed: readonly ValidationGateName[];
+  /**
+   * Gates this pipeline deliberately does NOT evaluate, deferring them to the
+   * policy engine. Reported separately so diagnostics never claim a check ran
+   * when it did not.
+   */
+  readonly gatesDeferred: readonly ValidationGateName[];
   /** Non-fatal notes for diagnostics (clock skew inside tolerance, etc.). */
   readonly warnings: readonly string[];
 }
@@ -291,10 +297,15 @@ export function validate(bytes: Uint8Array, context: ValidationContext): Validat
   }
   gatesPassed.push(ValidationGate.SOURCE_ROLE);
 
-  // Gate 13: geographic relevance is advisory here; the policy engine decides
-  // display and relay. A packet outside the pack region is still stored so it
-  // can be carried onward (02-... store-carry-forward).
-  gatesPassed.push(ValidationGate.GEOGRAPHIC_RELEVANCE, ValidationGate.USER_PREFERENCE);
+  // Gates 13 and 14 are DEFERRED, not passed. Geographic relevance and user
+  // preference decide display and relay, which is the policy engine's job --
+  // and a packet outside the pack region is still stored so it can be carried
+  // onward (02-... store-carry-forward). Reporting them as "passed" would make
+  // the diagnostics screen claim a check ran when it never did.
+  const gatesDeferred: ValidationGateName[] = [
+    ValidationGate.GEOGRAPHIC_RELEVANCE,
+    ValidationGate.USER_PREFERENCE,
+  ];
 
   // Gate 15: battery, storage, queue, and congestion policy.
   if (context.storagePressure === 'critical' && header.priority > 1) {
@@ -359,6 +370,7 @@ export function validate(bytes: Uint8Array, context: ValidationContext): Validat
     isSessionControl: SESSION_CONTROL_TYPES.has(header.type),
     supersedes,
     gatesPassed,
+    gatesDeferred,
     warnings,
   };
 }

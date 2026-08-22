@@ -177,7 +177,8 @@ export class IngestService {
         streamTerminated: false,
         storagePressure: 'ok',
         queueDepth: 0,
-        maxQueueDepth: Number.MAX_SAFE_INTEGER,
+        // 02-...: "No budget may remain unlimited." Backend-side ingest bound.
+        maxQueueDepth: 50_000,
       });
 
       if (!validation.ok) {

@@ -15,8 +15,11 @@
 
 import {
   Priority,
+  REFUSED_MIME_CATEGORIES,
   STORAGE,
+  type AssembledFile,
   type CustodyRecord,
+  type FileRepository,
   type FragmentRecord,
   type IncidentEventRecord,
   type IncidentRecord,
@@ -246,6 +249,71 @@ export class MemoryPeerRepository implements PeerRepository {
     for (const [token, peer] of this.peers) {
       if (peer.lastSeenAtMs < cutoff) {
         this.peers.delete(token);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+}
+
+/**
+ * In-memory file repository.
+ *
+ * HACKATHON DECISION: completed objects are held in memory alongside the rest
+ * of the store, not written to the filesystem. The demo maximum is 128 KB
+ * (STORAGE.MAX_FILE_BYTES, FIL-007) with at most 8 incomplete objects, so the
+ * ceiling is about 1 MB. A filesystem-backed implementation lands behind this
+ * same interface if the demo ever needs larger objects.
+ */
+export class MemoryFileRepository implements FileRepository {
+  private readonly files = new Map<string, AssembledFile>();
+
+  async putManifest(file: AssembledFile): Promise<boolean> {
+    // FIL-006: refuse executables and archives at manifest time, before a
+    // single fragment is requested or stored.
+    if (REFUSED_MIME_CATEGORIES.has(file.mimeCategory)) return false;
+    if (file.totalBytes > STORAGE.MAX_FILE_BYTES) return false;
+    if (file.fragmentCount < 1 || file.fragmentCount > STORAGE.MAX_FRAGMENTS_PER_OBJECT) return false;
+
+    const existing = this.files.get(file.fileId);
+    // A manifest for an object already completed must not reset it.
+    if (existing?.visible) return true;
+
+    if (!existing && this.files.size >= STORAGE.MAX_INCOMPLETE_OBJECTS) return false;
+    this.files.set(file.fileId, file);
+    return true;
+  }
+
+  async getManifest(fileId: string): Promise<AssembledFile | undefined> {
+    return this.files.get(fileId);
+  }
+
+  async markComplete(fileId: string, bytes: Uint8Array, atMs: number): Promise<void> {
+    const file = this.files.get(fileId);
+    if (!file) return;
+    // FIL-004: visibility flips only here, after the caller validated the
+    // whole-object digest. The two happen together.
+    this.files.set(fileId, { ...file, bytes, visible: true, completedAtMs: atMs });
+  }
+
+  async listVisible(): Promise<readonly AssembledFile[]> {
+    return [...this.files.values()].filter((f) => f.visible);
+  }
+
+  async missingFragments(fileId: string, held: readonly number[]): Promise<readonly number[]> {
+    const file = this.files.get(fileId);
+    if (!file) return [];
+    const have = new Set(held);
+    const missing: number[] = [];
+    for (let i = 0; i < file.fragmentCount; i += 1) if (!have.has(i)) missing.push(i);
+    return missing;
+  }
+
+  async evictExpired(nowS: number): Promise<number> {
+    let removed = 0;
+    for (const [id, file] of this.files) {
+      if (file.expiresAtS <= nowS) {
+        this.files.delete(id);
         removed += 1;
       }
     }

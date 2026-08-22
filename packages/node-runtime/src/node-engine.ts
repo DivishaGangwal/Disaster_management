@@ -47,7 +47,8 @@ import { DefaultPolicyEngine } from '@dsm/policy';
 import { IncidentReducer, type IncidentView } from '@dsm/incident';
 import { MapProjection, toMapOperations } from '@dsm/mapkit';
 import { afterTransfer, planTransfer, type NeighborContext, type RelayCandidate } from '@dsm/routing';
-import { MemoryEventSink, MemoryPacketRepository, MemoryPeerRepository } from '@dsm/store';
+import { MemoryEventSink, MemoryFileRepository, MemoryPacketRepository, MemoryPeerRepository } from '@dsm/store';
+import { FileAssembler } from './file-assembler.js';
 
 export interface NodeEngineOptions {
   readonly profile: LocalProfile;
@@ -75,6 +76,7 @@ export interface IngestResult {
 export class NodeEngine {
   readonly packets: PacketRepository;
   readonly peers: PeerRepository;
+  readonly files: FileAssembler;
   readonly events: EventSink;
   readonly projection: MapProjection;
   readonly incidents = new IncidentReducer();
@@ -97,6 +99,7 @@ export class NodeEngine {
     this.events = options.events ?? new MemoryEventSink();
     this.projection = options.projection ?? new MapProjection();
     this.now = options.now ?? (() => Date.now());
+    this.files = new FileAssembler(new MemoryFileRepository(), this.packets, this.events);
   }
 
   get nodeToken(): string {
@@ -280,6 +283,20 @@ export class NodeEngine {
         reason: 'policy.duplicate-suppressed',
       });
       return { accepted: true, packetId, validation, policy, storeOutcome, mapOperationsApplied: 0 };
+    }
+
+    // FIL-001..FIL-007: manifests and fragments go to the assembler, which
+    // refuses hostile objects and flips visibility only after the whole-object
+    // digest passes.
+    if (packet.header.type === MessageType.FILE_MANIFEST || packet.header.type === MessageType.FILE_FRAGMENT) {
+      const outcome = await this.files.accept(packet, nowS, atMs);
+      this.emit({
+        category: EventCategory.FILE,
+        name: outcome.kind,
+        severity: outcome.kind === 'integrity-failed' ? 'error' : 'debug',
+        atMs,
+        packetId,
+      });
     }
 
     let mapOperationsApplied = 0;

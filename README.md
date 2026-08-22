@@ -19,6 +19,7 @@ Smart India Hackathon prototype. **Not a production emergency service.**
 | Building against the backend | `docs/API-SCHEMA.md` |
 | Wanting the summary view | `docs/STATUS.md` |
 | Changing a shared type | `docs/CONTRACT-FREEZE.md` |
+| Wondering why something deviates from the spec | `docs/DECISIONS-HACKATHON.md` |
 
 The four specification documents in `docs/agent-reference/` are **binding**, in
 that precedence order. If code and spec disagree, the spec wins.

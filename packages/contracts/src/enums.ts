@@ -195,3 +195,33 @@ export const BackendDedupOutcome = {
   EXPIRED: 3,
 } as const;
 export type BackendDedupOutcomeValue = (typeof BackendDedupOutcome)[keyof typeof BackendDedupOutcome];
+
+/**
+ * File content categories (FIL-006).
+ *
+ * The wire previously carried `mimeCategory` as a bare number with no defined
+ * meaning, so "reject executables" was unimplementable. These are the only
+ * accepted values; anything else is refused.
+ *
+ * HACKATHON DECISION: the demo transfers images and small documents only.
+ * ARCHIVE exists purely so it can be REFUSED -- the prototype never
+ * decompresses anything, which is how "no unbounded decompression" is
+ * satisfied (02-... "File and image rules").
+ */
+export const MimeCategory = {
+  IMAGE: 0,
+  DOCUMENT: 1,
+  AUDIO: 2,
+  /** Always refused: no executables or automatic installation. */
+  EXECUTABLE: 3,
+  /** Always refused: the prototype never decompresses. */
+  ARCHIVE: 4,
+  OTHER: 5,
+} as const;
+export type MimeCategoryValue = (typeof MimeCategory)[keyof typeof MimeCategory];
+
+/** FIL-006: categories the receiver refuses at manifest time. */
+export const REFUSED_MIME_CATEGORIES: ReadonlySet<number> = new Set([
+  MimeCategory.EXECUTABLE,
+  MimeCategory.ARCHIVE,
+]);

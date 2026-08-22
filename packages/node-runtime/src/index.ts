@@ -10,3 +10,4 @@
 export * from './node-engine.js';
 export * from './relay-loop.js';
 export * from './gateway-sync.js';
+export * from './file-assembler.js';

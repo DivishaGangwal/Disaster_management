@@ -135,3 +135,40 @@ export interface PeerRepository {
   get(peerToken: string): Promise<PeerObservationRecord | undefined>;
   evictStale(nowMs: number): Promise<number>;
 }
+
+/**
+ * An object assembled from fragments.
+ *
+ * FIL-003 / FIL-004: `visible` turns true only after EVERY fragment arrived
+ * and the whole-object digest matched. Nothing may render an object whose
+ * `visible` is false.
+ */
+export interface AssembledFile {
+  readonly fileId: string;
+  readonly mimeCategory: number;
+  readonly purposeCode: number;
+  readonly totalBytes: number;
+  readonly fragmentCount: number;
+  /** Whole-object digest declared by the manifest. */
+  readonly expectedDigest: string;
+  readonly bytes?: Uint8Array;
+  /** FIL-003: false until whole-object integrity passes. */
+  readonly visible: boolean;
+  readonly completedAtMs?: number;
+  readonly linkedIncidentId?: string;
+  /** Retention deadline; files are evicted BEFORE emergency records. */
+  readonly expiresAtS: number;
+}
+
+export interface FileRepository {
+  /** Records a manifest. Returns false when the object is refused (FIL-006). */
+  putManifest(file: AssembledFile): Promise<boolean>;
+  getManifest(fileId: string): Promise<AssembledFile | undefined>;
+  /** Marks the object complete and visible. Called only after digest validation. */
+  markComplete(fileId: string, bytes: Uint8Array, atMs: number): Promise<void>;
+  /** FIL-003: only completed, digest-verified objects. */
+  listVisible(): Promise<readonly AssembledFile[]>;
+  /** Fragment indexes still outstanding, for the resume path (FIL-005). */
+  missingFragments(fileId: string, held: readonly number[]): Promise<readonly number[]>;
+  evictExpired(nowS: number): Promise<number>;
+}

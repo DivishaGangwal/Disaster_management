@@ -40,7 +40,8 @@ Legend — **evidence**: 🟩 static check · 🟦 simulator · 🟥 real Androi
 | Real BLE advertise / scan | REL-002 | ❌ | — | **B** | **The native module does not exist.** This is the critical path. `apps/mobile` throws a clear error for any non-simulated adapter rather than pretending. |
 | GATT server / client | REL-002 | ❌ | — | **B** | Same — needs the Expo development build. |
 | Foreground relay service | REL-001 | ❌ | — | **B** | Android foreground service + ongoing notification not written. |
-| Inventory before full transfer | REL-003 | 🟡 | 🟦 | C | Inventory packets are sent, but the receiver does not yet **use** the peer's inventory to filter offers — `peerInventories` is populated as an empty set. Wire `INVENTORY` receipt into `RelayLoop`. |
+| Inventory before full transfer | REL-003 | ✅ | 🟦 | C | Both sides announce and filter. Repeat contacts now transfer nothing (`offered: 0, peerAlreadyHolds: 2`). |
+| Receiver requests missing items | REL-004 | 🟡 | 🟦 | C | Intent met by filtered push, but the literal `PACKET_REQUEST` round trip is not implemented — see HD-001 in docs/DECISIONS-HACKATHON.md. |
 | Bidirectional session | DEC-005 | ✅ | 🟦 | C | Fixed this pass; was one-directional. |
 | Dedup suppresses repeat action | REL-006 | ✅ | 🟦 | C | — |
 | Hop / expiry / copy budget / cooldown | REL-007 | ✅ | 🟦 | C | — |
@@ -117,8 +118,8 @@ Legend — **evidence**: 🟩 static check · 🟦 simulator · 🟥 real Androi
 |---|---|---|---|---|
 | Manifest + bounded fragments | FIL-001 | ✅ | C | — |
 | SOS preempts file transfer | FIL-005 | ✅ | C | Scenario J passes. |
-| Reassembly + whole-object integrity | FIL-004 | 🟡 | C | Fragments are stored and bounded; **the reassembly-and-verify step is not written**. `listFragments()` exists, the assembler does not. |
-| Reject executables / zip bombs | FIL-006 | ❌ | C | Only size bounds are enforced; MIME-category rejection is not implemented. |
+| Reassembly + whole-object integrity | FIL-004 | ✅ | C | `FileAssembler` verifies the whole-object digest before visibility; a mismatch discards the object. |
+| Reject executables / zip bombs | FIL-006 | ✅ | C | `MimeCategory` defined; EXECUTABLE and ARCHIVE refused at manifest time; orphan fragments never stored. The prototype has no decompressor at all (HD-003). |
 
 ---
 
