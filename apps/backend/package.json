@@ -13,6 +13,12 @@
     "@dsm/contracts": "*",
     "@dsm/codec": "*",
     "@dsm/validator": "*",
-    "@dsm/incident": "*"
+    "@dsm/incident": "*",
+    "better-sqlite3": "^11.10.0",
+    "hono": "^4.8.4",
+    "@hono/node-server": "^1.13.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13"
   }
 }

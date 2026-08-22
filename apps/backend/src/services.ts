@@ -23,66 +23,13 @@ import {
 } from '@dsm/contracts';
 import { buildBackendAck, decodePacket, toEpochS } from '@dsm/codec';
 import { validate } from '@dsm/validator';
-import { IncidentReducer, type IncidentView } from '@dsm/incident';
+import { type IncidentView } from '@dsm/incident';
+import { SqliteBackendStore as BackendStore, type GatewayObservation, type StoredCanonicalPacket } from './store.js';
 
-export interface StoredCanonicalPacket {
-  readonly packetId: PacketId;
-  readonly bytes: Uint8Array;
-  /** Payload digest, matching @dsm/validator. Not a digest of the full frame. */
-  readonly digest: string;
-  readonly firstSeenAtMs: number;
-}
+export { BackendStore };
 
-export interface GatewayObservation {
-  readonly packetId: PacketId;
-  readonly gatewayToken: string;
-  readonly receivedAtMs: number;
-  readonly uploadedAtMs: number;
-  readonly hopCountOnArrival: number;
-  readonly transport: string;
-}
-
-export class BackendStore {
-  /** One canonical packet per ID. */
-  readonly packets = new Map<PacketId, StoredCanonicalPacket>();
-  /** Many observations per packet (GTW-003). */
-  readonly observations: GatewayObservation[] = [];
-  /** Idempotency: a retried batch must not create duplicate observations. */
-  private readonly seenBatches = new Set<string>();
-  readonly incidents = new IncidentReducer();
-  /** Packets queued for delivery back into the mesh, per region. */
-  readonly outbound = new Map<string, { packetId: PacketId; bytes: Uint8Array; seq: number }[]>();
-  private outboundSeq = 0;
-  readonly gatewayTokens = new Map<string, { nodeToken: string; regionCode: string }>();
-
-  isDuplicateBatch(batchId: string): boolean {
-    return this.seenBatches.has(batchId);
-  }
-
-  rememberBatch(batchId: string): void {
-    this.seenBatches.add(batchId);
-  }
-
-  enqueueOutbound(regionCode: string, packetId: PacketId, bytes: Uint8Array): void {
-    const list = this.outbound.get(regionCode) ?? [];
-    if (list.some((item) => item.packetId === packetId)) return; // idempotent
-    this.outboundSeq += 1;
-    list.push({ packetId, bytes, seq: this.outboundSeq });
-    this.outbound.set(regionCode, list);
-  }
-
-  readOutbound(regionCode: string, cursor: string | undefined, max: number) {
-    const after = cursor ? Number.parseInt(cursor, 10) : 0;
-    const list = (this.outbound.get(regionCode) ?? []).filter((item) => item.seq > after);
-    const page = list.slice(0, max);
-    const last = page[page.length - 1];
-    return {
-      items: page.map((item) => ({ packetId: item.packetId, bytes: item.bytes })),
-      nextCursor: last ? String(last.seq) : cursor,
-      hasMore: list.length > page.length,
-    };
-  }
-}
+// Re-export types so existing imports from './services.js' still work
+export type { StoredCanonicalPacket, GatewayObservation };
 
 export class IngestService {
   constructor(private readonly store: BackendStore) {}
@@ -135,14 +82,17 @@ export class IngestService {
       }
 
       if (!replay) {
-        this.store.observations.push({
-          packetId: item.packetId,
-          gatewayToken: request.gatewayToken,
-          receivedAtMs: item.observation.receivedAtMs,
-          uploadedAtMs: nowMs,
-          hopCountOnArrival: item.observation.hopCountOnArrival,
-          transport: item.observation.transport,
-        });
+        this.store.pushObservation(
+          {
+            packetId: item.packetId,
+            gatewayToken: request.gatewayToken,
+            receivedAtMs: item.observation.receivedAtMs,
+            uploadedAtMs: nowMs,
+            hopCountOnArrival: item.observation.hopCountOnArrival,
+            transport: item.observation.transport,
+          },
+          request.batchId,
+        );
       }
 
       if (existing) {
@@ -156,7 +106,6 @@ export class IngestService {
       }
 
       this.store.packets.set(item.packetId, {
-        packetId: item.packetId,
         bytes: item.bytes,
         digest,
         firstSeenAtMs: nowMs,

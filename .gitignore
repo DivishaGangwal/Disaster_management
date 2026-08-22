@@ -17,3 +17,7 @@ tools/ggwave-artifact/out/
 coverage/
 .vscode/
 .idea/
+# SQLite database (runtime data — not committed)
+*.db
+*.db-wal
+*.db-shm

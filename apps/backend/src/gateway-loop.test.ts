@@ -11,6 +11,7 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import Database from 'better-sqlite3';
 
 import {
   EmergencyCategory,
@@ -27,6 +28,12 @@ import {
 } from '@dsm/contracts';
 import { buildSosCreate, decodePacket, toEpochS } from '@dsm/codec';
 import { BackendStore, IngestService, IncidentQueryService, OutboundService } from './services.js';
+import { createTestDb } from './db.js';
+
+/** Helper: create a fresh in-memory store for each test. */
+function makeStore() {
+  return new BackendStore(createTestDb());
+}
 
 const NOW = Date.UTC(2025, 5, 1);
 const REGION = 'IN-DEMO-01';
@@ -80,7 +87,7 @@ function sampleSos(sourceId: string, incidentId: string) {
 }
 
 test('scenario D: an unproven gateway uploads nothing and loses no data', async () => {
-  const store = new BackendStore();
+  const store = makeStore();
   const ingest = new IngestService(store);
   const outbound = new OutboundService(store);
   const client = inProcessClient(store, ingest, outbound, 'GW-1', { proven: false });
@@ -91,7 +98,7 @@ test('scenario D: an unproven gateway uploads nothing and loses no data', async 
 });
 
 test('scenario D+E: proven gateway uploads, backend acknowledges, ack returns to the mesh', async () => {
-  const store = new BackendStore();
+  const store = makeStore();
   const ingest = new IngestService(store);
   const outbound = new OutboundService(store);
   const client = inProcessClient(store, ingest, outbound, 'GW-1', { proven: true });
@@ -132,7 +139,7 @@ test('scenario D+E: proven gateway uploads, backend acknowledges, ack returns to
 });
 
 test('GTW-003 / WEB-001: two gateways uploading one packet make one incident, two observations', async () => {
-  const store = new BackendStore();
+  const store = makeStore();
   const ingest = new IngestService(store);
   const outbound = new OutboundService(store);
 
@@ -164,7 +171,7 @@ test('GTW-003 / WEB-001: two gateways uploading one packet make one incident, tw
 });
 
 test('a retried batch does not duplicate observations', async () => {
-  const store = new BackendStore();
+  const store = makeStore();
   const ingest = new IngestService(store);
   const outbound = new OutboundService(store);
   const client = inProcessClient(store, ingest, outbound, 'GW-1', { proven: true });
@@ -191,7 +198,7 @@ test('a retried batch does not duplicate observations', async () => {
 });
 
 test('the backend refuses a corrupted upload with a reason', async () => {
-  const store = new BackendStore();
+  const store = makeStore();
   const ingest = new IngestService(store);
 
   const sos = sampleSos('1111111111111111', 'INC-G4');
@@ -218,7 +225,7 @@ test('the backend refuses a corrupted upload with a reason', async () => {
 });
 
 test('outbound selection is region bounded (WEB-010)', () => {
-  const store = new BackendStore();
+  const store = makeStore();
   const outbound = new OutboundService(store);
   const sos = sampleSos('1111111111111111', 'INC-G5');
 

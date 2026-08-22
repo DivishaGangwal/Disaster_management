@@ -1,151 +1,161 @@
 /**
- * BACKEND HTTP SURFACE  (zero runtime dependencies, node:http only)
+ * BACKEND HTTP SURFACE  (Hono router on node:http)
  *
  * Spec: 02-... "Conceptual online API obligations".
  *
- * Kept dependency-free on purpose: Workstream E can swap in Express/Fastify
- * without changing the services, and everyone else can run the backend with
- * `node` alone while that decision is still open.
+ * Hono replaces the hand-rolled router for cleaner route matching and
+ * typed request handling, while the service layer (IngestService, etc.)
+ * remains unchanged.
  *
- * IMPORTANT: /health is what a phone's live probe hits (GTW-001). It returns an
- * `identity` string so a captive portal answering 200 cannot pass as the
- * coordination backend.
+ * IMPORTANT: /health is what a phone's live probe hits (GTW-001). It must
+ * return the exact `identity` string so a captive portal cannot pass as
+ * the coordination backend.
  */
 
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { Hono } from 'hono';
+import { serve } from '@hono/node-server';
+import type { Database } from 'better-sqlite3';
 import { GATEWAY } from '@dsm/contracts';
-import { BackendStore, IngestService, IncidentQueryService, OutboundService } from './services.js';
+import { decodePacket } from '@dsm/codec';
+import { SqliteBackendStore } from './store.js';
+import { IngestService, IncidentQueryService, OutboundService } from './services.js';
+import { responderRoutes } from './routes/responders.js';
+import { resourceRoutes } from './routes/resources.js';
+import { hazardRoutes } from './routes/hazards.js';
+import { campaignRoutes } from './routes/campaigns.js';
+import { demoRoutes } from './routes/demo.js';
 
 export const BACKEND_IDENTITY = 'dsm-backend-demo-v1';
 
 export interface ServerOptions {
   readonly port?: number;
-  readonly store?: BackendStore;
+  readonly db: Database;
 }
 
-export function createBackend(options: ServerOptions = {}) {
-  const store = options.store ?? new BackendStore();
+export function createBackend(options: ServerOptions) {
+  const store = new SqliteBackendStore(options.db);
   const ingest = new IngestService(store);
   const incidents = new IncidentQueryService(store);
   const outbound = new OutboundService(store);
 
-  const server = createServer((req, res) => {
-    void handle(req, res).catch((error) => send(res, 500, { error: String(error) }));
+  const app = new Hono();
+
+  // ── Middleware: CORS for web dashboards ─────────────────────────────────
+  app.use('*', async (c, next) => {
+    await next();
+    c.header('Access-Control-Allow-Origin', '*');
+    c.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    c.header('Access-Control-Allow-Headers', 'Content-Type');
+  });
+  app.options('*', (c) => c.body(null, 204));
+
+  // ── 1. GET /health ── live probe (GTW-001) ──────────────────────────────
+  app.get('/health', (c) =>
+    c.json({ identity: BACKEND_IDENTITY, atMs: Date.now() }),
+  );
+
+  // ── 2. POST /gateway/register ────────────────────────────────────────────
+  app.post('/gateway/register', async (c) => {
+    const body = await c.req.json<{ nodeToken?: string; regionCode?: string }>();
+    const nodeToken = String(body.nodeToken ?? 'unknown');
+    const regionCode = String(body.regionCode ?? '');
+    if (nodeToken.length > 8 || !/^[0-9a-f]{8}$/.test(nodeToken)) {
+      return c.json({ error: 'invalid nodeToken' }, 400);
+    }
+    if (regionCode.length === 0 || regionCode.length > 32) {
+      return c.json({ error: 'invalid regionCode' }, 400);
+    }
+    const gatewayToken = `GW-${nodeToken}`;
+    store.registerGateway(gatewayToken, nodeToken, regionCode);
+    return c.json({ gatewayToken });
   });
 
-  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const url = new URL(req.url ?? '/', 'http://localhost');
-    const path = url.pathname;
-
-    // --- live probe (GTW-001) --------------------------------------------
-    if (path === '/health') {
-      return send(res, 200, { identity: BACKEND_IDENTITY, atMs: Date.now() });
+  // ── 3. POST /gateway/upload ── mesh → internet ────────────────────────────
+  app.post('/gateway/upload', async (c) => {
+    const body = await c.req.json<{
+      gatewayToken?: string;
+      batchId?: string;
+      items?: { packetId: string; bytesBase64: string; observation: unknown }[];
+    }>();
+    const items = body.items ?? [];
+    if (items.length > GATEWAY.MAX_UPLOAD_BATCH) {
+      return c.json({ error: 'batch over limit' }, 413);
     }
-
-    if (req.method !== 'POST' && !path.startsWith('/incidents')) {
-      return send(res, 404, { error: 'not found' });
-    }
-
-    if (path === '/gateway/register') {
-      const body = await readJson(req);
-      const gatewayToken = `GW-${String(body['nodeToken'] ?? 'unknown')}`;
-      store.gatewayTokens.set(gatewayToken, {
-        nodeToken: String(body['nodeToken'] ?? ''),
-        regionCode: String(body['regionCode'] ?? ''),
-      });
-      return send(res, 200, { gatewayToken });
-    }
-
-    if (path === '/gateway/upload') {
-      const body = await readJson(req);
-      const items = (body['items'] as { packetId: string; bytesBase64: string; observation: unknown }[]) ?? [];
-      if (items.length > GATEWAY.MAX_UPLOAD_BATCH) {
-        return send(res, 413, { error: 'batch over limit' });
-      }
-      const response = ingest.ingest(
-        {
-          gatewayToken: String(body['gatewayToken'] ?? ''),
-          batchId: String(body['batchId'] ?? ''),
-          items: items.map((item) => ({
-            packetId: item.packetId,
-            bytes: new Uint8Array(Buffer.from(item.bytesBase64, 'base64')),
-            observation: item.observation as never,
-          })),
-        },
-        Date.now(),
-      );
-      return send(res, 200, response);
-    }
-
-    if (path === '/gateway/outbound') {
-      const body = await readJson(req);
-      const page = outbound.poll(
-        String(body['gatewayToken'] ?? ''),
-        String(body['regionCode'] ?? ''),
-        body['cursor'] ? String(body['cursor']) : undefined,
-        Math.min(Number(body['maxItems'] ?? GATEWAY.MAX_DOWNLOAD_BATCH), GATEWAY.MAX_DOWNLOAD_BATCH),
-      );
-      return send(res, 200, {
-        items: page.items.map((item) => ({
+    const response = ingest.ingest(
+      {
+        gatewayToken: String(body.gatewayToken ?? ''),
+        batchId: String(body.batchId ?? ''),
+        items: items.map((item) => ({
           packetId: item.packetId,
-          bytesBase64: Buffer.from(item.bytes).toString('base64'),
+          bytes: new Uint8Array(Buffer.from(item.bytesBase64, 'base64')),
+          observation: item.observation as never,
         })),
-        nextCursor: page.nextCursor,
-        hasMore: page.hasMore,
-      });
-    }
+      },
+      Date.now(),
+    );
+    return c.json(response);
+  });
 
-    if (path === '/gateway/outbound/ack') {
-      await readJson(req);
-      // The cursor is client-held; acking is what makes advancing it safe.
-      return send(res, 200, { ok: true });
-    }
+  // ── 4. POST /gateway/outbound ── internet → mesh ──────────────────────────
+  app.post('/gateway/outbound', async (c) => {
+    const body = await c.req.json<{
+      gatewayToken?: string;
+      regionCode?: string;
+      cursor?: string;
+      maxItems?: number;
+    }>();
+    const page = outbound.poll(
+      String(body.gatewayToken ?? ''),
+      String(body.regionCode ?? ''),
+      body.cursor ? String(body.cursor) : undefined,
+      Math.min(Number(body.maxItems ?? GATEWAY.MAX_DOWNLOAD_BATCH), GATEWAY.MAX_DOWNLOAD_BATCH),
+    );
+    return c.json({
+      items: page.items.map((item) => ({
+        packetId: item.packetId,
+        bytesBase64: Buffer.from(item.bytes).toString('base64'),
+      })),
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
+    });
+  });
 
-    if (path === '/incidents') {
-      return send(res, 200, { incidents: incidents.list() });
-    }
+  // ── 5. POST /gateway/outbound/ack ─────────────────────────────────────────
+  app.post('/gateway/outbound/ack', async (c) => {
+    // The client's cursor advances only after this succeeds (02-...).
+    await c.req.json(); // consume body
+    return c.json({ ok: true });
+  });
 
-    if (path.startsWith('/incidents/')) {
-      const detail = incidents.detail(path.slice('/incidents/'.length));
-      if (!detail) return send(res, 404, { error: 'unknown incident' });
-      return send(res, 200, detail);
-    }
+  // ── 6. GET /incidents ─────────────────────────────────────────────────────
+  app.get('/incidents', (c) =>
+    c.json({ incidents: incidents.list() }),
+  );
 
-    return send(res, 404, { error: 'not found' });
-  }
+  // ── 7. GET /incidents/:incidentId ────────────────────────────────────────
+  app.get('/incidents/:incidentId', (c) => {
+    const detail = incidents.detail(c.req.param('incidentId'));
+    if (!detail) return c.json({ error: 'unknown incident' }, 404);
+    return c.json(detail);
+  });
+
+  // ── Planned endpoints (Workstream E) ─────────────────────────────────────
+  app.route('/responders', responderRoutes(store, outbound));
+  app.route('/', resourceRoutes(store, outbound));
+  app.route('/', hazardRoutes(store, outbound));
+  app.route('/campaigns', campaignRoutes(store, outbound));
+  app.route('/demo', demoRoutes(store));
 
   return {
-    server,
+    app,
     store,
     ingest,
     incidents,
     outbound,
     listen(port = options.port ?? 8787): Promise<number> {
       return new Promise((resolve) => {
-        server.listen(port, () => resolve(port));
+        serve({ fetch: app.fetch, port }, () => resolve(port));
       });
     },
-    close(): Promise<void> {
-      return new Promise((resolve) => server.close(() => resolve()));
-    },
   };
-}
-
-async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for await (const chunk of req) {
-    total += (chunk as Buffer).length;
-    // Bound the request BEFORE allocating more (INT-001 applies server-side too).
-    if (total > GATEWAY.MAX_BATCH_BYTES * 2) throw new Error('request body over limit');
-    chunks.push(chunk as Buffer);
-  }
-  if (chunks.length === 0) return {};
-  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
-}
-
-function send(res: ServerResponse, status: number, body: unknown): void {
-  const payload = JSON.stringify(body);
-  res.writeHead(status, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) });
-  res.end(payload);
 }

@@ -6,6 +6,7 @@
   "license": "UNLICENSED",
   "workspaces": [
     "packages/*",
+    "apps/*",
     "tools/*"
   ],
   "engines": {
