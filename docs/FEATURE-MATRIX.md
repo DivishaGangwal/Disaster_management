@@ -94,10 +94,11 @@ Legend — **evidence**: 🟩 static check · 🟦 simulator · 🟥 real Androi
 |---|---|---|---|---|---|
 | Deduplicated incident + observations | WEB-001 | ✅ | 🟦 | E | Merged console shows one incident with separate gateway observations. |
 | Assignment / lifecycle actions | WEB-002 | 🟡 | 🟩 | E | Roster and assignment packet emission work; responder-side accept/en-route/arrive remains mobile work. |
-| Authority composer + byte preview | WEB-005 | ✅ | 🟩 | E/F | Composer renders the real `planCampaign()` byte, frame, repetition, and duration preview. |
+| Authority composer + byte preview | WEB-005 | ✅ | 🟩 | E/F | Composer renders the real `planCampaign()` byte, frame, repetition, and duration preview, and carries an operator-selected broadcast point in the alert packet. |
+| Check-in campaign composer | WEB-004 | ❌ | 🟩 | E | **Removed from the console (HD-010).** The frozen check-in packet types are untouched; nothing composes them. |
 | Campaign state machine | WEB-006 | ✅ | 🟩 | F | — |
 | Edit after approval resets it | WEB-007 | ✅ | 🟩 | F | `contentEdited()`. |
-| Decode-before-broadcast | WEB-009 | ✅ | 🟩 | F | Two browser station modes, raw frame recovery, CRC validation, exact expected/recovered comparison, and persisted pass/fail results are implemented. Physical acoustic evidence remains separate. |
+| Decode-before-broadcast | WEB-009 | ✅ | 🟩 | F | Two browser station modes, raw frame recovery, CRC validation, exact expected/recovered comparison, and persisted pass/fail results are implemented. Recovered frames are replayed through `Tier2Receiver`, rebuilt into the canonical packet and compared byte-for-byte before anything is reported as decoded. Physical acoustic evidence remains separate. |
 | Region-bounded outbound | WEB-010 | ✅ | 🟦 | E | — |
 | **Merged operations console** | — | ✅ | 🟩 | **E** | Five authority and four broadcaster surfaces live in one responsive Vite/React application with no role switch. |
 | Interactive operations map | WEB-001/004 | ✅ | 🟩 | E | MapLibre clusters and filters live GeoJSON; centre popup actions publish versioned packets rather than changing local-only marker state. |

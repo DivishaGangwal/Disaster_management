@@ -106,12 +106,25 @@ recovered by the current browser, and the stored exact-comparison result. The
 human-readable decoded public message remains visible after a successful
 microphone or WAV reception.
 
-The campaign composer can create three supported canonical packet categories:
-public alerts, cached-form check-in requests, and current regional map records.
-Each category is encoded with its existing frozen message type and passes
-through the same approval, WavePX/ggwave preparation, speaker/WAV transmission,
-frame comparison, and decode evidence flow. Check-in answers are explicitly a
-separate Tier 1 or gateway response; the radio path remains one-way.
+The campaign composer creates two canonical packet categories: public alerts and
+current regional map records. Each is encoded with its existing frozen message
+type and passes through the same approval, WavePX/ggwave preparation,
+speaker/WAV transmission, frame comparison, and decode evidence flow. The
+console no longer composes check-in campaigns (HD-010).
+
+A public alert carries an operator-selected broadcast point. The point is chosen
+on the composer map — click the basemap, drag the pin, click an existing
+incident or record marker, or type the degrees directly — and is encoded as the
+`latE7`, `lonE7` and `radiusM` fields of the same OFFICIAL_ALERT packet the
+radio carries.
+
+Reception verification does not compare frame tallies alone. Recovered frames
+are replayed through the same `Tier2Receiver` a phone runs, the campaign's
+canonical header rebuilds the Tier 1 packet, and those bytes are compared with
+the approved packet byte-for-byte. Only then is the payload decoded, so the
+message and coordinates shown as "decoded from the recovered audio" came off the
+air rather than from the stored draft. A campaign reaches `decode-tested` only
+when every expected frame arrived AND the rebuilt packet is byte-identical.
 
 The current basemap is online. It does not satisfy MAP-001 offline-map evidence;
 that remains Workstream D and requires a licensed packaged tile artifact.

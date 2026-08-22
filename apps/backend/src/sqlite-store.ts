@@ -35,8 +35,12 @@ export interface CampaignRecord {
   readonly campaignVersion: number;
   readonly title: string;
   readonly summary: string;
-  readonly dataType?: 'official-alert' | 'check-in' | 'regional-record';
+  readonly dataType?: 'official-alert' | 'regional-record';
   readonly objectId?: string;
+  /** Operator-selected broadcast point, degrees × 1e7, when one was chosen. */
+  readonly latE7?: number;
+  readonly lonE7?: number;
+  readonly radiusM?: number;
   readonly regionCode: string;
   readonly state: import('@dsm/contracts').CampaignState;
   readonly profile: 'audible-fast' | 'audible-normal' | 'ultrasound-normal';
@@ -90,6 +94,10 @@ export interface BroadcastDecodeResult {
   readonly corruptFrames: number;
   readonly unexpectedFrames: number;
   readonly missingFrames: number;
+  /** True when the frames rebuilt the approved Tier 1 packet byte-for-byte. */
+  readonly canonicalMatch: boolean;
+  readonly reassembledPacketId?: string;
+  readonly reassembledDigest?: string;
   readonly receiverLabel: string;
   readonly receptionTransport: 'tier2-mic' | 'tier2-direct';
   readonly decodedMessage?: {
@@ -103,6 +111,12 @@ export interface BroadcastDecodeResult {
     readonly severity: number;
     readonly language: string;
     readonly text: string;
+    readonly location?: {
+      readonly latE7: number;
+      readonly lonE7: number;
+      readonly radiusM?: number;
+      readonly matchesApproved: boolean;
+    };
     readonly typeName?: string;
     readonly payload?: Record<string, unknown>;
   };

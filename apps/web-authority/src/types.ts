@@ -49,8 +49,11 @@ export interface Campaign {
   readonly campaignVersion: number;
   readonly title: string;
   readonly summary: string;
-  readonly dataType?: 'official-alert' | 'check-in' | 'regional-record';
+  readonly dataType?: 'official-alert' | 'regional-record';
   readonly objectId?: string;
+  readonly latE7?: number;
+  readonly lonE7?: number;
+  readonly radiusM?: number;
   readonly regionCode: string;
   readonly state: string;
   readonly profile: string;
@@ -101,6 +104,9 @@ export interface BroadcastDecodeResult {
   readonly corruptFrames: number;
   readonly unexpectedFrames: number;
   readonly missingFrames: number;
+  readonly canonicalMatch?: boolean;
+  readonly reassembledPacketId?: string;
+  readonly reassembledDigest?: string;
   readonly receiverLabel: string;
   readonly receptionTransport: 'tier2-mic' | 'tier2-direct';
   readonly decodedMessage?: DecodedBroadcastMessage;
@@ -118,8 +124,16 @@ export interface DecodedBroadcastMessage {
   readonly severity: number;
   readonly language: string;
   readonly text: string;
+  readonly location?: DecodedBroadcastLocation;
   readonly typeName?: string;
   readonly payload?: Record<string, unknown>;
+}
+
+export interface DecodedBroadcastLocation {
+  readonly latE7: number;
+  readonly lonE7: number;
+  readonly radiusM?: number;
+  readonly matchesApproved: boolean;
 }
 
 export interface PacketStreamItem {

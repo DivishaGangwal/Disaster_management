@@ -21,6 +21,7 @@
 import { ADVERTISEMENT, type DiscoverySummary, type TransportAdapter } from '@dsm/contracts';
 
 export * from './simulated-adapter.js';
+export * from './advertisement-codec.js';
 
 /** How the app chooses an adapter at startup. */
 export type AdapterSelection = 'native-ble' | 'native-classic' | 'simulated';

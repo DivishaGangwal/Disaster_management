@@ -11,16 +11,24 @@ interface Props {
   selected: string;
   onSelect: (id: string) => void;
   onQuickState?: (id: string, state: string) => void;
+  /** Broadcast point being composed, in degrees. Shown as a draggable pin. */
+  pick?: { lat: number; lon: number } | null;
+  /** Supplying this turns the map into a location picker. */
+  onPick?: (lat: number, lon: number) => void;
+  /** Compact chrome for the campaign composer panel. */
+  compact?: boolean;
 }
 
-export function OperationsMap({ incidents, records, selected, onSelect, onQuickState }: Props) {
+export function OperationsMap({ incidents, records, selected, onSelect, onQuickState, pick, onPick, compact }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap>();
-  const callbacks = useRef({ onSelect, onQuickState });
+  const pickMarker = useRef<maplibregl.Marker>();
+  const callbacks = useRef({ onSelect, onQuickState, onPick });
   const [ready, setReady] = useState(false);
+  const [created, setCreated] = useState(false);
   const [filters, setFilters] = useState<Set<Filter>>(() => new Set(['incidents', 'centres', 'routes', 'hazards']));
   const [mapReadout, setMapReadout] = useState({ zoom: 6.1, lat: 26.1, lon: 92.5 });
-  callbacks.current = { onSelect, onQuickState };
+  callbacks.current = { onSelect, onQuickState, onPick };
 
   const data = useMemo(() => featureCollection(incidents, records, filters), [incidents, records, filters]);
 
@@ -52,18 +60,27 @@ export function OperationsMap({ incidents, records, selected, onSelect, onQuickS
       attributionControl: false,
     });
     map.current = instance;
+    setCreated(true);
+    // Picking is registered outside the load handler: an operator can still
+    // place a point when the basemap tiles are slow or unreachable.
+    instance.on('click', (event) => {
+      if (!callbacks.current.onPick) return;
+      const layers = ['operation-points', 'clusters'].filter((layer) => instance.getLayer(layer));
+      if (layers.length > 0 && instance.queryRenderedFeatures(event.point, { layers }).length > 0) return;
+      callbacks.current.onPick(event.lngLat.lat, event.lngLat.lng);
+    });
     instance.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
     instance.addControl(new maplibregl.FullscreenControl(), 'top-right');
     instance.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
     instance.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
     instance.on('load', () => {
       instance.addSource('operations', { type: 'geojson', data, cluster: true, clusterRadius: 44, clusterMaxZoom: 11 });
-      instance.addLayer({ id: 'clusters', type: 'circle', source: 'operations', filter: ['has', 'point_count'], paint: { 'circle-color': '#132c3a', 'circle-radius': ['step', ['get', 'point_count'], 21, 8, 27, 20, 34], 'circle-stroke-width': 4, 'circle-stroke-color': '#ffffff' } });
-      instance.addLayer({ id: 'cluster-count', type: 'symbol', source: 'operations', filter: ['has', 'point_count'], layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 13 }, paint: { 'text-color': '#ffffff' } });
-      instance.addLayer({ id: 'selected-halo', type: 'circle', source: 'operations', filter: ['==', ['get', 'id'], ''], paint: { 'circle-radius': 22, 'circle-color': 'rgba(21,101,255,.08)', 'circle-stroke-width': 4, 'circle-stroke-color': '#1565ff' } });
-      instance.addLayer({ id: 'operation-points', type: 'circle', source: 'operations', filter: ['!', ['has', 'point_count']], paint: { 'circle-radius': ['case', ['==', ['get', 'featureType'], 'incident'], 13, 11], 'circle-color': ['match', ['get', 'status'], 'critical', '#c62d42', 'urgent', '#f0782d', 'closed', '#68727a', 'blocked', '#c62d42', 'active', '#d94b38', 'open', '#1a8f6a', '#1673c9'], 'circle-stroke-width': 3.5, 'circle-stroke-color': '#ffffff' } });
-      instance.addLayer({ id: 'operation-glyphs', type: 'symbol', source: 'operations', filter: ['!', ['has', 'point_count']], layout: { 'text-field': ['get', 'glyph'], 'text-size': 10, 'text-font': ['Noto Sans Bold'] }, paint: { 'text-color': '#ffffff', 'text-halo-color': '#132c3a', 'text-halo-width': .5 } });
-      instance.addLayer({ id: 'operation-labels', type: 'symbol', source: 'operations', filter: ['!', ['has', 'point_count']], minzoom: 6.7, layout: { 'text-field': ['get', 'label'], 'text-size': 12, 'text-offset': [0, 1.75], 'text-anchor': 'top', 'text-allow-overlap': false }, paint: { 'text-color': '#10212d', 'text-halo-color': '#ffffff', 'text-halo-width': 2 } });
+      instance.addLayer({ id: 'clusters', type: 'circle', source: 'operations', filter: ['has', 'point_count'], paint: { 'circle-color': '#132c3a', 'circle-radius': ['step', ['get', 'point_count'], 28, 8, 36, 20, 46], 'circle-stroke-width': 5, 'circle-stroke-color': '#ffffff' } });
+      instance.addLayer({ id: 'cluster-count', type: 'symbol', source: 'operations', filter: ['has', 'point_count'], layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 17, 'text-font': ['Noto Sans Bold'] }, paint: { 'text-color': '#ffffff' } });
+      instance.addLayer({ id: 'selected-halo', type: 'circle', source: 'operations', filter: ['==', ['get', 'id'], ''], paint: { 'circle-radius': 31, 'circle-color': 'rgba(21,101,255,.10)', 'circle-stroke-width': 5, 'circle-stroke-color': '#1565ff' } });
+      instance.addLayer({ id: 'operation-points', type: 'circle', source: 'operations', filter: ['!', ['has', 'point_count']], paint: { 'circle-radius': ['case', ['==', ['get', 'featureType'], 'incident'], 19, 16], 'circle-color': ['match', ['get', 'status'], 'critical', '#c62d42', 'urgent', '#f0782d', 'closed', '#68727a', 'blocked', '#c62d42', 'active', '#d94b38', 'open', '#1a8f6a', '#1673c9'], 'circle-stroke-width': 4.5, 'circle-stroke-color': '#ffffff' } });
+      instance.addLayer({ id: 'operation-glyphs', type: 'symbol', source: 'operations', filter: ['!', ['has', 'point_count']], layout: { 'text-field': ['get', 'glyph'], 'text-size': 15, 'text-font': ['Noto Sans Bold'], 'text-allow-overlap': true }, paint: { 'text-color': '#ffffff', 'text-halo-color': '#132c3a', 'text-halo-width': .8 } });
+      instance.addLayer({ id: 'operation-labels', type: 'symbol', source: 'operations', filter: ['!', ['has', 'point_count']], minzoom: 6.7, layout: { 'text-field': ['get', 'label'], 'text-size': 15, 'text-offset': [0, 1.6], 'text-anchor': 'top', 'text-allow-overlap': false }, paint: { 'text-color': '#10212d', 'text-halo-color': '#ffffff', 'text-halo-width': 2.4 } });
       instance.on('click', 'clusters', async (event) => {
         const feature = instance.queryRenderedFeatures(event.point, { layers: ['clusters'] })[0];
         const clusterId = Number(feature?.properties?.cluster_id);
@@ -82,19 +99,35 @@ export function OperationsMap({ incidents, records, selected, onSelect, onQuickS
       });
       for (const layer of ['clusters', 'operation-points']) {
         instance.on('mouseenter', layer, () => { instance.getCanvas().style.cursor = 'pointer'; });
-        instance.on('mouseleave', layer, () => { instance.getCanvas().style.cursor = ''; });
+        instance.on('mouseleave', layer, () => { instance.getCanvas().style.cursor = callbacks.current.onPick ? 'crosshair' : ''; });
       }
       instance.on('mousemove', (event) => setMapReadout((current) => ({ ...current, lat: event.lngLat.lat, lon: event.lngLat.lng })));
       instance.on('zoomend', () => setMapReadout((current) => ({ ...current, zoom: instance.getZoom() })));
       setReady(true);
     });
-    return () => { instance.remove(); map.current = undefined; };
+    return () => { instance.remove(); map.current = undefined; setCreated(false); };
   }, []);
 
   useEffect(() => {
     if (!ready || !map.current) return;
     (map.current.getSource('operations') as GeoJSONSource | undefined)?.setData(data);
   }, [data, ready]);
+
+  useEffect(() => {
+    const instance = map.current;
+    if (!created || !instance) return;
+    instance.getCanvas().style.cursor = onPick ? 'crosshair' : '';
+    if (!pick) { pickMarker.current?.remove(); pickMarker.current = undefined; return; }
+    if (!pickMarker.current) {
+      const marker = new maplibregl.Marker({ color: '#1565ff', draggable: Boolean(onPick), scale: 1.45 });
+      marker.on('dragend', () => { const point = marker.getLngLat(); callbacks.current.onPick?.(point.lat, point.lng); });
+      pickMarker.current = marker.setLngLat([pick.lon, pick.lat]).addTo(instance);
+      return;
+    }
+    pickMarker.current.setLngLat([pick.lon, pick.lat]);
+  }, [pick?.lat, pick?.lon, onPick, created]);
+
+  useEffect(() => () => { pickMarker.current?.remove(); pickMarker.current = undefined; }, []);
 
   useEffect(() => {
     if (!ready || !map.current) return;
@@ -106,10 +139,11 @@ export function OperationsMap({ incidents, records, selected, onSelect, onQuickS
   const toggle = (filter: Filter) => setFilters((current) => { const next = new Set(current); next.has(filter) ? next.delete(filter) : next.add(filter); return next; });
   const unavailable = records.filter((record) => ['closed', 'blocked', 'damaged', 'active'].includes(record.state)).length;
   const selectedLabel = records.find((record) => record.objectId === selected)?.name ?? incidents.find((incident) => incident.incidentId === selected)?.incidentId;
-  return <div className="maplibre-shell">
+  return <div className={compact ? 'maplibre-shell compact' : 'maplibre-shell'}>
     <div className="map-toolbar" aria-label="Map layers">{(['incidents', 'centres', 'routes', 'hazards'] as Filter[]).map((filter) => <button key={filter} aria-pressed={filters.has(filter)} className={filters.has(filter) ? 'active' : ''} onClick={() => toggle(filter)}><i>{filters.has(filter) ? '✓' : ''}</i>{filter}</button>)}<button onClick={() => map.current?.fitBounds([[89.6, 23.8], [96.2, 28.3]], { padding: 44, maxZoom: 8 })}>Fit Assam</button></div>
     <div ref={container} className="maplibre-canvas" />
-    <div className="map-overview"><span><b>{data.features.length}</b> visible</span>{records.length > 0 && <><span><b>{records.length - unavailable}</b> available</span><span><b>{unavailable}</b> restricted</span></>}<span className="map-selection">{selectedLabel ?? 'No selection'}</span></div>
+    {!compact && <div className="map-overview"><span><b>{data.features.length}</b> visible</span>{records.length > 0 && <><span><b>{records.length - unavailable}</b> available</span><span><b>{unavailable}</b> restricted</span></>}<span className="map-selection">{selectedLabel ?? 'No selection'}</span></div>}
+    {onPick && <div className="map-pick-hint">{pick ? 'Drag the pin or click the map to move the broadcast point' : 'Click the map, or a marker, to set the broadcast point'}</div>}
     <div className="map-readout">Z{mapReadout.zoom.toFixed(1)} · {mapReadout.lat.toFixed(4)}, {mapReadout.lon.toFixed(4)}</div>
     {!ready && <div className="map-loading">Loading operational basemap…</div>}
   </div>;

@@ -41,11 +41,19 @@ or queueing. Those are done. You move bytes and emit normalized events.
 
 ## Android surface to implement
 
-- `BluetoothLeAdvertiser` — advertise the service UUID + the ≤26-byte discovery
-  payload from `buildDiscoverySummary`. The forbidden fields (name, phone
-  number, SOS text, exact coordinates, exact incident ID, permanent account ID,
-  full inventory) are not representable in `DiscoverySummary` by design — keep
-  it that way.
+- `BluetoothLeAdvertiser` — advertise the **exact bytes** from
+  `buildAdvertisingPdu()` in `@dsm/transport-core`. Do NOT invent a layout: the
+  encoder is written, tested, and shared with the simulated adapter. The
+  complete PDU is 19 of the 31 available bytes.
+  - Identifiers are frozen in `BLE_IDENTIFIERS` (`@dsm/contracts`): a 128-bit
+    GATT service UUID, and manufacturer-specific data under company ID
+    `0xffff` (SIG-reserved for testing — we have no assigned ID).
+  - **You cannot choose advertising channels.** One advertising event goes out
+    on 37/38/39 automatically, in the controller. Android exposes no API for
+    it. Do not look for one.
+  - The forbidden fields (name, phone number, SOS text, exact coordinates,
+    exact incident ID, permanent account ID, full inventory) are not
+    representable in `DiscoverySummary` by design — keep it that way.
 - `BluetoothLeScanner` — filtered scan, duty-cycled per `BATTERY.DUTY_CYCLE`.
 - `BluetoothGattServer` — accept connections, expose the session characteristic.
 - `BluetoothGatt` (client) — connect, discover, negotiate MTU, write/notify.
@@ -53,6 +61,19 @@ or queueing. Those are done. You move bytes and emit normalized events.
   is active and offers a route to stop it (`REL-001`).
 - **Runtime capability + permission reporting** → `CapabilityReport`.
 - **`AudioRecord`** PCM capture → feed the ggwave decoder → emit `Tier2RawFrame`.
+
+## Discovery is probabilistic — design for missed advertisements
+
+BLE advertising has **no carrier sense**. Simultaneous advertisers on one
+channel collide and both are lost. The controller adds a 0–10 ms random
+advDelay, and channels 37/38/39 sit between Wi-Fi 1/6/11 — but a scanner
+listens to one channel at a time, so it can miss an advertisement even with no
+collision at all.
+
+Never treat a missed advertisement as a failure. Nothing in the protocol
+depends on a single one being heard; `queueEpoch` lets a peer notice it missed
+a change. Report observed discovery latency in the evidence sheet rather than
+assuming it.
 
 ## Honesty requirements (non-negotiable)
 

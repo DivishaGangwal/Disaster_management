@@ -304,8 +304,11 @@ function campaignInput(body: Record<string, unknown>): CampaignCreateInput {
     title: typeof body['title'] === 'string' ? body['title'] : '',
     summary: typeof body['summary'] === 'string' ? body['summary'] : '',
     ...(typeof body['severity'] === 'number' ? { severity: body['severity'] } : {}),
-    ...(body['dataType'] === 'official-alert' || body['dataType'] === 'check-in' || body['dataType'] === 'regional-record' ? { dataType: body['dataType'] } : {}),
+    ...(body['dataType'] === 'official-alert' || body['dataType'] === 'regional-record' ? { dataType: body['dataType'] } : {}),
     ...(typeof body['objectId'] === 'string' ? { objectId: body['objectId'] } : {}),
+    ...(typeof body['latE7'] === 'number' ? { latE7: body['latE7'] } : {}),
+    ...(typeof body['lonE7'] === 'number' ? { lonE7: body['lonE7'] } : {}),
+    ...(typeof body['radiusM'] === 'number' ? { radiusM: body['radiusM'] } : {}),
     ...(body['profile'] === 'audible-fast' || body['profile'] === 'audible-normal' || body['profile'] === 'ultrasound-normal'
       ? { profile: body['profile'] }
       : {}),

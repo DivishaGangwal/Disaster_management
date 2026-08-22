@@ -261,14 +261,15 @@ this same endpoint; there is no UI-only closed or disabled state.
 
 Lists campaigns or creates a bounded Tier 2 packet draft. `dataType` is one of:
 
-- `official-alert` — compact authority instruction;
-- `check-in` — activates the cached safety-response form; responses return over
-  Tier 1 or a later gateway, never over Tier 2;
+- `official-alert` — compact authority instruction, optionally carrying a
+  broadcast point as `latE7`, `lonE7` and `radiusM` (degrees × 1e7, metres);
 - `regional-record` — snapshots a known shelter, medical post, food/water
   point, safe zone, hazard, or route by `objectId`.
 
-The latter two reuse the frozen `CHECKIN_CAMPAIGN` and regional packet types;
-they are not transport-specific aliases. Unknown regional IDs are rejected.
+The regional form reuses the frozen regional packet types; it is not a
+transport-specific alias. Unknown regional IDs are rejected. `check-in` is no
+longer accepted by this endpoint (HD-010); the frozen `CHECKIN_CAMPAIGN` type
+itself is untouched.
 
 ### `PUT /api/campaigns/:id` ✅
 

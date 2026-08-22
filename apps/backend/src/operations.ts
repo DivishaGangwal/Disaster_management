@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   AlertCategory,
-  CheckinStatus,
   ENVELOPE,
   Flags,
   GeometryKind,
@@ -13,10 +12,10 @@ import {
   SourceClass,
   messageTypeName,
   type CampaignState,
+  type PacketId,
 } from '@dsm/contracts';
 import {
   buildHazard,
-  buildCheckinCampaign,
   buildOfficialAlert,
   buildResponderState,
   buildResourceRecord,
@@ -30,6 +29,8 @@ import {
   planCampaign,
   toTier2Frames,
   transitionCampaign,
+  Tier2Receiver,
+  type CampaignHandleResolver,
   type GgwaveProfileName,
 } from '@dsm/tier2';
 import { IngestService, OutboundService } from './services.js';
@@ -53,8 +54,32 @@ export interface CampaignCreateInput {
   readonly category?: number;
   readonly instruction?: number;
   readonly profile?: GgwaveProfileName;
-  readonly dataType?: 'official-alert' | 'check-in' | 'regional-record';
+  readonly dataType?: 'official-alert' | 'regional-record';
   readonly objectId?: string;
+  /** Broadcast point, degrees × 1e7. Both must be present to carry a location. */
+  readonly latE7?: number;
+  readonly lonE7?: number;
+  readonly radiusM?: number;
+}
+
+/** Degrees × 1e7 bounds, matching the validator's OFFICIAL_ALERT rules. */
+const LAT_E7_LIMIT = 900000000;
+const LON_E7_LIMIT = 1800000000;
+const MAX_RADIUS_M = 200000;
+
+/** A location is carried only when both coordinates are present and in range. */
+function campaignLocation(input: {
+  latE7?: number;
+  lonE7?: number;
+  radiusM?: number;
+}): { latE7: number; lonE7: number; radiusM: number } | undefined {
+  if (typeof input.latE7 !== 'number' || typeof input.lonE7 !== 'number') return undefined;
+  if (!Number.isFinite(input.latE7) || !Number.isFinite(input.lonE7)) return undefined;
+  return {
+    latE7: clamp(Math.round(input.latE7), -LAT_E7_LIMIT, LAT_E7_LIMIT),
+    lonE7: clamp(Math.round(input.lonE7), -LON_E7_LIMIT, LON_E7_LIMIT),
+    radiusM: clamp(Math.round(input.radiusM ?? 5000), 0, MAX_RADIUS_M),
+  };
 }
 
 export class OperationsService {
@@ -227,6 +252,7 @@ export class OperationsService {
       profile: input.profile ?? 'audible-normal',
       dataType: input.dataType ?? 'official-alert',
       objectId: input.objectId,
+      location: campaignLocation(input),
       contentRevision: 1,
       state: 'draft',
       createdAtMs: Date.now(),
@@ -250,6 +276,11 @@ export class OperationsService {
       profile: input.profile ?? current.profile,
       dataType: input.dataType ?? current.dataType ?? 'official-alert',
       objectId: input.objectId ?? current.objectId,
+      location: campaignLocation({
+        latE7: input.latE7 ?? current.latE7,
+        lonE7: input.lonE7 ?? current.lonE7,
+        radiusM: input.radiusM ?? current.radiusM,
+      }),
       contentRevision: current.contentRevision + 1,
       state,
       createdAtMs: current.createdAtMs,
@@ -349,18 +380,26 @@ export class OperationsService {
       else unexpectedFrames += 1;
     }
     const missingFrames = [...expected].filter((value) => !recovered.has(value)).length;
+    const framesComplete = missingFrames === 0 && corruptFrames === 0 && unexpectedFrames === 0;
+
+    // The frame tally alone only proves bytes arrived. Reassemble them through
+    // the same Tier 2 receiver a phone runs, then decode what came back --
+    // never the stored copy -- so the reported meaning is the recovered meaning.
+    const reassembly = reassembleFromFrames(current, framesBase64, receptionTransport);
+    const canonicalMatch = reassembly?.canonicalMatch === true;
+
     const result: BroadcastDecodeResult = {
-      passed: missingFrames === 0 && corruptFrames === 0 && unexpectedFrames === 0,
+      passed: framesComplete && canonicalMatch,
       expectedFrames: expected.size,
       recoveredFrames: recovered.size,
       corruptFrames,
       unexpectedFrames,
       missingFrames,
+      canonicalMatch,
+      ...(reassembly ? { reassembledPacketId: reassembly.packetId, reassembledDigest: reassembly.digest } : {}),
       receiverLabel: bounded(receiverLabel || 'Web receiving station', 48),
       receptionTransport,
-      ...(missingFrames === 0 && corruptFrames === 0 && unexpectedFrames === 0
-        ? { decodedMessage: decodedCampaignMessage(current) }
-        : {}),
+      ...(reassembly?.decodedMessage ? { decodedMessage: reassembly.decodedMessage } : {}),
       testedAtMs: Date.now(),
     };
     const nextState = result.passed && current.state === 'audio-generated'
@@ -371,7 +410,7 @@ export class OperationsService {
     this.audit(
       result.passed ? 'campaign.decode-tested' : 'campaign.decode-failed',
       campaignId,
-      `${result.receiverLabel} recovered ${result.recoveredFrames}/${result.expectedFrames} frames; corrupt ${result.corruptFrames}; unexpected ${result.unexpectedFrames}`,
+      `${result.receiverLabel} recovered ${result.recoveredFrames}/${result.expectedFrames} frames; corrupt ${result.corruptFrames}; unexpected ${result.unexpectedFrames}; canonical packet ${result.canonicalMatch ? 'rebuilt byte-identical' : 'not rebuilt'}`,
     );
     return updated;
   }
@@ -385,8 +424,9 @@ export class OperationsService {
     category: number;
     instruction: number;
     profile: GgwaveProfileName;
-    dataType: 'official-alert' | 'check-in' | 'regional-record';
+    dataType: 'official-alert' | 'regional-record';
     objectId?: string;
+    location?: { latE7: number; lonE7: number; radiusM: number };
     contentRevision: number;
     state: CampaignState;
     createdAtMs: number;
@@ -395,23 +435,15 @@ export class OperationsService {
     const context = { sourceId: AUTHORITY_SOURCE_ID, sourceClass: SourceClass.AUTHORITY_PROVISIONED as 3, nowS: toEpochS(now) };
     const selectedRecord = input.objectId ? this.store.regionalRecords.get(input.objectId) : undefined;
     if (input.dataType === 'regional-record' && !selectedRecord) throw new Error('select a known regional record');
-    const packet = input.dataType === 'check-in'
-      ? buildCheckinCampaign(context, input.campaignId, {
-          campaignVersion: input.campaignVersion,
-          formId: 'FORM-AS-SAFETY-01',
-          regionCode: REGION_CODE,
-          deadlineS: toEpochS(now + 6 * 60 * 60 * 1000),
-          allowedStatuses: [CheckinStatus.SAFE, CheckinStatus.SAFE_NEED_SUPPLIES, CheckinStatus.NEED_ASSISTANCE, CheckinStatus.INJURED, CheckinStatus.DISPLACED],
-          requestPeopleCount: true,
-          requestLocation: true,
-          fallbackPrompt: input.summary,
-        })
-      : input.dataType === 'regional-record' && selectedRecord
-        ? buildRegionalBroadcast(context, selectedRecord)
-        : buildOfficialAlert(context, `ALT-${input.campaignId.slice(4)}`, input.campaignVersion, input.severity as 0 | 1 | 2 | 3, {
+    const packet = input.dataType === 'regional-record' && selectedRecord
+      ? buildRegionalBroadcast(context, selectedRecord)
+      : buildOfficialAlert(context, `ALT-${input.campaignId.slice(4)}`, input.campaignVersion, input.severity as 0 | 1 | 2 | 3, {
         category: input.category,
         instruction: input.instruction,
         regionCode: REGION_CODE,
+        // The operator-selected point travels inside the same canonical packet
+        // the radio carries, so Tier 2 reception proves the coordinates too.
+        ...(input.location ? { latE7: input.location.latE7, lonE7: input.location.lonE7, radiusM: input.location.radiusM } : {}),
         validFromS: toEpochS(now),
         validUntilS: toEpochS(now + 6 * 60 * 60 * 1000),
         fallbackText: input.summary,
@@ -445,6 +477,7 @@ export class OperationsService {
       summary: input.summary,
       dataType: input.dataType,
       ...(input.objectId ? { objectId: input.objectId } : {}),
+      ...(input.location ? { latE7: input.location.latE7, lonE7: input.location.lonE7, radiusM: input.location.radiusM } : {}),
       regionCode: REGION_CODE,
       state: input.state,
       profile: input.profile,
@@ -566,9 +599,74 @@ function jsonSafe(value: unknown): unknown {
   return value;
 }
 
-function decodedCampaignMessage(campaign: CampaignRecord): NonNullable<BroadcastDecodeResult['decodedMessage']> {
-  const decoded = decodePacket(new Uint8Array(Buffer.from(campaign.packetBytesBase64, 'base64')));
-  const payload = decoded.ok ? decoded.packet.payload as Record<string, unknown> : {};
+/**
+ * T2-004: the recovered packet must BE the approved packet, not a lookalike.
+ *
+ * Frames go through the real `Tier2Receiver`, the campaign's canonical header
+ * rebuilds the Tier 1 bytes, and the result is compared byte-for-byte against
+ * what the authority approved. Only then is the payload decoded for display,
+ * so every field shown here -- coordinates included -- came off the air.
+ */
+function reassembleFromFrames(
+  campaign: CampaignRecord,
+  framesBase64: readonly string[],
+  source: 'tier2-mic' | 'tier2-direct',
+): {
+  readonly packetId: string;
+  readonly canonicalMatch: boolean;
+  readonly digest: string;
+  readonly decodedMessage?: NonNullable<BroadcastDecodeResult['decodedMessage']>;
+} | undefined {
+  const approved = new Uint8Array(Buffer.from(campaign.packetBytesBase64, 'base64'));
+  const resolver: CampaignHandleResolver = {
+    campaignId: campaign.campaignId,
+    campaignVersion: campaign.campaignVersion,
+    campaignHandle: campaign.campaignVersion,
+    resolvePacketId: (handle) => (handle === 1 ? (campaign.packetId as PacketId) : undefined),
+    expectedPacketIds: () => [campaign.packetId as PacketId],
+    rebuildPacketBytes: (handle, payload) => {
+      if (handle !== 1) return undefined;
+      if (payload.length !== approved.length - ENVELOPE.HEADER_BYTES) return undefined;
+      const out = new Uint8Array(approved.length);
+      out.set(approved.subarray(0, ENVELOPE.HEADER_BYTES), 0);
+      out.set(payload, ENVELOPE.HEADER_BYTES);
+      return out;
+    },
+  };
+
+  const receiver = new Tier2Receiver(resolver);
+  const nowMs = Date.now();
+  receiver.startListening(source, nowMs);
+  let rebuilt: Uint8Array | undefined;
+  for (const value of framesBase64) {
+    const outcome = receiver.accept({ bytes: new Uint8Array(Buffer.from(value, 'base64')), source, receivedAtMs: nowMs });
+    if (outcome.packet) rebuilt = outcome.packet.bytes;
+  }
+  receiver.stop();
+  if (!rebuilt) return undefined;
+
+  const canonicalMatch = rebuilt.length === approved.length && rebuilt.every((byte, index) => byte === approved[index]);
+  const digest = createHash('sha256').update(Buffer.from(rebuilt)).digest('hex');
+  const decoded = decodePacket(rebuilt);
+  return {
+    packetId: campaign.packetId,
+    canonicalMatch,
+    digest,
+    // A packet that fails to decode is reported as absent meaning, never as
+    // the stored draft's meaning.
+    ...(canonicalMatch && decoded.ok
+      ? { decodedMessage: decodedCampaignMessage(campaign, decoded.packet.payload as Record<string, unknown>) }
+      : {}),
+  };
+}
+
+function decodedCampaignMessage(
+  campaign: CampaignRecord,
+  payload: Record<string, unknown>,
+): NonNullable<BroadcastDecodeResult['decodedMessage']> {
+  const latE7 = payload['latE7'];
+  const lonE7 = payload['lonE7'];
+  const hasLocation = typeof latE7 === 'number' && typeof lonE7 === 'number';
   return {
     packetId: campaign.packetId,
     messageType: campaign.messageType,
@@ -580,6 +678,17 @@ function decodedCampaignMessage(campaign: CampaignRecord): NonNullable<Broadcast
     severity: campaign.severity,
     language: String(payload['language'] ?? 'en'),
     text: String(payload['fallbackText'] ?? campaign.summary),
+    ...(hasLocation
+      ? {
+          location: {
+            latE7,
+            lonE7,
+            ...(typeof payload['radiusM'] === 'number' ? { radiusM: payload['radiusM'] } : {}),
+            // True only when the recovered point equals the approved point.
+            matchesApproved: campaign.latE7 === latE7 && campaign.lonE7 === lonE7,
+          },
+        }
+      : {}),
     typeName: messageTypeName(campaign.messageType) ?? `TYPE_${campaign.messageType}`,
     payload: jsonSafe(payload) as Record<string, unknown>,
   };

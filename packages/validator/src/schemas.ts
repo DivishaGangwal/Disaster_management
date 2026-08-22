@@ -128,6 +128,8 @@ const RULES: Readonly<Record<number, readonly Rule[]>> = {
     { kind: 'id', field: 'alertId', maxBytes: 32 },
     { kind: 'int', field: 'category', min: 0, max: 6 },
     { kind: 'int', field: 'instruction', min: 0, max: 7 },
+    { kind: 'int', field: 'latE7', min: -900000000, max: 900000000 },
+    { kind: 'int', field: 'lonE7', min: -1800000000, max: 1800000000 },
     { kind: 'int', field: 'radiusM', min: 0, max: 200000 },
     { kind: 'text', field: 'fallbackText', maxBytes: FIELD_LIMITS.FALLBACK_TEXT_BYTES },
     { kind: 'array', field: 'relatedObjectIds', maxItems: 8 },

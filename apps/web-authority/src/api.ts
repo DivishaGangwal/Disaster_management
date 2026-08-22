@@ -1,5 +1,18 @@
 import type { AuditRecord, Campaign, GatewayAudit, Incident, Overview, PacketStreamItem, RegionalRecord, Responder } from './types';
 
+export interface CampaignDraftInput {
+  readonly title: string;
+  readonly summary: string;
+  readonly severity: number;
+  readonly profile: string;
+  readonly dataType: 'official-alert' | 'regional-record';
+  readonly objectId?: string;
+  /** Degrees × 1e7. Sent only when the operator selected a broadcast point. */
+  readonly latE7?: number;
+  readonly lonE7?: number;
+  readonly radiusM?: number;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -29,7 +42,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ state }),
     })).record,
-  createCampaign: async (input: { title: string; summary: string; severity: number; profile: string; dataType: 'official-alert' | 'check-in' | 'regional-record'; objectId?: string }) =>
+  createCampaign: async (input: CampaignDraftInput) =>
     (await request<{ campaign: Campaign }>('/api/campaigns', { method: 'POST', body: JSON.stringify(input) })).campaign,
   transitionCampaign: async (campaignId: string, state: string) =>
     (await request<{ campaign: Campaign }>(`/api/campaigns/${encodeURIComponent(campaignId)}/transition`, {

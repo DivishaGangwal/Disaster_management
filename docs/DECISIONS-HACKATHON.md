@@ -188,3 +188,103 @@ is what it did before, quietly discarding the entire record body.
 
 Supporting it needs a dynamic string-keyed map in the codec. Until then the
 family is defined and unusable, which is recorded honestly rather than hidden.
+
+---
+
+## HD-010 — The console composes alerts and map records, not check-ins
+
+WEB-004 lists check-in campaigns among the authority surfaces. The operations
+console no longer offers that packet type: the composer creates public alerts
+and regional map records only, and `POST /api/campaigns` rejects
+`dataType: "check-in"`.
+
+The frozen `CHECKIN_CAMPAIGN` / `CHECKIN_RESPONSE` types, their field maps and
+validator rules are untouched, so nothing about the packet surface changed —
+only which packets this console composes. **Deliberate scope reduction, not a
+spec resolution.** WEB-004 is unmet until a check-in composer returns.
+
+What replaced it in the same panel: an operator-selected broadcast point
+(`latE7`, `lonE7`, `radiusM`) on the OFFICIAL_ALERT packet, and reception
+verification that rebuilds the canonical packet from recovered frames instead
+of reporting the stored draft back to the operator.
+
+---
+
+## HD-010 — Advertising channels, collisions, and the corrected byte budget
+
+### Channels are not ours to choose, and never were
+
+A single BLE advertising event is transmitted on **all three** primary
+advertising channels — 37 (2402 MHz), 38 (2426 MHz), 39 (2480 MHz) — by the
+Bluetooth **controller**. Android's `BluetoothLeAdvertiser` exposes advertising
+mode, TX power, connectable flag, timeout, and data. **There is no
+channel-selection API.**
+
+So "send one message on three advertising channels" is not something this
+project implements or could implement. It happens automatically, for free, and
+cannot be disabled. Nothing in the codebase references channels, correctly.
+
+### An advertisement is not a message
+
+Worth stating plainly because it is easy to assume otherwise:
+
+| | Carries | Size | Radio |
+|---|---|---|---|
+| **Advertisement** | "I exist, my queue changed, my highest priority is N" | 19 B of 31 | broadcast on channels 37/38/39 |
+| **Session record** | the actual SOS / resource / alert packet | 96–148 B | GATT connection on the 37 **data** channels, with adaptive frequency hopping |
+
+The smallest SOS is 115 bytes. A legacy advertising PDU holds 31. A packet
+**cannot** travel in an advertisement, so the advertisement announces and the
+connection carries. A test asserts this relationship so it cannot be forgotten.
+
+### Collisions are real and only partly mitigable
+
+- BLE advertising has **no carrier sense**. Two devices advertising at the same
+  instant on the same channel collide and both are lost.
+- The controller adds a pseudo-random **0–10 ms advDelay** to each advertising
+  interval. Automatic, not ours.
+- Channels 37/38/39 sit in the gaps between Wi-Fi channels 1/6/11, so in
+  practice **Wi-Fi is usually the larger interferer** than other BLE devices.
+- A scanner listens to **one channel at a time**, so it can miss an
+  advertisement even with zero collision.
+
+**Therefore discovery is probabilistic**, and the protocol is built to tolerate
+it: nothing depends on a single advertisement being heard, and `queueEpoch`
+lets a peer notice it missed a change. What we *do* control is
+connection-level contention — `shouldInitiate()` gives a deterministic
+tie-break so two phones do not open duplicate sessions, and `backoffMs()`
+applies bounded jittered retry so failures do not become a retry storm.
+
+### The budget was wrong, and had never been tested
+
+`DiscoverySummary` existed only as a JavaScript object — **nothing ever encoded
+it to bytes**. So the 26-byte budget was never checked against a real PDU, and
+Workstream B would have had to invent a layout, guaranteeing the native and
+simulated adapters diverged.
+
+The real arithmetic:
+
+```
+31  legacy advertising PDU AD data
+-3  mandatory Flags element
+-4  manufacturer-specific data header (len, type, 2-byte company id)
+--
+24  actually usable        <- MAX_BYTES was 26, which does not fit
+```
+
+`encodeAdvertisement` now produces a **12-byte** payload; the complete PDU is
+**19 of 31 bytes, leaving 12 spare**. Measured, not estimated.
+
+### Identifiers, now frozen (Gate II)
+
+Workstream B was blocked without these:
+
+- **GATT service** uses a full 128-bit custom UUID, exchanged after connection
+  where there is no size pressure.
+- **The advertisement** uses manufacturer-specific data with company ID
+  `0xffff`, which the Bluetooth SIG reserves for testing and development. We
+  have no assigned company ID, and squatting on another vendor's would be
+  wrong. A 128-bit service UUID in the advertisement would consume 18 of the
+  31 bytes and leave only 10.
+- A magic byte `0xd5` leads our payload so other developers' `0xffff`
+  advertisements are ignored rather than mis-parsed.

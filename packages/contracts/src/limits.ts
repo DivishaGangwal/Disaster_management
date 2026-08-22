@@ -182,10 +182,61 @@ export const BATTERY = {
   },
 } as const;
 
-/** BLE discovery advertisement budget (02-... "BLE discovery advertisement"). */
+/**
+ * BLE discovery advertisement budget (02-... "BLE discovery advertisement").
+ *
+ * THE REAL ARITHMETIC. A legacy BLE advertising PDU carries 31 bytes of AD
+ * data, and two AD elements are mandatory overhead:
+ *
+ *   Flags element                     3 bytes  (len, type 0x01, value)
+ *   Manufacturer-specific data header 4 bytes  (len, type 0xff, company id x2)
+ *   ------------------------------------------
+ *   usable payload                   24 bytes
+ *
+ * MAX_BYTES was previously 26, which does not fit. Nothing had ever encoded
+ * an advertisement, so the budget had never been tested against a real PDU.
+ *
+ * Note on channels: a single advertising event is transmitted on ALL THREE
+ * primary channels (37/38/39) by the Bluetooth controller. Android exposes no
+ * channel-selection API, so this is neither configurable nor our concern --
+ * but it does mean discovery is probabilistic, because a scanner listens to
+ * one channel at a time and BLE advertising has no carrier sense.
+ */
 export const ADVERTISEMENT = {
-  MAX_BYTES: 26,
+  /** Total AD data in a legacy advertising PDU. */
+  PDU_BYTES: 31,
+  /** Mandatory Flags AD element. */
+  FLAGS_ELEMENT_BYTES: 3,
+  /** len + type 0xff + 2-byte company identifier. */
+  MANUFACTURER_HEADER_BYTES: 4,
+  /** What is actually left for us: 31 - 3 - 4. */
+  MAX_BYTES: 24,
   NODE_TOKEN_BYTES: 4,
   /** Node token rotates on this interval so it is not a permanent public identifier. */
   TOKEN_ROTATION_MS: 15 * 60_000,
+} as const;
+
+/**
+ * BLE identifiers -- FROZEN (Gate II). Workstream B is blocked without these.
+ *
+ * The GATT service uses a full 128-bit custom UUID: it is exchanged after
+ * connection, where there is no size pressure.
+ *
+ * The ADVERTISEMENT uses manufacturer-specific data with company identifier
+ * 0xffff, which the Bluetooth SIG reserves for testing and development. That
+ * is the honest choice for a prototype: we have no assigned company ID, and
+ * squatting on someone else's would be wrong. A 128-bit service UUID in the
+ * advertisement would consume 18 of the 31 bytes and leave only 10.
+ */
+export const BLE_IDENTIFIERS = {
+  /** GATT service exposed by every node. */
+  SERVICE_UUID: '7d4f0000-9a1c-4b6e-8f21-3c5d7e9a1b02',
+  /** Peer writes session records here. */
+  SESSION_RX_CHARACTERISTIC_UUID: '7d4f0001-9a1c-4b6e-8f21-3c5d7e9a1b02',
+  /** Node notifies session records out on this. */
+  SESSION_TX_CHARACTERISTIC_UUID: '7d4f0002-9a1c-4b6e-8f21-3c5d7e9a1b02',
+  /** SIG-reserved "for testing" company identifier. Not a real assignment. */
+  COMPANY_ID: 0xffff,
+  /** First byte of our manufacturer payload, so foreign 0xffff ads are ignored. */
+  ADVERTISEMENT_MAGIC: 0xd5,
 } as const;

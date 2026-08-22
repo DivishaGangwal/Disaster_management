@@ -58,15 +58,17 @@ test('approved campaign becomes an exact, persisted ggwave frame program', async
   }
 });
 
-test('campaign composer emits distinct canonical check-in and regional packet types', async () => {
+test('campaign composer emits distinct canonical alert and regional packet types', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'dsm-broadcast-types-'));
   try {
     const backend = createBackend({ databasePath: join(directory, 'operations.sqlite') });
     const operations = backend.operations!;
-    const checkin = operations.createCampaign({
-      title: 'District safety check',
-      summary: 'Report safe, medical need, trapped, or water need.',
-      dataType: 'check-in',
+    const alert = operations.createCampaign({
+      title: 'District evacuation notice',
+      summary: 'Move to the marked assembly point and await district instructions.',
+      latE7: 263501000,
+      lonE7: 920003000,
+      radiusM: 7500,
     });
     const regional = operations.createCampaign({
       title: 'Shelter status',
@@ -75,13 +77,61 @@ test('campaign composer emits distinct canonical check-in and regional packet ty
       objectId: operations.listRegionalRecords().find((item) => item.kind === 'shelter')!.objectId,
     });
 
-    assert.equal(checkin.messageType, 0x70);
-    assert.equal(checkin.dataType, 'check-in');
+    assert.equal(alert.messageType, 0x60);
+    assert.equal(alert.dataType, 'official-alert');
+    assert.equal(alert.latE7, 263501000);
+    assert.equal(alert.lonE7, 920003000);
+    assert.equal(alert.radiusM, 7500);
     assert.equal(regional.messageType, 0x40);
     assert.equal(regional.dataType, 'regional-record');
-    assert.notEqual(checkin.packetId, regional.packetId);
-    assert.ok(checkin.preview.totalTier2Bytes > 0);
+    assert.notEqual(alert.packetId, regional.packetId);
+    assert.ok(alert.preview.totalTier2Bytes > 0);
     assert.ok(regional.preview.totalTier2Bytes > 0);
+    await backend.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('reception decodes the coordinates that came back off the air, and refuses altered frames', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'dsm-broadcast-location-'));
+  try {
+    const backend = createBackend({ databasePath: join(directory, 'operations.sqlite') });
+    const operations = backend.operations!;
+    let campaign = operations.createCampaign({
+      title: 'Riverbank evacuation',
+      summary: 'Leave the riverbank and move to the marked assembly point.',
+      severity: 3,
+      latE7: 262100000,
+      lonE7: 917400000,
+      radiusM: 4000,
+    });
+    campaign = operations.transitionCampaign(campaign.campaignId, 'validated');
+    campaign = operations.transitionCampaign(campaign.campaignId, 'approved');
+    campaign = operations.transitionCampaign(campaign.campaignId, 'broadcaster-ready');
+    campaign = operations.prepareBroadcastProgram(campaign.campaignId);
+    const frames = campaign.broadcastProgram!.uniqueFramesBase64;
+
+    const verified = operations.verifyBroadcastReception(campaign.campaignId, frames, 'Receiver B', 'tier2-mic');
+    assert.equal(verified.decodeResult?.passed, true);
+    assert.equal(verified.decodeResult?.canonicalMatch, true);
+    assert.equal(verified.decodeResult?.reassembledPacketId, campaign.packetId);
+    assert.equal(verified.decodeResult?.decodedMessage?.location?.latE7, 262100000);
+    assert.equal(verified.decodeResult?.decodedMessage?.location?.lonE7, 917400000);
+    assert.equal(verified.decodeResult?.decodedMessage?.location?.radiusM, 4000);
+    assert.equal(verified.decodeResult?.decodedMessage?.location?.matchesApproved, true);
+
+    // A frame whose payload byte was flipped must not pass as the approved packet.
+    const tampered = frames.map((frame, index) => {
+      if (index > 0) return frame;
+      const bytes = Buffer.from(frame, 'base64');
+      const target = bytes.length - 3;
+      bytes[target] = bytes[target]! ^ 0xff;
+      return bytes.toString('base64');
+    });
+    const rejected = operations.verifyBroadcastReception(campaign.campaignId, tampered, 'Receiver B', 'tier2-mic');
+    assert.equal(rejected.decodeResult?.passed, false);
+    assert.equal(rejected.decodeResult?.decodedMessage, undefined);
     await backend.close();
   } finally {
     rmSync(directory, { recursive: true, force: true });
