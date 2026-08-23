@@ -98,7 +98,7 @@ const RESPONDER_ASSIGNED: FieldMap = {
   dispatcherLabel: 5,
 };
 
-const RESPONDER_ACK: FieldMap = { incidentId: 1, assignmentId: 2, responderRef: 3, reasonCode: 4 };
+const RESPONDER_ACK: FieldMap = { incidentId: 1, assignmentId: 2, responderRef: 3, reasonCode: 4, location: 5 };
 
 const RESPONDER_EN_ROUTE: FieldMap = {
   incidentId: 1,
@@ -108,7 +108,7 @@ const RESPONDER_EN_ROUTE: FieldMap = {
   etaBandMin: 5,
 };
 
-const RESPONDER_ARRIVED: FieldMap = { incidentId: 1, assignmentId: 2, responderRef: 3, evidence: 4 };
+const RESPONDER_ARRIVED: FieldMap = { incidentId: 1, assignmentId: 2, responderRef: 3, evidence: 4, location: 5 };
 
 const RESOLVED: FieldMap = { incidentId: 1, resolverRef: 2, outcome: 3, terminalRetentionS: 4 };
 

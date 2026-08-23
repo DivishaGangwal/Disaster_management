@@ -2,6 +2,7 @@ import { Tabs } from 'expo-router';
 import { icons } from '@/constants/icons';
 import { View, Text } from 'react-native';
 import React from 'react';
+import { useAppStore } from '@/store/useAppStore';
 
 /**
  * Tab layout — 4 tabs: Home, Map, Nearby, Profile
@@ -13,6 +14,7 @@ export default function TabLayout() {
   const MapIcon = icons.map;
   const NearbyIcon = icons.list;
   const ProfileIcon = icons.user;
+  const role = useAppStore(state => state.role);
 
   return (
     <Tabs
@@ -41,7 +43,7 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen
-        name="index"
+        name="home"
         options={{
           title: 'Home',
           tabBarIcon: ({ color, focused }) => (
@@ -72,6 +74,7 @@ export default function TabLayout() {
         name="nearby"
         options={{
           title: 'Nearby',
+          href: role === 'responder' ? '/nearby' : null,
           tabBarIcon: ({ color, focused }) => (
             <View style={[
               { padding: 6, borderRadius: 0 },
@@ -83,7 +86,7 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="profile"
+        name="index"
         options={{
           title: 'Profile',
           tabBarIcon: ({ color, focused }) => (

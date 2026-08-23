@@ -8,11 +8,26 @@
  */
 
 import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAppStore } from '@/store/useAppStore';
+import { useRuntime } from '@/src/contexts/RuntimeContext';
 import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  buildSosCreate,
+  buildSosUpdate,
+  newSourceId,
+  toEpochS,
+} from '@dsm/codec';
+import {
+  EmergencyCategory,
+  Mobility,
+  LocationSource,
+  Severity,
+  SourceClass,
+  ReplyCapability,
+} from '@dsm/contracts';
 
 const categories = ['Medical Emergency', 'Fire', 'Flood', 'Earthquake', 'Landslide', 'Cyclone', 'Building Collapse', 'Chemical/Gas', 'Violence', 'Other'];
 const mobilityOptions = ['Mobile (Can walk)', 'Limited mobility', 'Immobile', 'Trapped', 'Unknown'];
@@ -27,7 +42,15 @@ const sevLevels = [
 
 export default function SosComposerScreen() {
   const router = useRouter();
-  const { setHasActiveSos } = useAppStore();
+  const { runtime } = useRuntime();
+  const {
+    role,
+    setHasActiveSos,
+    activeSosPacketId,
+    setActiveSosPacketId,
+    sosSequence,
+    incrementSosSequence,
+  } = useAppStore();
 
   const [selectedCategory, setSelectedCategory] = useState(0);
   const [severity, setSeverity] = useState(0);
@@ -40,15 +63,101 @@ export default function SosComposerScreen() {
   const [showMobilityPicker, setShowMobilityPicker] = useState(false);
   const [showLangPicker, setShowLangPicker] = useState(false);
 
+  const [sending, setSending] = useState(false);
+
   const CloseIcon = icons.close;
   const BroadcastIcon = icons.relay;
   const ChevronIcon = icons.chevronDown;
 
-  const handleConfirm = () => {
-    setHasActiveSos(true);
-    Alert.alert('SOS Updated', 'Packet created locally and queued for relay.', [
-      { text: 'VIEW TIMELINE', onPress: () => router.replace('/sos/active') },
-    ]);
+  const categoryWireValues: Record<number, number> = {
+    0: EmergencyCategory.MEDICAL,
+    1: EmergencyCategory.FIRE,
+    2: EmergencyCategory.FLOOD,
+    3: EmergencyCategory.FLOOD,      // Earthquake → FLOOD fallback
+    4: EmergencyCategory.FLOOD,      // Landslide
+    5: EmergencyCategory.FLOOD,      // Cyclone
+    6: EmergencyCategory.STRUCTURAL_COLLAPSE,
+    7: EmergencyCategory.OTHER,      // Chemical
+    8: EmergencyCategory.VIOLENCE,
+    9: EmergencyCategory.OTHER,
+  };
+
+  const mobilityWireValues: Record<number, number> = {
+    0: Mobility.MOBILE,
+    1: Mobility.LIMITED,
+    2: Mobility.IMMOBILE,
+    3: Mobility.TRAPPED,
+    4: Mobility.UNKNOWN,
+  };
+
+  const severityWireValues: Record<number, number> = {
+    0: Severity.INFO,
+    1: Severity.ASSISTANCE,
+    2: Severity.URGENT,
+    3: Severity.LIFE_CRITICAL,
+  };
+
+  const handleConfirm = async () => {
+    if (sending) return;
+    setSending(true);
+    try {
+      const nowS = toEpochS(Date.now());
+      const buildCtx = {
+        sourceId: runtime?.engine.localSourceId ?? 'offline-source',
+        sourceClass:
+          role === 'responder'
+            ? SourceClass.RESPONDER_PROVISIONED
+            : SourceClass.GENERAL_PUBLIC,
+        nowS,
+      };
+
+      let encoded;
+      if (activeSosPacketId) {
+        // Update existing SOS.
+        encoded = buildSosUpdate(
+          buildCtx,
+          activeSosPacketId,
+          sosSequence + 1,
+          (severityWireValues[severity] ?? Severity.URGENT) as import('@dsm/contracts').SeverityValue,
+          {
+            category: categoryWireValues[selectedCategory] ?? EmergencyCategory.OTHER,
+            peopleTotal: peopleCount,
+            injured: injuredCount,
+            mobility: mobilityWireValues[mobilityIdx] ?? Mobility.UNKNOWN,
+            shortNote: note.trim() || undefined,
+          },
+        );
+        incrementSosSequence();
+      } else {
+        // First detailed SOS creation from the composer.
+        const incidentId = newSourceId();
+        encoded = buildSosCreate(buildCtx, {
+          incidentId,
+          category: categoryWireValues[selectedCategory] ?? EmergencyCategory.OTHER,
+          severity: (severityWireValues[severity] ?? Severity.URGENT) as import('@dsm/contracts').SeverityValue,
+          peopleTotal: peopleCount,
+          injured: injuredCount,
+          mobility: mobilityWireValues[mobilityIdx] ?? Mobility.UNKNOWN,
+          location: { source: LocationSource.UNKNOWN },
+          replyCapabilities: ReplyCapability.TIER1_BLE,
+          shortNote: note.trim() || undefined,
+        });
+        setActiveSosPacketId(encoded.packetId);
+      }
+
+      if (runtime) {
+        await runtime.engine.createLocal(encoded, activeSosPacketId ?? encoded.packetId);
+      }
+      setHasActiveSos(true);
+
+      Alert.alert('SOS Packet Created', 'Saved locally and queued for relay.', [
+        { text: 'VIEW TIMELINE', onPress: () => router.replace('/sos/active') },
+      ]);
+    } catch (err) {
+      Alert.alert('Error', String(err));
+    } finally {
+      setSending(false);
+    }
   };
 
   return (

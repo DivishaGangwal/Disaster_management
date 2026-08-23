@@ -1,46 +1,79 @@
 /**
- * NEARBY INCIDENTS — Tab Screen
- * PNG ref: screen (13)
+ * NEARBY INCIDENTS
+ * PNG ref: screen (3)
  * Route: Nearby (tab)
  *
- * Per newmd:
- * - Sort by Severity → local sort
- * - Tap Incident → Navigation → ResponderIncident (responder) or detail (public)
+ * Wired to the real engine:
+ * - engine.incidents.activeIncidents() → live incident list
+ * - Refreshes every 5 s when mounted
  */
 
-import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useRuntime } from '@/src/contexts/RuntimeContext';
 import { useAppStore } from '@/store/useAppStore';
 import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import type { IncidentView } from '@dsm/incident';
+import { EmergencyCategory } from '@dsm/contracts';
 
-const mockIncidents = [
-  { id: '1', category: 'Medical Emergency', severity: 3, distance: '0.2km away', timeAgo: '2m ago', iconKey: 'catMedical' as const },
-  { id: '2', category: 'Structure Fire', severity: 2, distance: '1.5km away', timeAgo: '12m ago', iconKey: 'catFire' as const },
-  { id: '3', category: 'Minor Flooding', severity: 1, distance: '3.8km away', timeAgo: '45m ago', iconKey: 'catFlood' as const },
-  { id: '4', category: 'Traffic Collision', severity: 1, distance: '5.1km away', timeAgo: '1h ago', iconKey: 'catOther' as const },
-];
+const categoryLabels: Record<number, string> = {
+  [EmergencyCategory.MEDICAL]: 'Medical Emergency',
+  [EmergencyCategory.TRAPPED]: 'Trapped',
+  [EmergencyCategory.FIRE]: 'Fire',
+  [EmergencyCategory.FLOOD]: 'Flood',
+  [EmergencyCategory.VIOLENCE]: 'Violence',
+  [EmergencyCategory.STRUCTURAL_COLLAPSE]: 'Building Collapse',
+  [EmergencyCategory.MISSING_PERSON]: 'Missing Person',
+  [EmergencyCategory.OTHER]: 'Emergency',
+};
 
-const sevConfig: Record<number, { label: string; color: string; barColor: string }> = {
-  3: { label: 'CRITICAL', color: '#FF453A', barColor: '#FF453A' },
-  2: { label: 'URGENT', color: '#FFD60A', barColor: '#FF8C00' },
-  1: { label: 'MODERATE', color: '#FFD60A', barColor: '#FFD60A' },
-  0: { label: 'INFO', color: '#AEAEB2', barColor: '#AEAEB2' },
+const severityColor: Record<number, string> = {
+  0: '#AEAEB2', // INFO
+  1: '#FFD60A', // MODERATE
+  2: '#C55A11', // URGENT
+  3: '#FF453A', // LIFE_CRITICAL
+};
+
+const severityLabel: Record<number, string> = {
+  0: 'INFO',
+  1: 'MODERATE',
+  2: 'URGENT',
+  3: 'CRITICAL',
 };
 
 export default function NearbyScreen() {
   const router = useRouter();
-  const { role } = useAppStore();
-  const ShieldIcon = icons.shield;
-  const AlertIcon = icons.alert;
-  const FilterIcon = icons.filter;
-  const LocationIcon = icons.location;
+  const { runtime } = useRuntime();
+  const [incidents, setIncidents] = useState<IncidentView[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const handleTapIncident = () => {
-    if (role === 'responder') {
-      router.push('/responder/detail');
-    }
+  const ShieldIcon = icons.shield;
+
+  const loadIncidents = () => {
+    if (!runtime) return;
+    // list() returns all incidents; filter to non-terminal ones for "nearby"
+    const all = runtime.engine.incidents.list();
+    const active = all.filter(
+      (i) => i.state !== 'resolved' && i.state !== 'cancelled' && i.state !== 'expired',
+    );
+    setIncidents(active);
+  };
+
+  useEffect(() => {
+    if (!runtime) return;
+    loadIncidents();
+    // Poll every 2 seconds so incident state (accepted/en-route/arrived) stays fresh.
+    const id = setInterval(loadIncidents, 2000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runtime]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    loadIncidents();
+    setRefreshing(false);
   };
 
   return (
@@ -48,59 +81,102 @@ export default function NearbyScreen() {
       {/* Header */}
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#2D5A27' }}>
         <ShieldIcon size={20} color="#a1d494" />
-        <Text style={{ color: '#a1d494', fontSize: 20, fontWeight: '800', letterSpacing: 2, marginLeft: 8, flex: 1 }}>GUARDIAN</Text>
-        <AlertIcon size={20} color="#FFD60A" />
+        <Text style={{ color: '#a1d494', fontSize: 20, fontWeight: '800', letterSpacing: 2, marginLeft: 8 }}>GUARDIAN</Text>
       </View>
 
-      <ScrollView style={{ flex: 1, padding: 20 }}>
-        {/* Title + sort */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <Text style={{ color: '#FFFFFF', fontSize: 24, fontWeight: '700' }}>Nearby Incidents</Text>
-          <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#2C2C2E', paddingHorizontal: 16, paddingVertical: 10, borderWidth: 1, borderColor: '#3A3A3C' }}>
-            <FilterIcon size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
-            <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '600' }}>Severity</Text>
-          </TouchableOpacity>
-        </View>
+      <ScrollView
+        style={{ flex: 1, padding: 20 }}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#a1d494"
+          />
+        }
+      >
+        <Text style={{ color: '#FFFFFF', fontSize: 32, fontWeight: '700', marginBottom: 4 }}>NEARBY</Text>
+        <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 24 }}>
+          {incidents.length} ACTIVE {incidents.length === 1 ? 'INCIDENT' : 'INCIDENTS'}
+        </Text>
 
-        {/* Incident Cards */}
-        {mockIncidents.map((inc) => {
-          const sev = sevConfig[inc.severity] ?? sevConfig[0];
-          const CategoryIcon = icons[inc.iconKey];
-
-          return (
-            <TouchableOpacity
-              key={inc.id}
-              onPress={handleTapIncident}
-              style={{ backgroundColor: '#1C1C1E', marginBottom: 8, flexDirection: 'row', borderWidth: 1, borderColor: '#3A3A3C' }}
-            >
-              {/* Left severity bar */}
-              <View style={{ width: 4, backgroundColor: sev.barColor }} />
-
-              <View style={{ flex: 1, padding: 16, flexDirection: 'row', alignItems: 'center' }}>
-                {/* Category icon circle */}
-                <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#2C2C2E', borderWidth: 2, borderColor: '#3A3A3C', justifyContent: 'center', alignItems: 'center', marginRight: 16 }}>
-                  <CategoryIcon size={22} color={sev.barColor} />
-                </View>
-
-                {/* Info */}
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>{inc.category}</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                    <LocationIcon size={12} color="#AEAEB2" style={{ marginRight: 4 }} />
-                    <Text style={{ color: '#AEAEB2', fontSize: 13 }}>{inc.distance}</Text>
-                    <Text style={{ color: '#AEAEB2', fontSize: 13, marginLeft: 12 }}>⏱ {inc.timeAgo}</Text>
-                  </View>
-                </View>
-
-                {/* Severity chip */}
-                <View style={{ borderWidth: 1, borderColor: sev.color, paddingHorizontal: 10, paddingVertical: 4 }}>
-                  <Text style={{ color: sev.color, fontSize: 11, fontWeight: '700', letterSpacing: 0.5 }}>{sev.label}</Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
+        {incidents.length === 0 ? (
+          <View style={{ alignItems: 'center', marginTop: 60 }}>
+            <Text style={{ color: '#3A3A3C', fontSize: 64, marginBottom: 16 }}>◎</Text>
+            <Text style={{ color: '#AEAEB2', fontSize: 16, fontWeight: '700', letterSpacing: 1, marginBottom: 8 }}>
+              ALL CLEAR
+            </Text>
+            <Text style={{ color: '#3A3A3C', fontSize: 13, textAlign: 'center', lineHeight: 20 }}>
+              No active incidents in the mesh.{'\n'}Start relay to discover nearby devices.
+            </Text>
+          </View>
+        ) : (
+          incidents.map((incident) => (
+            <IncidentCard
+              key={incident.incidentId}
+              incident={incident}
+              onPress={() => router.push({ pathname: '/responder/detail', params: { incidentId: incident.incidentId } })}
+            />
+          ))
+        )}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function IncidentCard({
+  incident,
+  onPress,
+}: {
+  incident: IncidentView;
+  onPress: () => void;
+}) {
+  const sev = incident.severity ?? 0;
+  const col = severityColor[sev] ?? '#AEAEB2';
+  const category = incident.category ?? EmergencyCategory.OTHER;
+  const people = incident.peopleTotal ?? 0;
+
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      style={{ flexDirection: 'row', backgroundColor: '#1C1C1E', borderWidth: 1, borderColor: '#3A3A3C', marginBottom: 8 }}
+    >
+      <View style={{ width: 4, backgroundColor: col }} />
+      <View style={{ flex: 1, padding: 16 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: '#AEAEB2', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 4 }}>
+              {categoryLabels[category] ?? 'EMERGENCY'}
+            </Text>
+            <Text style={{ color: '#FFFFFF', fontSize: 20, fontWeight: '700' }}>
+              {(categoryLabels[category] ?? 'EMERGENCY').toUpperCase()}
+            </Text>
+          </View>
+          <View style={{ backgroundColor: col, paddingHorizontal: 10, paddingVertical: 4 }}>
+            <Text style={{ color: col === '#FFD60A' ? '#000000' : '#FFFFFF', fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>
+              {severityLabel[sev] ?? 'INFO'}
+            </Text>
+          </View>
+        </View>
+
+        <View style={{ flexDirection: 'row', gap: 16 }}>
+          {people > 0 && (
+            <Text style={{ color: '#AEAEB2', fontSize: 13 }}>
+              <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>{people}</Text> people
+            </Text>
+          )}
+          <Text style={{ color: '#AEAEB2', fontSize: 13 }}>
+            State: <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>{incident.state}</Text>
+          </Text>
+        </View>
+
+        <Text style={{ color: '#3A3A3C', fontSize: 11, marginTop: 8 }}>
+          ID: {incident.incidentId.slice(0, 12)}…
+        </Text>
+      </View>
+      <View style={{ justifyContent: 'center', paddingRight: 16 }}>
+        <Text style={{ color: '#AEAEB2', fontSize: 20 }}>›</Text>
+      </View>
+    </TouchableOpacity>
   );
 }

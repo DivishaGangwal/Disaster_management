@@ -77,8 +77,8 @@ export interface IncidentView {
 /** State transitions the reducer will honour. Anything else is ignored. */
 const ALLOWED_NEXT: Readonly<Record<IncidentState, readonly IncidentState[]>> = {
   draft: ['created', 'cancelled'],
-  created: ['active', 'assigned', 'cancelled', 'expired'],
-  active: ['assigned', 'cancelled', 'expired', 'resolved'],
+  created: ['active', 'assigned', 'accepted', 'cancelled', 'expired'],
+  active: ['assigned', 'accepted', 'cancelled', 'expired', 'resolved'],
   assigned: ['accepted', 'active', 'cancelled', 'resolved', 'expired'],
   accepted: ['en-route', 'arrived', 'cancelled', 'resolved'],
   'en-route': ['arrived', 'cancelled', 'resolved'],

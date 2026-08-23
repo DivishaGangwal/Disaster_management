@@ -27,6 +27,13 @@ import { NodeEngine, RelayLoop, GatewaySynchronizer } from '@dsm/node-runtime';
 import { RadioMedium, SimulatedTransportAdapter, type AdapterSelection } from '@dsm/transport-core';
 import { MapProjection, PackResolver } from '@dsm/mapkit';
 import { newNodeToken, newSourceId } from '@dsm/codec';
+import { MemoryPacketRepository } from '@dsm/store';
+import { Scenario, SimNode } from '@dsm/simulator';
+
+// HACKATHON DEMO: Cache packets globally so that if the user toggles their role
+// from "General Public" to "Responder", the in-memory database survives and
+// they can see the SOS they just created on the network!
+const globalMemoryPackets = new MemoryPacketRepository();
 
 export interface RuntimeConfig {
   readonly profile: LocalProfile;
@@ -38,6 +45,7 @@ export interface RuntimeConfig {
 export class AppRuntime {
   readonly engine: NodeEngine;
   readonly relay: RelayLoop;
+  readonly adapter: TransportAdapter;
   private gatewaySync?: GatewaySynchronizer;
 
   private constructor(
@@ -47,6 +55,7 @@ export class AppRuntime {
     readonly resolver: PackResolver | undefined,
   ) {
     this.engine = engine;
+    this.adapter = adapter;
     this.relay = new RelayLoop({
       engine,
       adapter,
@@ -55,18 +64,77 @@ export class AppRuntime {
     });
   }
 
+  // Keep a reference to background peers so they aren't garbage collected
+  private backgroundPeers: SimNode[] = [];
+
   static async create(config: RuntimeConfig, resolver?: PackResolver): Promise<AppRuntime> {
-    const adapter = await selectAdapter(config.adapter);
+    const nodeToken = newNodeToken();
+    let adapter: TransportAdapter;
+    let backgroundPeers: SimNode[] = [];
+
+    if (config.adapter === 'simulated') {
+      // HACKATHON DEMO MODE: Create a scenario with 3 background peers
+      const scenario = new Scenario(config.regionCode, { latencyMs: 50 });
+      adapter = new SimulatedTransportAdapter(nodeToken, scenario.medium);
+
+      // Create a virtual responder node
+      const responder = scenario.addNode({
+        name: 'virtual-responder',
+        nodeToken: newNodeToken(),
+        sourceId: newSourceId(),
+        role: 'responder',
+        latE7: 190740000,
+        lonE7: 728770000,
+      });
+      // Start the responder's relay loop so it can receive packets
+      void responder.relay.start();
+      
+      // Link our UI node to the responder
+      scenario.medium.connect(nodeToken, responder.spec.nodeToken);
+      backgroundPeers.push(responder);
+
+      // Advance the simulated clock in real time so packets actually flow
+      let lastBeacon = 0;
+      setInterval(() => {
+        void scenario.medium.advance(100);
+        
+        // In the simulator, Discovery broadcasts are one-shot rather than continuous like real BLE.
+        // So we manually broadcast the virtual responder's discovery beacon every 3 seconds so the UI can find it.
+        const now = Date.now();
+        if (now - lastBeacon > 3000) {
+          lastBeacon = now;
+          void responder.adapter.updateDiscoverySummary({
+            queueEpoch: responder.engine.currentQueueEpoch,
+            gatewayProven: false
+          });
+        }
+      }, 100);
+
+
+    } else {
+      adapter = await selectAdapter(config.adapter, nodeToken);
+    }
 
     const engine = new NodeEngine({
       profile: config.profile,
       localSourceId: newSourceId(),
-      nodeToken: newNodeToken(),
+      nodeToken,
       regionCode: config.regionCode,
       projection: new MapProjection(resolver),
+      packets: globalMemoryPackets,
     });
 
-    return new AppRuntime(config, engine, adapter, resolver);
+    // Hydrate the new engine's map projection and incident reducer with the preserved packets
+    const stored = await globalMemoryPackets.listRelayable(1000);
+    for (const p of stored) {
+      void engine.ingest(p.encoded.bytes, 'tier1-ble');
+    }
+
+    const runtime = new AppRuntime(config, engine, adapter, resolver);
+    runtime.engine.setCoarseLocation(190760000, 728777000); // Mumbai center
+
+    runtime.backgroundPeers = backgroundPeers;
+    return runtime;
   }
 
   get sourceClass() {
@@ -96,13 +164,7 @@ export class AppRuntime {
   }
 }
 
-async function selectAdapter(selection: AdapterSelection): Promise<TransportAdapter> {
-  if (selection === 'simulated') {
-    // One isolated medium: a single Expo Go device sees no real peers, which
-    // is the honest behaviour. The simulator package is what wires many nodes.
-    return new SimulatedTransportAdapter(newNodeToken(), new RadioMedium());
-  }
-
+async function selectAdapter(selection: AdapterSelection, token: string): Promise<TransportAdapter> {
   // ---------------------------------------------------------------------
   // WORKSTREAM B: implement native/android-radio-bridge and import it here.
   // It must satisfy the same TransportAdapter interface, nothing more.

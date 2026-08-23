@@ -81,6 +81,18 @@ const RULES: Readonly<Record<number, readonly Rule[]>> = {
     { kind: 'id', field: 'responderRef', maxBytes: 32 },
     { kind: 'text', field: 'dispatcherLabel', maxBytes: FIELD_LIMITS.LABEL_BYTES },
   ],
+  [MessageType.RESPONDER_ACCEPTED]: [
+    { kind: 'required', field: 'incidentId' },
+    { kind: 'id', field: 'incidentId', maxBytes: 32 },
+    { kind: 'id', field: 'responderRef', maxBytes: 32 },
+    { kind: 'location', field: 'location' },
+  ],
+  [MessageType.RESPONDER_DECLINED]: [
+    { kind: 'required', field: 'incidentId' },
+    { kind: 'id', field: 'incidentId', maxBytes: 32 },
+    { kind: 'id', field: 'responderRef', maxBytes: 32 },
+    { kind: 'int', field: 'reasonCode', min: 0, max: 255 },
+  ],
   [MessageType.RESPONDER_EN_ROUTE]: [
     { kind: 'required', field: 'incidentId' },
     { kind: 'id', field: 'incidentId', maxBytes: 32 },
@@ -168,22 +180,6 @@ const RULES: Readonly<Record<number, readonly Rule[]>> = {
     { kind: 'int', field: 'fragmentIndex', min: 0, max: 63 },
   ],
 
-  // --- previously unguarded: these accepted a completely empty payload ------
-  [MessageType.RESPONDER_ACCEPTED]: [
-    { kind: 'required', field: 'incidentId' },
-    { kind: 'id', field: 'incidentId', maxBytes: 32 },
-    { kind: 'required', field: 'assignmentId' },
-    { kind: 'id', field: 'assignmentId', maxBytes: 32 },
-    { kind: 'id', field: 'responderRef', maxBytes: 32 },
-  ],
-  [MessageType.RESPONDER_DECLINED]: [
-    { kind: 'required', field: 'incidentId' },
-    { kind: 'id', field: 'incidentId', maxBytes: 32 },
-    { kind: 'required', field: 'assignmentId' },
-    { kind: 'id', field: 'assignmentId', maxBytes: 32 },
-    { kind: 'id', field: 'responderRef', maxBytes: 32 },
-    { kind: 'int', field: 'reasonCode', min: 0, max: 255 },
-  ],
   [MessageType.WEATHER_BULLETIN]: [
     { kind: 'required', field: 'bulletinId' },
     { kind: 'id', field: 'bulletinId', maxBytes: 32 },
@@ -378,5 +374,9 @@ export function validateSchema(messageType: number, payload: Record<string, unkn
       detail: `no schema rules registered for message type 0x${messageType.toString(16)}`,
     };
   }
-  return checkRules(rules, payload);
+  const result = checkRules(rules, payload);
+  if (!result.ok) {
+    console.warn('[Validator] SCHEMA FAIL type=0x' + messageType.toString(16), result, 'payload=', JSON.stringify(payload));
+  }
+  return result;
 }
