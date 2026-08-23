@@ -18,9 +18,11 @@ import { MemoryEventSink } from '@dsm/store';
 import { createNativeTransport } from '@dsm/android-radio-bridge';
 import { HttpGatewayClient } from '@dsm/gateway-client';
 import { GatewaySynchronizer } from '@dsm/node-runtime';
+import { ASSAM_CONTENT_PACK, PackResolver } from '@dsm/mapkit';
 import { AppRuntime } from './app-runtime';
 import { openMobileRepositories } from './sqlite-repositories';
 import { configureNotificationChannels, notifyPacketReceived } from './notifications';
+import { offlineMapService } from './offline-map';
 import { useAppStore, type UserRole } from '@/store/useAppStore';
 
 const SOURCE_KEY = 'dsm-source-id-v1';
@@ -81,7 +83,7 @@ class MobileController {
       mapObjects: repositories.mapObjects,
       events: new MemoryEventSink(),
       ...(!expoGo ? { adapterFactory: createNativeTransport } : {}),
-    });
+    }, new PackResolver(ASSAM_CONTENT_PACK));
     const report = await runtime.getCapabilities();
     const backendBaseUrl = process.env.EXPO_PUBLIC_DSM_BACKEND_URL?.replace(/\/$/, '');
     if (backendBaseUrl) {
@@ -102,8 +104,13 @@ class MobileController {
     // Packet log is the source of truth: re-derive the map projection from
     // it and reconcile the persisted mirror before the first refresh() reads
     // it, so the fast paint above never permanently drifts.
-    await runtime.engine.rebuildMapFromStoredPackets(Date.now());
+    const rebuilt = await runtime.engine.rebuildMapFromStoredPackets(Date.now());
+    this.sequence = Math.max(1, rebuilt.maxSourceSequence);
+    state.setActiveIncidentId(rebuilt.activeIncidentId);
+    state.setHasActiveSos(Boolean(rebuilt.activeIncidentId));
+    await runtime.engine.maintain(Date.now());
     await this.refresh(runtime);
+    void this.refreshOfflineMap();
     await configureNotificationChannels();
     runtime.adapter.addEventListener((event) => {
       const current = useAppStore.getState();
@@ -227,6 +234,28 @@ class MobileController {
     return bestEffortLocation();
   }
 
+  async refreshOfflineMap() {
+    const state = useAppStore.getState();
+    state.setOfflinePackStatus('checking');
+    const snapshot = await offlineMapService.snapshot();
+    state.setOfflinePackSnapshot(snapshot);
+    return snapshot;
+  }
+
+  async downloadOfflineMap() {
+    const state = useAppStore.getState();
+    state.setOfflinePackStatus('downloading');
+    try {
+      const snapshot = await offlineMapService.download((progress) => useAppStore.getState().setOfflinePackSnapshot(progress));
+      useAppStore.getState().setOfflinePackSnapshot(snapshot);
+      return snapshot;
+    } catch (reason) {
+      state.setOfflinePackStatus('error');
+      state.setRuntimeError(reason instanceof Error ? reason.message : String(reason));
+      throw reason;
+    }
+  }
+
   async probeGateway() {
     const state = useAppStore.getState();
     state.setInternetState('probing');
@@ -261,10 +290,23 @@ async function bestEffortLocation() {
   try {
     const permission = await Location.getForegroundPermissionsAsync();
     if (!permission.granted) return undefined;
-    const fix = await Location.getLastKnownPositionAsync({ maxAge: 10 * 60_000, requiredAccuracy: 500 });
+    const recent = await Location.getLastKnownPositionAsync({ maxAge: 60_000, requiredAccuracy: 250 });
+    const fix = recent ?? await currentPositionWithTimeout();
     if (!fix) return undefined;
-    return { source: LocationSource.CACHED_GNSS, latE7: floatToE7(fix.coords.latitude), lonE7: floatToE7(fix.coords.longitude), accuracyM: Math.round(fix.coords.accuracy ?? 500), ageS: Math.max(0, Math.round((Date.now() - fix.timestamp) / 1000)) };
+    return { source: recent ? LocationSource.CACHED_GNSS : LocationSource.FRESH_GNSS, latE7: floatToE7(fix.coords.latitude), lonE7: floatToE7(fix.coords.longitude), accuracyM: Math.round(fix.coords.accuracy ?? 500), ageS: Math.max(0, Math.round((Date.now() - fix.timestamp) / 1000)) };
   } catch { return undefined; }
+}
+
+async function currentPositionWithTimeout() {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+      new Promise<undefined>((resolve) => { timeout = setTimeout(() => resolve(undefined), 8_000); }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 export const mobileController = new MobileController();

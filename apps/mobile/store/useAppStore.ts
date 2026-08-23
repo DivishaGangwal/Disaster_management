@@ -6,6 +6,7 @@ export type UserRole = 'general-public' | 'responder';
 export type InternetState = 'untested' | 'unavailable' | 'probing' | 'proven gateway';
 export type TransportMode = 'SIMULATED' | 'native';
 export type SelectedRadio = 'simulated' | 'BLE' | 'Bluetooth Classic';
+export type OfflinePackStatus = 'checking' | 'downloading' | 'ready' | 'not-downloaded' | 'error';
 export interface RuntimeIncident { id: string; category: number; severity: number; peopleTotal?: number; injured?: number; updatedAtS: number; }
 export interface RuntimeMapObject { objectId: string; kind: string; label: string; state?: number; latE7?: number; lonE7?: number; asOfS: number; provenance: string; }
 export interface RuntimeDiagnostic { category: string; name: string; severity: string; atMs: number; transport?: string; packetId?: string; result?: string; reason?: string; }
@@ -68,8 +69,12 @@ interface AppState {
   selectedRegion: string;
   setSelectedRegion: (r: string) => void;
   offlinePackVersion: string;
-  offlinePackStatus: 'downloaded' | 'downloading' | 'not-downloaded';
-  setOfflinePackStatus: (s: 'downloaded' | 'downloading' | 'not-downloaded') => void;
+  offlinePackStatus: OfflinePackStatus;
+  setOfflinePackStatus: (s: OfflinePackStatus) => void;
+  offlinePackProgress: number;
+  offlinePackBytes: number;
+  offlinePackResources: number;
+  setOfflinePackSnapshot: (value: { status: OfflinePackStatus; progress: number; completedBytes: number; completedResources: number }) => void;
 
   // Tier 2
   tier2Listening: boolean;
@@ -144,11 +149,15 @@ export const useAppStore = create<AppState>()(
       setFocusMapObjectId: (focusMapObjectId) => set({ focusMapObjectId }),
 
       // Region
-      selectedRegion: 'Mumbai Metropolitan Region',
+      selectedRegion: 'Assam Statewide',
       setSelectedRegion: (r) => set({ selectedRegion: r }),
-      offlinePackVersion: '1.0.0',
-      offlinePackStatus: 'downloaded',
+      offlinePackVersion: 'assam-v1',
+      offlinePackStatus: 'not-downloaded',
       setOfflinePackStatus: (s) => set({ offlinePackStatus: s }),
+      offlinePackProgress: 0,
+      offlinePackBytes: 0,
+      offlinePackResources: 0,
+      setOfflinePackSnapshot: (value) => set({ offlinePackStatus: value.status, offlinePackProgress: value.progress, offlinePackBytes: value.completedBytes, offlinePackResources: value.completedResources }),
 
       // Tier 2
       tier2Listening: false,
@@ -168,6 +177,12 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'dsm-app-state',
+      version: 2,
+      migrate: (persisted) => {
+        const previous = persisted as Partial<AppState>;
+        const staleRegion = !previous.selectedRegion || previous.selectedRegion.includes('Mumbai') || previous.selectedRegion.endsWith('DISTRICT');
+        return { ...previous, ...(staleRegion ? { selectedRegion: 'Assam Statewide' } : {}) } as AppState;
+      },
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
         role: state.role,
@@ -175,6 +190,8 @@ export const useAppStore = create<AppState>()(
         language: state.language,
         hasCompletedReadiness: state.hasCompletedReadiness,
         transportMode: state.transportMode,
+        activeIncidentId: state.activeIncidentId,
+        hasActiveSos: state.hasActiveSos,
       }),
     },
   ),

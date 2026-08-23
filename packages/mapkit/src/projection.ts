@@ -80,7 +80,43 @@ export class MapProjection {
   private readonly events: ProjectionEvent[] = [];
   private readonly missingObjectIds = new Set<ObjectId>();
 
-  constructor(private readonly resolver?: ObjectResolver) {}
+  constructor(private readonly resolver?: ObjectResolver) {
+    if (!resolver) return;
+    const asOfS = Math.floor(resolver.manifest.createdAtMs / 1000);
+    for (const object of resolver.baselineObjects()) {
+      const kind = ['shelter', 'medical', 'food-water', 'safe-zone', 'help-centre'].includes(object.type) ? 'resource' : 'content';
+      this.objects.set(`obj:${object.objectId}`, {
+        objectId: object.objectId,
+        kind,
+        label: object.name,
+        ...(object.latE7 !== undefined ? { latE7: object.latE7 } : {}),
+        ...(object.lonE7 !== undefined ? { lonE7: object.lonE7 } : {}),
+        ...(object.baselineState !== undefined ? { state: object.baselineState } : {}),
+        version: 0,
+        provenance: 'base-pack',
+        causedByPacketId: `PACK:${resolver.manifest.packId}`,
+        asOfS,
+        tombstoned: false,
+        missingFromPack: false,
+      });
+    }
+    for (const route of resolver.baselineRoutes()) {
+      this.objects.set(`rte:${route.objectId}`, {
+        objectId: route.objectId,
+        kind: 'route',
+        label: route.name,
+        latE7: route.fromLatE7,
+        lonE7: route.fromLonE7,
+        state: route.baselineState,
+        version: 0,
+        provenance: 'base-pack',
+        causedByPacketId: `PACK:${resolver.manifest.packId}`,
+        asOfS,
+        tombstoned: false,
+        missingFromPack: false,
+      });
+    }
+  }
 
   apply(op: MapOperation): ProjectionResult {
     const result = this.applyInner(op);

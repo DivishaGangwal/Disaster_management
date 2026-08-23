@@ -26,10 +26,18 @@
     "web:build": "npm run build --workspace @dsm/web-authority",
     "web:dev": "npm run dev --workspace @dsm/web-authority",
     "demo": "npm run build && npm run web:build && node apps/backend/dist/main.js",
-    "fuzz": "npm run build && node tools/fuzz/fuzz.mjs"
+    "fuzz": "npm run build && node tools/fuzz/fuzz.mjs",
+    "start": "npm --workspace @dsm/mobile run start",
+    "android": "npm --workspace @dsm/mobile run android",
+    "ios": "npm --workspace @dsm/mobile run ios"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "expo": "~52.0.49",
+    "react": "18.3.1",
+    "react-native": "0.76.9"
   }
 }

@@ -58,9 +58,10 @@ or queueing. Those are done. You move bytes and emit normalized events.
     representable in `DiscoverySummary` by design — keep it that way.
 - `BluetoothLeScanner` — filtered scan, duty-cycled per `BATTERY.DUTY_CYCLE`.
 - `BluetoothGattServer` — accept connections, expose the session characteristic.
-- `BluetoothGatt` (client) — connect, discover, negotiate MTU, write/notify.
-- A **foreground service** with an ongoing notification that says disaster relay
-  is active and offers a route to stop it (`REL-001`).
+- `BluetoothGatt` (client) — connect, negotiate MTU, subscribe to peer
+  notifications, serialize writes and confirm completion via native callbacks.
+- A **foreground service** with an ongoing notification whose Stop action shuts
+  down both the notification and module-owned relay resources (`REL-001`).
 - **Runtime capability + permission reporting** → `CapabilityReport`.
 - **Not yet implemented:** `AudioRecord` PCM capture → ggwave decode →
   `Tier2RawFrame`. The browser admin receiver already supports microphone and

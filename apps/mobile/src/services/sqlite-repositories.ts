@@ -1,6 +1,7 @@
 import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
 import {
   STORAGE,
+  Priority,
   type AssembledFile,
   type CustodyRecord,
   type FileRepository,
@@ -61,7 +62,10 @@ export class SQLitePacketRepository implements PacketRepository {
       if (await this.get(packetId)) await this.addObservation(observation);
       return 'duplicate' as const;
     }
-    if (await this.count() >= STORAGE.MAX_STORED_PACKETS) await this.evictExpired(Math.floor(Date.now() / 1000));
+    if (await this.count() >= STORAGE.MAX_STORED_PACKETS) {
+      await this.evictExpired(Math.floor(Date.now() / 1000));
+      if (await this.count() >= STORAGE.MAX_STORED_PACKETS) await this.evictOne(stored.packet.header.priority);
+    }
     await this.database.withExclusiveTransactionAsync(async (transaction) => {
       await transaction.runAsync('INSERT INTO seen_packets(packet_id,digest,seen_at_ms) VALUES(?,?,?)', packetId, stored.digest, stored.storedAtMs);
       await transaction.runAsync(
@@ -118,7 +122,7 @@ export class SQLitePacketRepository implements PacketRepository {
   async updateCustody(record: CustodyRecord) { await this.database.runAsync('UPDATE packets SET custody_json = ? WHERE packet_id = ?', JSON.stringify(record), record.packetId); }
 
   async listRelayable(limit: number) {
-    const rows = await this.database.getAllAsync<PacketRow>('SELECT * FROM packets ORDER BY stored_at_ms LIMIT ?', Math.max(0, limit * 4));
+    const rows = await this.database.getAllAsync<PacketRow>('SELECT * FROM packets ORDER BY stored_at_ms');
     const now = Date.now();
     return rows.map((row) => JSON.parse(row.custody_json) as CustodyRecord)
       .filter((item) => item.copyBudgetRemaining > 0 && !['expired', 'invalid', 'evicted'].includes(item.state) && (item.nextEligibleAtMs ?? 0) <= now)
@@ -126,7 +130,7 @@ export class SQLitePacketRepository implements PacketRepository {
   }
 
   async listUploadQueue(limit: number) {
-    const rows = await this.database.getAllAsync<PacketRow>('SELECT * FROM packets ORDER BY stored_at_ms LIMIT ?', Math.max(0, limit * 4));
+    const rows = await this.database.getAllAsync<PacketRow>('SELECT * FROM packets ORDER BY stored_at_ms');
     return rows.map((row) => JSON.parse(row.custody_json) as CustodyRecord).filter((item) => item.uploadState === 'queued').slice(0, limit);
   }
 
@@ -152,12 +156,30 @@ export class SQLitePacketRepository implements PacketRepository {
     return packetResult.changes + seenResult.changes;
   }
   async count() { return (await this.database.getFirstAsync<{ value: number }>('SELECT COUNT(*) AS value FROM packets'))?.value ?? 0; }
+
+  private async evictOne(incomingPriority: number) {
+    const rows = await this.database.getAllAsync<PacketRow>('SELECT * FROM packets ORDER BY stored_at_ms');
+    const candidates = rows.flatMap((row) => {
+      const decoded = decodePacket(base64ToBytes(row.bytes_b64));
+      if (!decoded.ok) return [];
+      const custody = JSON.parse(row.custody_json) as CustodyRecord;
+      if (decoded.packet.header.priority <= Priority.RESPONSE_CONTROL || custody.state === 'created-locally') return [];
+      return [{ row, priority: decoded.packet.header.priority }];
+    }).sort((left, right) => right.priority - left.priority || left.row.stored_at_ms - right.row.stored_at_ms);
+    const victim = candidates[0];
+    if (!victim) {
+      if (incomingPriority > Priority.RESPONSE_CONTROL) throw new Error('storage full, nothing evictable');
+      return;
+    }
+    // Keep seen_packets so a later replay is still suppressed as a duplicate.
+    await this.database.runAsync('DELETE FROM packets WHERE packet_id = ?', victim.row.packet_id);
+  }
 }
 
 export class SQLitePeerRepository implements PeerRepository {
   constructor(private readonly database: SQLiteDatabase) {}
   async observe(record: PeerObservationRecord) { await this.database.runAsync('INSERT OR REPLACE INTO peers(peer_token,body_json) VALUES(?,?)', record.peerToken, JSON.stringify(record)); }
-  async list(nowMs: number) { return (await this.database.getAllAsync<{ body_json: string }>('SELECT body_json FROM peers')).map((row) => JSON.parse(row.body_json) as PeerObservationRecord).filter((row) => row.lastSeenAtMs <= nowMs); }
+  async list(nowMs: number) { const cutoff = nowMs - STORAGE.PEER_OBSERVATION_RETENTION_S * 1000; return (await this.database.getAllAsync<{ body_json: string }>('SELECT body_json FROM peers')).map((row) => JSON.parse(row.body_json) as PeerObservationRecord).filter((row) => row.lastSeenAtMs >= cutoff && row.lastSeenAtMs <= nowMs); }
   async get(peerToken: string) { const row = await this.database.getFirstAsync<{ body_json: string }>('SELECT body_json FROM peers WHERE peer_token = ?', peerToken); return row ? JSON.parse(row.body_json) as PeerObservationRecord : undefined; }
   async evictStale(nowMs: number) { const result = await this.database.runAsync('DELETE FROM peers WHERE CAST(json_extract(body_json, "$.lastSeenAtMs") AS INTEGER) < ?', nowMs - STORAGE.PEER_OBSERVATION_RETENTION_S * 1000); return result.changes; }
 }

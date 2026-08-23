@@ -101,8 +101,8 @@ an object on the map or regional register opens the same state control and its
 packet delivery trail. A regional object can be created, moved/edited, closed,
 blocked, cleared, or reopened; every action uses the versioned publication
 endpoint and emits a canonical packet. Recovered packets use the shared
-`toMapOperations()` translation. The mobile graphical map remains the requested
-placeholder while its projected-object list uses live engine state.
+`toMapOperations()` translation. The mobile MapLibre map and its list consume
+the same projected objects and Assam baseline registry.
 
 ## Evidence inspection
 
@@ -145,8 +145,9 @@ message and coordinates shown as "decoded from the recovered audio" came off the
 air rather than from the stored draft. A campaign reaches `decode-tested` only
 when every expected frame arrived and the recovered packet is byte-identical.
 
-The current web basemap is online. The mobile graphical/offline renderer remains
-deferred and requires a licensed packaged tile artifact.
+The current web basemap is online. The mobile development build can download
+the configured Assam MapLibre style into persistent native offline storage;
+production distribution still requires an approved/self-hosted tile source.
 
 Program preparation advances `broadcaster-ready → audio-generated`. Only a
 complete recovered frame set advances `audio-generated → decode-tested`.

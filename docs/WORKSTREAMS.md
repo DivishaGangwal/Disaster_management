@@ -14,7 +14,7 @@ with real GitHub usernames before the first PR.
 | **A** | Product/domain + mobile app | `apps/mobile/`, `packages/incident/`, `packages/policy/` | ✅ Yes — simulated adapter, no Android needed |
 | **B** | Native Android Bluetooth + lifecycle | `native/`, `packages/transport-core/` | ✅ Implemented and compile-checked; handset evidence remains |
 | **C** | Protocol, persistence, routing, simulator | `packages/codec/`, `validator/`, `store/`, `routing/`, `simulator/`, `node-runtime/` | ✅ Core, mobile SQLite and fuzzing are built |
-| **D** | Offline map + regional data | `packages/mapkit/`, `content-packs/` | ✅ Yes — projection works; real city pack remains |
+| **D** | Offline map + regional data | `packages/mapkit/`, `content-packs/` | ✅ Assam renderer/download and synthetic registry built; official data remains |
 | **E** | Backend + authority/broadcaster web | `apps/backend/`, `apps/web-*/`, `packages/gateway-client/` | ✅ Integrated console and two-way gateway built |
 | **F** | ggwave, QA, evidence, demo | `packages/tier2/`, `tools/ggwave-artifact/`, `evidence/` | ✅ Browser microphone/WAV paths built; physical evidence remains |
 
@@ -41,8 +41,8 @@ with real GitHub usernames before the first PR.
 ### A — mobile
 `apps/mobile/src/screens/screen-registry.ts` lists all 12 required routes and
 their current complete/partial status. The existing layouts are wired through
-`AppRuntime`; the graphical map and Android acoustic receiver remain explicit
-partials rather than simulated success.
+`AppRuntime`; the Android acoustic receiver remains an explicit partial rather
+than simulated success.
 
 Use `DELIVERY_STATE_COPY` and `SOURCE_LABEL_COPY` for status text. Do not write
 your own wording for delivery state — that is how truthfulness regressions
@@ -63,9 +63,10 @@ and malformed-input fuzz runner are built and green. Golden vector artifacts
 and a full measured packet-size sheet remain release evidence work.
 
 ### D — offline map + regional data
-`MapProjection`, `toMapOperations`, and create/open/close/move/reopen centre
-flows are done and integration-tested through ggwave recovery. The graphical
-mobile renderer, licensed base map, provenance note and sourced registry remain.
+`MapProjection`, `toMapOperations`, the graphical MapLibre mobile renderer,
+persistent Assam offline download, typed Assam demo registry, and centre flows
+are done. Authority-approved/self-hosted tiles and a sourced facility registry
+remain production data work.
 
 ### E — backend + web
 Backend services, the gateway loop, dedup, observations, outbound queue,

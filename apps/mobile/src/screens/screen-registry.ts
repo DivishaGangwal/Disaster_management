@@ -198,7 +198,7 @@ export const SCREENS: readonly ScreenSpec[] = [
       'update district/region setting',
       'trigger download of new offline map/content pack for selected region',
     ],
-    status: 'partial',
+    status: 'complete',
   },
 ];
 

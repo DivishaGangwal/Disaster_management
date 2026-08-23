@@ -1,248 +1,302 @@
 /**
- * MAP SCREEN — Offline Operational Map
- * PNG ref: screen (15)
- * Route: Map (tab)
+ * MAP SCREEN — Operational Map
  *
- * Per newmd:
- * - Tap Marker → Detail Sheet (read from local MapProjection)
- * - Switch to List View (local data)
- * All data from engine.projection (via mapObjects) — NO backend calls.
- *
- * This pass renders shelters/hospitals/food-water/safe-zones (green) and
- * SOS/incident pins (red, frozen at the location their SOS packet carried).
- * A live "locate me" position (blue) is a screen-local, manually-triggered
- * read — never auto-fetched, never polled. Responder/rescuer location is
- * explicitly out of scope for this pass.
+ * Every coordinate-bearing object in the local packet projection is rendered.
+ * GPS is screen-local and continuous while this screen is mounted; projected
+ * packet data remains local and never depends on the location watcher.
  */
 
-import React, { useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import { Camera, MapView, PointAnnotation, ShapeSource, CircleLayer, SymbolLayer, type CameraRef } from '@maplibre/maplibre-react-native';
-import { icons } from '@/constants/icons';
+import { Camera, MapView, MarkerView, type CameraRef } from '@maplibre/maplibre-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAppStore } from '@/store/useAppStore';
 import { e7ToFloat } from '@dsm/codec';
-import { mobileController } from '@/src/services/mobile-controller';
+import { icons } from '@/constants/icons';
+import { useAppStore, type RuntimeMapObject } from '@/store/useAppStore';
+import { ASSAM_MAP_STYLE_URL } from '@/src/services/offline-map';
 
-const REGION_CENTRE: [number, number] = [92.5, 26.1]; // IN-AS, matches the web console's default view
+const ASSAM_CENTRE: [number, number] = [92.5, 26.1];
 const REGION_ZOOM = 6.1;
-const CLUSTER_MAX_ZOOM = 14;
+const DETAIL_ZOOM = 15;
 
-const GREEN = '#2D5A27';
-const AMBER = '#FFD60A';
-const RED = '#FF3B30';
-const BLUE = '#0A84FF';
+const COLORS = {
+  background: '#08100D', surface: '#111A16', surfaceStrong: '#18231E', border: '#2D3B34',
+  text: '#F4F7F5', muted: '#A8B4AE', green: '#4ADE80', resource: '#16A34A',
+  hazard: '#F59E0B', incident: '#EF4444', responder: '#2563EB', peer: '#8B5CF6',
+  route: '#0D9488', content: '#64748B', gps: '#168BFF',
+};
 
-const RASTER_STYLE = {
-  version: 8 as const,
-  sources: {
-    osm: {
-      type: 'raster' as const,
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      maxzoom: 19,
-    },
-  },
-  layers: [{ id: 'osm-basemap', type: 'raster' as const, source: 'osm' }],
+const MAP_KINDS = ['resource', 'hazard', 'incident', 'responder', 'peer', 'route', 'content'] as const;
+type MapKind = (typeof MAP_KINDS)[number];
+type FilterState = Record<MapKind, boolean>;
+type GpsStatus = 'checking' | 'permission-needed' | 'searching' | 'tracking' | 'services-off' | 'error';
+
+interface DeviceLocation { lat: number; lon: number; accuracyM: number; updatedAt: number; }
+
+const INITIAL_FILTERS: FilterState = {
+  resource: true, hazard: true, incident: true, responder: true, peer: true, route: true, content: true,
 };
 
 export default function MapScreen() {
   const router = useRouter();
-  const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
-  const { mapObjects, setSelectedMapObjectId, focusMapObjectId, setFocusMapObjectId } = useAppStore();
-  const [myLocation, setMyLocation] = useState<{ lat: number; lon: number } | null>(null);
-  const [locating, setLocating] = useState(false);
   const cameraRef = useRef<CameraRef>(null);
+  const locationSubscriptionRef = useRef<Location.LocationSubscription>();
+  const centerNextFixRef = useRef(false);
+  const mountedRef = useRef(true);
 
-  const MapIcon = icons.map;
-  const ListIcon = icons.list;
-  const LocationIcon = icons.location;
+  const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
+  const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS);
+  const [deviceLocation, setDeviceLocation] = useState<DeviceLocation>();
+  const [gpsStatus, setGpsStatus] = useState<GpsStatus>('checking');
+  const [mapReady, setMapReady] = useState(false);
+  const [mapError, setMapError] = useState(false);
 
-  const resourcePoints = useMemo(() => toFeatureCollection(mapObjects.filter((item) => item.kind === 'resource'), GREEN), [mapObjects]);
-  const hazardPoints = useMemo(() => toFeatureCollection(mapObjects.filter((item) => item.kind === 'hazard'), AMBER), [mapObjects]);
-  const incidentPoints = useMemo(() => toFeatureCollection(mapObjects.filter((item) => item.kind === 'incident'), RED), [mapObjects]);
+  const { mapObjects, selectedRegion, setLocationEnabled, setSelectedMapObjectId, focusMapObjectId, setFocusMapObjectId } = useAppStore();
+  const coordinateObjects = useMemo(() => mapObjects.filter(hasCoordinate), [mapObjects]);
+  const visibleObjects = useMemo(() => coordinateObjects.filter((item) => filters[normaliseKind(item.kind)]), [coordinateObjects, filters]);
+  const listObjects = useMemo(() => mapObjects.filter((item) => filters[normaliseKind(item.kind)]), [mapObjects, filters]);
+  const counts = useMemo(() => {
+    const result: Record<MapKind, number> = { resource: 0, hazard: 0, incident: 0, responder: 0, peer: 0, route: 0, content: 0 };
+    for (const item of mapObjects) result[normaliseKind(item.kind)] += 1;
+    return result;
+  }, [mapObjects]);
 
-  // Navigate button (resource/detail.tsx) sets focusMapObjectId then routes here.
-  React.useEffect(() => {
+  const applyLocation = useCallback((fix: Location.LocationObject) => {
+    if (!mountedRef.current) return;
+    const next = { lat: fix.coords.latitude, lon: fix.coords.longitude, accuracyM: Math.max(1, Math.round(fix.coords.accuracy ?? 100)), updatedAt: fix.timestamp };
+    setDeviceLocation(next);
+    setGpsStatus('tracking');
+    setLocationEnabled(true);
+    if (centerNextFixRef.current) {
+      centerNextFixRef.current = false;
+      cameraRef.current?.setCamera({ centerCoordinate: [next.lon, next.lat], zoomLevel: DETAIL_ZOOM, animationDuration: 650 });
+    }
+  }, [setLocationEnabled]);
+
+  const startLocationWatch = useCallback(async (centerOnFirstFix: boolean) => {
+    if (!await Location.hasServicesEnabledAsync()) {
+      setGpsStatus('services-off');
+      setLocationEnabled(false);
+      return;
+    }
+    const permission = await Location.getForegroundPermissionsAsync();
+    if (!permission.granted) {
+      setGpsStatus('permission-needed');
+      setLocationEnabled(false);
+      return;
+    }
+    if (centerOnFirstFix) centerNextFixRef.current = true;
+    setGpsStatus('searching');
+    locationSubscriptionRef.current?.remove();
+    locationSubscriptionRef.current = await Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.High, timeInterval: 5_000, distanceInterval: 3 },
+      applyLocation,
+    );
+    const lastKnown = await Location.getLastKnownPositionAsync({ maxAge: 120_000, requiredAccuracy: 500 });
+    if (lastKnown) applyLocation(lastKnown);
+  }, [applyLocation, setLocationEnabled]);
+
+  const requestAndLocate = useCallback(async () => {
+    try {
+      if (!await Location.hasServicesEnabledAsync()) {
+        setGpsStatus('services-off');
+        Alert.alert('Turn on device location', 'GPS/location services are off. Enable them in Android settings, then tap the location button again.');
+        return;
+      }
+      let permission = await Location.getForegroundPermissionsAsync();
+      if (!permission.granted) permission = await Location.requestForegroundPermissionsAsync();
+      if (!permission.granted) {
+        setGpsStatus('permission-needed');
+        setLocationEnabled(false);
+        Alert.alert('Location permission needed', 'Allow precise location so the map can show and follow your position.');
+        return;
+      }
+      if (deviceLocation) cameraRef.current?.setCamera({ centerCoordinate: [deviceLocation.lon, deviceLocation.lat], zoomLevel: DETAIL_ZOOM, animationDuration: 500 });
+      await startLocationWatch(!deviceLocation);
+    } catch {
+      setGpsStatus('error');
+      Alert.alert('Location unavailable', 'The phone could not obtain a GPS fix. Move somewhere with a clearer sky view and try again.');
+    }
+  }, [deviceLocation, setLocationEnabled, startLocationWatch]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void startLocationWatch(true).catch(() => setGpsStatus('error'));
+    return () => {
+      mountedRef.current = false;
+      locationSubscriptionRef.current?.remove();
+      locationSubscriptionRef.current = undefined;
+    };
+  }, [startLocationWatch]);
+
+  useEffect(() => {
     if (!focusMapObjectId) return;
     const target = mapObjects.find((item) => item.objectId === focusMapObjectId);
-    if (target?.latE7 !== undefined && target.lonE7 !== undefined) {
-      cameraRef.current?.setCamera({
-        centerCoordinate: [e7ToFloat(target.lonE7), e7ToFloat(target.latE7)],
-        zoomLevel: CLUSTER_MAX_ZOOM,
-        animationDuration: 500,
-      });
+    if (target && hasCoordinate(target)) {
+      setViewMode('map');
+      cameraRef.current?.setCamera({ centerCoordinate: [e7ToFloat(target.lonE7), e7ToFloat(target.latE7)], zoomLevel: DETAIL_ZOOM, animationDuration: 600 });
     }
     setFocusMapObjectId(undefined);
   }, [focusMapObjectId, mapObjects, setFocusMapObjectId]);
 
-  const handleLocateMe = async () => {
-    setLocating(true);
-    try {
-      const location = await mobileController.locateMe();
-      if (!location || location.latE7 === undefined || location.lonE7 === undefined) {
-        Alert.alert('Location unavailable', 'No cached position is available. Grant location access on the Readiness screen and try again.');
-        return;
-      }
-      const lat = e7ToFloat(location.latE7);
-      const lon = e7ToFloat(location.lonE7);
-      setMyLocation({ lat, lon });
-      cameraRef.current?.setCamera({ centerCoordinate: [lon, lat], zoomLevel: CLUSTER_MAX_ZOOM, animationDuration: 500 });
-    } finally {
-      setLocating(false);
-    }
-  };
+  const openObject = useCallback((item: RuntimeMapObject) => {
+    setSelectedMapObjectId(item.objectId);
+    router.push('/resource/detail');
+  }, [router, setSelectedMapObjectId]);
 
-  const handleFeaturePress = (event: { features: GeoJSON.Feature[]; coordinates: { latitude: number; longitude: number } }) => {
-    const feature = event.features[0];
-    if (!feature) return;
-    const properties = feature.properties as { cluster?: boolean; objectId?: string } | null;
-    if (properties?.cluster) {
-      cameraRef.current?.setCamera({ centerCoordinate: [event.coordinates.longitude, event.coordinates.latitude], zoomLevel: CLUSTER_MAX_ZOOM, animationDuration: 400 });
+  const fitVisible = useCallback(() => {
+    const coordinates: [number, number][] = visibleObjects.map((item) => [e7ToFloat(item.lonE7), e7ToFloat(item.latE7)]);
+    if (deviceLocation) coordinates.push([deviceLocation.lon, deviceLocation.lat]);
+    if (coordinates.length === 0) return Alert.alert('Nothing to frame', 'Enable a map layer or obtain a GPS fix first.');
+    if (coordinates.length === 1) {
+      cameraRef.current?.setCamera({ centerCoordinate: coordinates[0], zoomLevel: DETAIL_ZOOM, animationDuration: 500 });
       return;
     }
-    if (properties?.objectId) {
-      setSelectedMapObjectId(properties.objectId);
-      router.push('/resource/detail');
-    }
-  };
+    const lons = coordinates.map(([lon]) => lon);
+    const lats = coordinates.map(([, lat]) => lat);
+    cameraRef.current?.fitBounds([Math.max(...lons), Math.max(...lats)], [Math.min(...lons), Math.min(...lats)], [120, 48, 180, 48], 650);
+  }, [deviceLocation, visibleObjects]);
+
+  const toggleFilter = useCallback((kind: MapKind) => setFilters((current) => ({ ...current, [kind]: !current[kind] })), []);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#000000' }}>
-      {/* Header */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#2D5A27' }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={{ color: '#a1d494', fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>≡</Text>
-          <Text style={{ color: '#a1d494', fontSize: 20, fontWeight: '800', letterSpacing: 2, marginLeft: 16 }}>GUARDIAN</Text>
+    <SafeAreaView style={styles.screen}>
+      <View style={styles.header}>
+        <View style={styles.headerCopy}>
+          <Text style={styles.eyebrow}>OPERATIONAL PICTURE</Text>
+          <Text style={styles.title} numberOfLines={1}>{selectedRegion}</Text>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <View style={{ width: 4, height: 12, backgroundColor: '#a1d494', marginRight: 2 }} />
-          <View style={{ width: 4, height: 18, backgroundColor: '#a1d494', marginRight: 2 }} />
-          <View style={{ width: 4, height: 8, backgroundColor: '#a1d494' }} />
+        <View style={styles.viewSwitch}>
+          <ModeButton icon="map" active={viewMode === 'map'} label="Map" onPress={() => setViewMode('map')} />
+          <ModeButton icon="list" active={viewMode === 'list'} label="List" onPress={() => setViewMode('list')} />
         </View>
       </View>
 
+      <FilterBar filters={filters} counts={counts} onToggle={toggleFilter} />
+
       {viewMode === 'map' ? (
-        <View style={{ flex: 1 }}>
-          {/* Offline cache badge */}
-          <View style={{ position: 'absolute', top: 12, left: 20, zIndex: 10, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.8)', paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: '#3A3A3C' }}>
-            <View style={{ width: 8, height: 8, backgroundColor: '#a1d494', marginRight: 8 }} />
-            <Text style={{ color: '#a1d494', fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>ONLINE BASEMAP · PROJECTION IS LOCAL</Text>
-          </View>
-
-          {/* Switch to list button */}
-          <TouchableOpacity
-            onPress={() => setViewMode('list')}
-            style={{ position: 'absolute', top: 12, right: 20, zIndex: 10, flexDirection: 'row', alignItems: 'center', backgroundColor: '#2C2C2E', paddingHorizontal: 16, paddingVertical: 10, borderWidth: 1, borderColor: '#3A3A3C' }}
+        <View style={styles.mapContainer}>
+          <MapView
+            style={StyleSheet.absoluteFill}
+            mapStyle={ASSAM_MAP_STYLE_URL}
+            logoEnabled={false}
+            attributionEnabled
+            onDidFinishLoadingStyle={() => { setMapReady(true); setMapError(false); }}
+            onDidFailLoadingMap={() => { setMapReady(false); setMapError(true); }}
           >
-            <ListIcon size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
-            <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>SWITCH TO LIST VIEW</Text>
-          </TouchableOpacity>
-
-          <MapView style={{ flex: 1 }} mapStyle={RASTER_STYLE} logoEnabled={false} attributionEnabled={false}>
-            <Camera ref={cameraRef} defaultSettings={{ centerCoordinate: REGION_CENTRE, zoomLevel: REGION_ZOOM }} />
-
-            {resourcePoints.features.length > 0 && (
-              <ShapeSource id="resources" shape={resourcePoints} cluster clusterRadius={44} clusterMaxZoomLevel={CLUSTER_MAX_ZOOM} onPress={handleFeaturePress}>
-                <CircleLayer id="resource-clusters" filter={['has', 'point_count']} style={{ circleColor: GREEN, circleRadius: 16, circleStrokeWidth: 2, circleStrokeColor: '#FFFFFF' }} />
-                <SymbolLayer id="resource-cluster-count" filter={['has', 'point_count']} style={{ textField: '{point_count}', textSize: 12, textColor: '#FFFFFF', textAllowOverlap: true }} />
-                <CircleLayer id="resource-points" filter={['!', ['has', 'point_count']]} style={{ circleColor: ['get', 'color'], circleRadius: 8, circleStrokeWidth: 2, circleStrokeColor: '#FFFFFF' }} />
-              </ShapeSource>
-            )}
-
-            {hazardPoints.features.length > 0 && (
-              <ShapeSource id="hazards" shape={hazardPoints} cluster clusterRadius={44} clusterMaxZoomLevel={CLUSTER_MAX_ZOOM} onPress={handleFeaturePress}>
-                <CircleLayer id="hazard-clusters" filter={['has', 'point_count']} style={{ circleColor: AMBER, circleRadius: 16, circleStrokeWidth: 2, circleStrokeColor: '#000000' }} />
-                <SymbolLayer id="hazard-cluster-count" filter={['has', 'point_count']} style={{ textField: '{point_count}', textSize: 12, textColor: '#000000', textAllowOverlap: true }} />
-                <CircleLayer id="hazard-points" filter={['!', ['has', 'point_count']]} style={{ circleColor: ['get', 'color'], circleRadius: 8, circleStrokeWidth: 2, circleStrokeColor: '#000000' }} />
-              </ShapeSource>
-            )}
-
-            {incidentPoints.features.length > 0 && (
-              <ShapeSource id="incidents" shape={incidentPoints} cluster clusterRadius={44} clusterMaxZoomLevel={CLUSTER_MAX_ZOOM} onPress={handleFeaturePress}>
-                <CircleLayer id="incident-clusters" filter={['has', 'point_count']} style={{ circleColor: RED, circleRadius: 16, circleStrokeWidth: 2, circleStrokeColor: '#FFFFFF' }} />
-                <SymbolLayer id="incident-cluster-count" filter={['has', 'point_count']} style={{ textField: '{point_count}', textSize: 12, textColor: '#FFFFFF', textAllowOverlap: true }} />
-                <CircleLayer id="incident-points" filter={['!', ['has', 'point_count']]} style={{ circleColor: ['get', 'color'], circleRadius: 8, circleStrokeWidth: 2, circleStrokeColor: '#FFFFFF' }} />
-              </ShapeSource>
-            )}
-
-            {myLocation && (
-              <PointAnnotation id="my-location" coordinate={[myLocation.lon, myLocation.lat]}>
-                <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: BLUE, borderWidth: 3, borderColor: '#FFFFFF' }} />
-              </PointAnnotation>
+            <Camera ref={cameraRef} defaultSettings={{ centerCoordinate: ASSAM_CENTRE, zoomLevel: REGION_ZOOM }} />
+            {visibleObjects.map((item) => <OperationalMarker key={item.objectId} item={item} onPress={() => openObject(item)} />)}
+            {deviceLocation && (
+              <MarkerView coordinate={[deviceLocation.lon, deviceLocation.lat]} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Your current location, accurate to approximately ${deviceLocation.accuracyM} metres`} onPress={() => void requestAndLocate()} style={styles.gpsMarkerTouch}>
+                  <View style={styles.gpsPulse}><View style={styles.gpsDot} /></View>
+                </TouchableOpacity>
+              </MarkerView>
             )}
           </MapView>
 
-          {/* Legend */}
-          <View style={{ position: 'absolute', bottom: 88, left: 20, backgroundColor: 'rgba(0,0,0,0.8)', borderWidth: 1, borderColor: '#3A3A3C', paddingHorizontal: 12, paddingVertical: 8, gap: 4 }}>
-            <LegendRow color={GREEN} label="Shelter / medical / food-water / safe zone" />
-            <LegendRow color={AMBER} label="Hazard" />
-            <LegendRow color={RED} label="SOS" />
-            <LegendRow color={BLUE} label="My location" />
+          {!mapReady && !mapError && <View style={styles.mapLoading} pointerEvents="none"><ActivityIndicator color={COLORS.green} /><Text style={styles.mapLoadingText}>Loading map</Text></View>}
+          {mapError && <View style={styles.mapErrorCard}><icons.alertCircle size={18} color={COLORS.hazard} /><Text style={styles.mapErrorText}>Basemap unavailable. Your local operational markers are still retained.</Text></View>}
+
+          <View style={styles.mapStatusCard} pointerEvents="none">
+            <View style={[styles.statusDot, { backgroundColor: gpsStatus === 'tracking' ? COLORS.green : gpsStatus === 'error' ? COLORS.incident : COLORS.hazard }]} />
+            <View style={styles.statusCopy}><Text style={styles.statusTitle}>{gpsTitle(gpsStatus)}</Text><Text style={styles.statusDetail}>{gpsDetail(gpsStatus, deviceLocation)}</Text></View>
           </View>
 
-          {/* Locate me */}
-          <TouchableOpacity
-            onPress={() => void handleLocateMe()}
-            disabled={locating}
-            style={{ position: 'absolute', bottom: 20, right: 20, width: 52, height: 52, borderRadius: 26, backgroundColor: locating ? '#1C1C1E' : '#2D5A27', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#3A3A3C' }}
-          >
-            <LocationIcon size={22} color="#FFFFFF" />
-          </TouchableOpacity>
-        </View>
-      ) : (
-        /* List View */
-        <ScrollView style={{ flex: 1, padding: 20 }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <Text style={{ color: '#FFFFFF', fontSize: 24, fontWeight: '700' }}>Map Entities</Text>
-            <TouchableOpacity onPress={() => setViewMode('map')} style={{ backgroundColor: '#2C2C2E', paddingHorizontal: 16, paddingVertical: 10, borderWidth: 1, borderColor: '#3A3A3C' }}>
-              <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>MAP VIEW</Text>
+          <View style={styles.mapActions}>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Frame all visible map features" onPress={fitVisible} style={styles.mapActionButton}><icons.layers size={21} color={COLORS.text} /></TouchableOpacity>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Find and centre my location" onPress={() => void requestAndLocate()} style={[styles.mapActionButton, styles.locationButton]}>
+              {gpsStatus === 'searching' || gpsStatus === 'checking' ? <ActivityIndicator color="#FFFFFF" size="small" /> : <icons.navigation size={22} color="#FFFFFF" fill="#FFFFFF" />}
             </TouchableOpacity>
           </View>
-          {mapObjects.map((item) => (
-            <TouchableOpacity
-              key={item.objectId}
-              onPress={() => { setSelectedMapObjectId(item.objectId); router.push('/resource/detail'); }}
-              style={{ backgroundColor: '#1C1C1E', borderWidth: 1, borderColor: '#3A3A3C', marginBottom: 8, flexDirection: 'row' }}
-            >
-              <View style={{ width: 4, backgroundColor: item.kind === 'hazard' ? AMBER : item.kind === 'incident' ? RED : GREEN }} />
-              <View style={{ flex: 1, padding: 16 }}>
-                <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>{item.label}</Text>
-                <Text style={{ color: '#AEAEB2', fontSize: 13, marginTop: 4 }}>{item.kind} · {item.provenance} · {ageLabel(item.asOfS)}</Text>
-              </View>
-              <View style={{ justifyContent: 'center', paddingRight: 16 }}>
-                <Text style={{ color: item.kind === 'hazard' ? AMBER : '#a1d494', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>{item.state === undefined ? '—' : String(item.state)}</Text>
-              </View>
-            </TouchableOpacity>
-          ))}
-          {mapObjects.length === 0 && <Text style={{ color: '#AEAEB2', fontSize: 14 }}>No map-operation packets are stored on this phone.</Text>}
-        </ScrollView>
+
+          <View style={styles.mapSummary} pointerEvents="none">
+            <Text style={styles.mapSummaryStrong}>{visibleObjects.length}</Text><Text style={styles.mapSummaryText}> visible on map</Text>
+            {mapObjects.length > coordinateObjects.length && <Text style={styles.mapSummaryMuted}> · {mapObjects.length - coordinateObjects.length} list-only</Text>}
+          </View>
+        </View>
+      ) : (
+        <FlatList
+          data={listObjects}
+          keyExtractor={(item) => item.objectId}
+          contentContainerStyle={styles.listContent}
+          renderItem={({ item }) => <MapListRow item={item} onPress={() => openObject(item)} />}
+          ListEmptyComponent={<View style={styles.emptyState}><icons.map size={34} color={COLORS.muted} /><Text style={styles.emptyTitle}>No matching map features</Text><Text style={styles.emptyCopy}>Enable more layers above or receive regional packets through the mesh.</Text></View>}
+        />
       )}
     </SafeAreaView>
   );
 }
 
-function LegendRow({ color, label }: { color: string; label: string }) {
+function FilterBar({ filters, counts, onToggle }: { filters: FilterState; counts: Record<MapKind, number>; onToggle: (kind: MapKind) => void }) {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color, marginRight: 8 }} />
-      <Text style={{ color: '#AEAEB2', fontSize: 10 }}>{label}</Text>
-    </View>
+    <FlatList
+      horizontal data={MAP_KINDS} keyExtractor={(item) => item} showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.filterContent} style={styles.filterBar}
+      renderItem={({ item }) => {
+        const active = filters[item]; const Icon = iconForKind(item); const color = colorForKind(item);
+        return <TouchableOpacity accessibilityRole="checkbox" accessibilityState={{ checked: active }} accessibilityLabel={`${kindLabel(item)} layer, ${counts[item]} items`} onPress={() => onToggle(item)} style={[styles.filterChip, active && { borderColor: color, backgroundColor: `${color}1F` }]}>
+          <Icon size={15} color={active ? color : COLORS.muted} /><Text style={[styles.filterLabel, active && { color: COLORS.text }]}>{kindLabel(item)}</Text>
+          <View style={[styles.countBadge, active && { backgroundColor: color }]}><Text style={[styles.countText, active && { color: '#FFFFFF' }]}>{counts[item]}</Text></View>
+        </TouchableOpacity>;
+      }}
+    />
   );
 }
 
-function toFeatureCollection(items: readonly { objectId: string; latE7?: number; lonE7?: number }[], color: string): GeoJSON.FeatureCollection<GeoJSON.Point> {
-  return {
-    type: 'FeatureCollection',
-    features: items
-      .filter((item) => item.latE7 !== undefined && item.lonE7 !== undefined)
-      .map((item) => ({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [e7ToFloat(item.lonE7!), e7ToFloat(item.latE7!)] },
-        properties: { objectId: item.objectId, color },
-      })),
-  };
+function OperationalMarker({ item, onPress }: { item: RuntimeMapObject & { latE7: number; lonE7: number }; onPress: () => void }) {
+  const kind = normaliseKind(item.kind); const Icon = iconForObject(item); const color = colorForKind(kind);
+  return (
+    <MarkerView coordinate={[e7ToFloat(item.lonE7), e7ToFloat(item.latE7)]} anchor={{ x: 0.5, y: 1 }} allowOverlap>
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel={`${kindLabel(kind)}: ${item.label}, updated ${ageLabel(item.asOfS)}`} onPress={onPress} activeOpacity={0.78} style={styles.markerTouch}>
+        <View style={[styles.marker, { backgroundColor: color }]}><Icon size={20} color="#FFFFFF" strokeWidth={2.6} /></View>
+        <View style={[styles.markerPointer, { borderTopColor: color }]} />
+      </TouchableOpacity>
+    </MarkerView>
+  );
 }
 
-function ageLabel(asOfS: number) { const age = Math.max(0, Math.round(Date.now() / 1000) - asOfS); return age < 60 ? 'just now' : `${Math.floor(age / 60)}m ago`; }
+function MapListRow({ item, onPress }: { item: RuntimeMapObject; onPress: () => void }) {
+  const kind = normaliseKind(item.kind); const Icon = iconForObject(item); const color = colorForKind(kind);
+  return (
+    <TouchableOpacity accessibilityRole="button" onPress={onPress} style={styles.listRow}>
+      <View style={[styles.listIcon, { backgroundColor: `${color}22`, borderColor: color }]}><Icon size={21} color={color} /></View>
+      <View style={styles.listCopy}><Text style={styles.listKind}>{kindLabel(kind).toUpperCase()} · {item.provenance.toUpperCase()}</Text><Text style={styles.listTitle} numberOfLines={1}>{item.label}</Text><Text style={styles.listMeta}>{hasCoordinate(item) ? coordinateLabel(item) : 'No coordinate · list only'} · {ageLabel(item.asOfS)}</Text></View>
+      <icons.arrowRight size={20} color={COLORS.muted} />
+    </TouchableOpacity>
+  );
+}
+
+function ModeButton({ icon, active, label, onPress }: { icon: 'map' | 'list'; active: boolean; label: string; onPress: () => void }) {
+  const Icon = icons[icon];
+  return <TouchableOpacity accessibilityRole="tab" accessibilityState={{ selected: active }} onPress={onPress} style={[styles.modeButton, active && styles.modeButtonActive]}><Icon size={17} color={active ? COLORS.background : COLORS.muted} /><Text style={[styles.modeLabel, active && styles.modeLabelActive]}>{label}</Text></TouchableOpacity>;
+}
+
+function hasCoordinate(item: RuntimeMapObject): item is RuntimeMapObject & { latE7: number; lonE7: number } { return item.latE7 !== undefined && item.lonE7 !== undefined; }
+function normaliseKind(kind: string): MapKind { return MAP_KINDS.includes(kind as MapKind) ? kind as MapKind : 'content'; }
+function kindLabel(kind: MapKind) { switch (kind) { case 'resource': return 'Help'; case 'incident': return 'SOS'; case 'responder': return 'Responders'; case 'peer': return 'Phones'; case 'route': return 'Routes'; case 'hazard': return 'Hazards'; default: return 'Content'; } }
+function colorForKind(kind: MapKind) { return COLORS[kind]; }
+function iconForKind(kind: MapKind) { switch (kind) { case 'resource': return icons.shelter; case 'hazard': return icons.alert; case 'incident': return icons.sos; case 'responder': return icons.responder; case 'peer': return icons.users; case 'route': return icons.navigation; default: return icons.package; } }
+function iconForObject(item: RuntimeMapObject) { const kind = normaliseKind(item.kind); if (kind !== 'resource') return iconForKind(kind); const label = item.label.toLowerCase(); if (label.includes('hospital') || label.includes('medical') || label.includes('clinic')) return icons.hospital; if (label.includes('food') || label.includes('water')) return icons.food; if (label.includes('safe')) return icons.shield; return icons.shelter; }
+function gpsTitle(status: GpsStatus) { switch (status) { case 'tracking': return 'GPS tracking active'; case 'searching': return 'Finding your position'; case 'permission-needed': return 'Location permission needed'; case 'services-off': return 'Device location is off'; case 'error': return 'GPS unavailable'; default: return 'Checking location'; } }
+function gpsDetail(status: GpsStatus, location?: DeviceLocation) { if (status === 'tracking' && location) return `Accuracy ±${location.accuracyM} m · updated ${ageLabel(Math.round(location.updatedAt / 1000))}`; if (status === 'permission-needed') return 'Tap the blue arrow to enable it'; if (status === 'services-off') return 'Enable GPS in Android settings'; if (status === 'error') return 'Tap the blue arrow to retry'; return 'Waiting for a reliable fix'; }
+function ageLabel(asOfS: number) { const age = Math.max(0, Math.round(Date.now() / 1000) - asOfS); if (age < 10) return 'just now'; if (age < 60) return `${age}s ago`; if (age < 3_600) return `${Math.floor(age / 60)}m ago`; return `${Math.floor(age / 3_600)}h ago`; }
+function coordinateLabel(item: RuntimeMapObject & { latE7: number; lonE7: number }) { return `${e7ToFloat(item.latE7).toFixed(4)}, ${e7ToFloat(item.lonE7).toFixed(4)}`; }
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: COLORS.background },
+  header: { minHeight: 70, paddingHorizontal: 18, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  headerCopy: { flex: 1, marginRight: 12 }, eyebrow: { color: COLORS.green, fontSize: 10, lineHeight: 14, fontWeight: '800', letterSpacing: 1.5 }, title: { color: COLORS.text, fontSize: 20, lineHeight: 26, fontWeight: '800' },
+  viewSwitch: { flexDirection: 'row', padding: 3, borderRadius: 12, backgroundColor: COLORS.surface }, modeButton: { minWidth: 64, minHeight: 40, paddingHorizontal: 10, borderRadius: 9, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center' }, modeButtonActive: { backgroundColor: COLORS.green }, modeLabel: { color: COLORS.muted, fontSize: 12, fontWeight: '700' }, modeLabelActive: { color: COLORS.background },
+  filterBar: { maxHeight: 58, flexGrow: 0, backgroundColor: COLORS.background, borderBottomWidth: 1, borderBottomColor: COLORS.border }, filterContent: { paddingHorizontal: 14, paddingVertical: 9, gap: 8 }, filterChip: { minHeight: 38, paddingHorizontal: 11, borderRadius: 19, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, flexDirection: 'row', alignItems: 'center', gap: 6 }, filterLabel: { color: COLORS.muted, fontSize: 12, fontWeight: '700' }, countBadge: { minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, backgroundColor: COLORS.surfaceStrong, alignItems: 'center', justifyContent: 'center' }, countText: { color: COLORS.muted, fontSize: 10, fontWeight: '900' },
+  mapContainer: { flex: 1, overflow: 'hidden' }, mapLoading: { position: 'absolute', top: '42%', alignSelf: 'center', flexDirection: 'row', gap: 10, alignItems: 'center', backgroundColor: COLORS.surface, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border }, mapLoadingText: { color: COLORS.text, fontSize: 13, fontWeight: '700' }, mapErrorCard: { position: 'absolute', top: 14, left: 14, right: 14, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14, backgroundColor: 'rgba(17,26,22,0.96)', borderWidth: 1, borderColor: COLORS.hazard }, mapErrorText: { flex: 1, color: COLORS.text, fontSize: 12, lineHeight: 17, fontWeight: '600' },
+  mapStatusCard: { position: 'absolute', top: 14, left: 14, maxWidth: 245, minHeight: 54, paddingHorizontal: 13, paddingVertical: 9, borderRadius: 15, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(8,16,13,0.94)', borderWidth: 1, borderColor: COLORS.border }, statusDot: { width: 9, height: 9, borderRadius: 5, marginRight: 10 }, statusCopy: { flexShrink: 1 }, statusTitle: { color: COLORS.text, fontSize: 12, lineHeight: 16, fontWeight: '800' }, statusDetail: { color: COLORS.muted, fontSize: 10, lineHeight: 14, marginTop: 1 },
+  mapActions: { position: 'absolute', right: 14, bottom: 74, gap: 10 }, mapActionButton: { width: 50, height: 50, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(8,16,13,0.96)', borderWidth: 1, borderColor: COLORS.border, elevation: 5, shadowColor: '#000000', shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 3 } }, locationButton: { backgroundColor: COLORS.gps, borderColor: '#FFFFFF' },
+  mapSummary: { position: 'absolute', left: 14, bottom: 16, minHeight: 42, flexDirection: 'row', alignItems: 'baseline', paddingHorizontal: 14, borderRadius: 14, backgroundColor: 'rgba(8,16,13,0.94)', borderWidth: 1, borderColor: COLORS.border }, mapSummaryStrong: { color: COLORS.text, fontSize: 17, fontWeight: '900' }, mapSummaryText: { color: COLORS.text, fontSize: 11, fontWeight: '700' }, mapSummaryMuted: { color: COLORS.muted, fontSize: 10, fontWeight: '600' },
+  markerTouch: { width: 48, height: 58, alignItems: 'center', justifyContent: 'flex-end' }, marker: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#FFFFFF', elevation: 7, shadowColor: '#000000', shadowOpacity: 0.35, shadowRadius: 5, shadowOffset: { width: 0, height: 3 } }, markerPointer: { width: 0, height: 0, marginTop: -1, borderLeftWidth: 7, borderRightWidth: 7, borderTopWidth: 9, borderLeftColor: 'transparent', borderRightColor: 'transparent' },
+  gpsMarkerTouch: { width: 58, height: 58, alignItems: 'center', justifyContent: 'center' }, gpsPulse: { width: 46, height: 46, borderRadius: 23, backgroundColor: 'rgba(22,139,255,0.22)', borderWidth: 2, borderColor: 'rgba(22,139,255,0.5)', alignItems: 'center', justifyContent: 'center' }, gpsDot: { width: 20, height: 20, borderRadius: 10, backgroundColor: COLORS.gps, borderWidth: 4, borderColor: '#FFFFFF', elevation: 5 },
+  listContent: { padding: 14, paddingBottom: 100, gap: 10 }, listRow: { minHeight: 86, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13, paddingVertical: 12, borderRadius: 16, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border }, listIcon: { width: 48, height: 48, borderRadius: 15, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, marginRight: 12 }, listCopy: { flex: 1, marginRight: 8 }, listKind: { color: COLORS.green, fontSize: 9, lineHeight: 13, fontWeight: '900', letterSpacing: 0.8 }, listTitle: { color: COLORS.text, fontSize: 15, lineHeight: 21, fontWeight: '800' }, listMeta: { color: COLORS.muted, fontSize: 10, lineHeight: 15, marginTop: 2 },
+  emptyState: { paddingHorizontal: 32, paddingVertical: 70, alignItems: 'center' }, emptyTitle: { color: COLORS.text, fontSize: 18, fontWeight: '800', marginTop: 14 }, emptyCopy: { color: COLORS.muted, fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: 7 },
+});

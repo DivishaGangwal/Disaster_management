@@ -39,6 +39,9 @@ export class PackResolver implements ObjectResolver {
     return this.formsById.get(objectId);
   }
 
+  baselineObjects(): readonly PackObject[] { return this.pack.objects; }
+  baselineRoutes(): readonly RouteEdge[] { return this.pack.routes; }
+
   phrase(phraseId: number, language: string): string | undefined {
     const entry = this.pack.phrases.find((p) => p.phraseId === phraseId);
     return entry?.text[language] ?? entry?.text['en'];

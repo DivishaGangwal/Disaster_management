@@ -60,8 +60,8 @@ the difference matters (DEC-004):
 
 | Runtime | Transport | What works |
 |---|---|---|
-| **Stock Expo Go** | simulated | Every route, SOS creation, durable local state, projected-object list, incident timelines and diagnostics; the graphical map remains a placeholder |
-| **Expo development build** | native BLE preferred, Classic fallback | The judged Tier 1 runtime: advertise/scan/GATT or RFCOMM plus the foreground relay service |
+| **Stock Expo Go** | simulated | Every route, SOS creation, durable local state, Assam operational map/list, incident timelines and diagnostics; native offline-pack download is unavailable |
+| **Expo development build** | native BLE preferred, Classic fallback | The judged Tier 1 runtime: native Assam basemap download/storage plus advertise/scan/GATT or RFCOMM and the foreground relay service |
 
 Real Bluetooth needs native code that is not in the Expo Go binary. Both runtimes
 drive the identical engine; only the injected `TransportAdapter` changes. So UI,
@@ -131,8 +131,8 @@ tools/
 - That this pass physically tested Bluetooth or acoustic reception on a handset.
 - That a link receipt is a responder or authority acknowledgement.
 - That ggwave carries maps, large media, or normal conversation efficiently.
-- That the mobile graphical map or Android acoustic decoder is complete; those
-  are the explicit remaining implementation items.
+- That the Android on-phone acoustic decoder is complete; browser acoustic
+  reception is implemented, while native `AudioRecord`/ggwave remains optional.
 - Production-grade authentication, encryption, or verified identities.
 
 Current build state, with honest evidence labels, is in `docs/STATUS.md`.

@@ -8,19 +8,21 @@
  * - Update Offline Map → gateway HTTP (when internet exists)
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAppStore } from '@/store/useAppStore';
 import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { mobileController } from '@/src/services/mobile-controller';
 
 const regions = [
-  'NORTH DISTRICT',
-  'SOUTH DISTRICT',
-  'EAST DISTRICT',
-  'WEST DISTRICT',
-  'CENTRAL DISTRICT',
+  'Assam Statewide',
+  'Brahmaputra Valley',
+  'Barak Valley',
+  'Upper Assam',
+  'Lower Assam',
+  'Dima Hasao & Karbi Anglong',
 ];
 
 export default function ProfileScreen() {
@@ -30,7 +32,9 @@ export default function ProfileScreen() {
     setSelectedRegion,
     offlinePackVersion,
     offlinePackStatus,
-    setOfflinePackStatus,
+    offlinePackProgress,
+    offlinePackBytes,
+    offlinePackResources,
   } = useAppStore();
 
   const [showRegionPicker, setShowRegionPicker] = useState(false);
@@ -40,10 +44,16 @@ export default function ProfileScreen() {
   const DownloadIcon = icons.download;
   const ChevronIcon = icons.chevronDown;
 
-  const handleUpdateMap = () => Alert.alert(
-    'Map renderer deferred',
-    'The packet-to-map projection is active, but no licensed offline basemap bundle is installed. This control does not pretend to download one.',
-  );
+  useEffect(() => { void mobileController.refreshOfflineMap(); }, []);
+
+  const handleUpdateMap = async () => {
+    try {
+      await mobileController.downloadOfflineMap();
+      Alert.alert('Assam map saved', 'The Assam basemap is now stored in the phone’s persistent MapLibre offline database and can render without internet.');
+    } catch (reason) {
+      Alert.alert('Map download failed', reason instanceof Error ? reason.message : String(reason));
+    }
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#000000' }}>
@@ -71,7 +81,7 @@ export default function ProfileScreen() {
             {regions.map((r) => (
               <TouchableOpacity
                 key={r}
-                onPress={() => { setSelectedRegion(r); setShowRegionPicker(false); setOfflinePackStatus('not-downloaded'); }}
+                onPress={() => { setSelectedRegion(r); setShowRegionPicker(false); }}
                 style={{ backgroundColor: selectedRegion === r ? '#1C1C1E' : '#000000', borderWidth: 1, borderColor: selectedRegion === r ? '#2D5A27' : '#3A3A3C', paddingHorizontal: 16, paddingVertical: 12, marginBottom: 4 }}
               >
                 <Text style={{ color: selectedRegion === r ? '#a1d494' : '#FFFFFF', fontSize: 14, fontWeight: '600' }}>{r}</Text>
@@ -84,9 +94,17 @@ export default function ProfileScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', borderLeftWidth: 4, borderLeftColor: '#2D5A27', backgroundColor: '#1C1C1E', paddingHorizontal: 16, paddingVertical: 14, marginBottom: 16 }}>
           <CheckIcon size={18} color="#a1d494" style={{ marginRight: 12 }} />
           <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600', flex: 1 }}>
-            LOCAL DATA PACK: {selectedRegion} V{offlinePackVersion.replace(/\./g, '.')} ({offlinePackStatus === 'downloaded' ? 'READY' : 'PLACEHOLDER'})
+            ASSAM OFFLINE PACK: {offlinePackVersion.toUpperCase()} ({offlinePackStatus === 'ready' ? 'READY' : offlinePackStatus.toUpperCase()})
           </Text>
         </View>
+
+        <Text style={{ color: '#AEAEB2', fontSize: 12, lineHeight: 18, marginBottom: 14 }}>
+          {offlinePackStatus === 'downloading'
+            ? `${offlinePackProgress}% · ${formatBytes(offlinePackBytes)} · ${offlinePackResources} resources saved`
+            : offlinePackStatus === 'ready'
+              ? `${formatBytes(offlinePackBytes)} stored persistently on this phone. Assam remains available after restart and without a connection.`
+              : 'Download once while internet is available. The basemap is then retained in persistent phone storage for offline use.'}
+        </Text>
 
         {/* Update button */}
         <TouchableOpacity
@@ -105,7 +123,7 @@ export default function ProfileScreen() {
         >
           <DownloadIcon size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
           <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '700', letterSpacing: 1 }}>
-            REVIEW OFFLINE MAP STATUS
+            {offlinePackStatus === 'downloading' ? `DOWNLOADING ${offlinePackProgress}%` : offlinePackStatus === 'ready' ? 'UPDATE ASSAM OFFLINE MAP' : 'DOWNLOAD ASSAM OFFLINE MAP'}
           </Text>
         </TouchableOpacity>
 
@@ -145,4 +163,9 @@ export default function ProfileScreen() {
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function formatBytes(bytes: number) {
+  if (!bytes) return '0 MB';
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

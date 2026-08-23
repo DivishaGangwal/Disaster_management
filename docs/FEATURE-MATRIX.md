@@ -10,7 +10,7 @@ No row claims 🟥: no compatible Android handset or two-device acoustic setup w
 | Feature | Status | Evidence | Current truth |
 |---|---:|---:|---|
 | Create rapid or detailed SOS without internet | ✅ | 🟦 | The packet is validated and committed locally before the UI reports success. Relay starts immediately after a successful SOS save. |
-| Durable mobile state across restart | ✅ | 🟩 | `expo-sqlite` repositories persist packets, seen IDs, observations, custody, fragments, peers and assembled files behind the frozen repository ports. |
+| Durable mobile state across restart | ✅ | 🟩 | `expo-sqlite` persists the packet log and custody; startup rebuilds incident timelines, locally owned active SOS identity, source sequence and map state before accepting a new action. |
 | Update and cancel SOS | ✅ | 🟦 | Updates raise the source sequence; cancel is terminal and retained for audit. |
 | Truthful delivery evidence | ✅ | 🟩 | The app separates local save, direct peer receipt, responder acknowledgement and backend acknowledgement. It explicitly says it cannot monitor a packet after it leaves the phone. |
 | Native notification priority | ✅ | 🟩 | Android channels are MAX for emergency/authority-critical, HIGH for operational updates and LOW for the relay service. Validated inbound packets select the channel from protocol priority. |
@@ -20,7 +20,7 @@ No row claims 🟥: no compatible Android handset or two-device acoustic setup w
 
 | Feature | Status | Evidence | Current truth |
 |---|---:|---:|---|
-| BLE advertise/scan and GATT server/client | ✅ implemented, unmeasured | 🟩 | The Expo native module compiles in the generated Android development build, negotiates MTU 247 and transports bounded records. |
+| BLE advertise/scan and GATT server/client | ✅ implemented, unmeasured | 🟩 | The native module compiles, subscribes to notifications, negotiates MTU, serializes GATT operations and resolves each send only after Android's completion callback. |
 | Bluetooth Classic contingency | ✅ implemented, unmeasured | 🟩 | Selection prefers BLE when all required roles exist and falls back to Classic RFCOMM when they do not. Classic uses bounded length-prefixed records and rotating discovery tokens. |
 | Foreground relay service | ✅ implemented, unmeasured | 🟩 | Ongoing Android notification includes a stop action. Manufacturer-specific screen-off behaviour still needs device evidence. |
 | Inventory, dedup and bidirectional sessions | ✅ | 🟦 | Repeat contacts suppress already-held packets; forwarding remains bounded by hop, expiry, copy and cooldown rules. |
@@ -49,7 +49,8 @@ No row claims 🟥: no compatible Android handset or two-device acoustic setup w
 | Move or edit a centre | ✅ | 🟦 | Name, district and coordinates are encoded in the same regional packet model. |
 | Packet → ggwave → decode → map operation | ✅ | 🟦 | Tests cover create, close, move and reopen. Recovered canonical bytes are translated by the shared `toMapOperations()` path. |
 | Tier 1/gateway/Tier 2 projection agreement | ✅ | 🟦 | All paths enter `NodeEngine.ingest()` and the same deterministic `MapProjection`. |
-| Mobile graphical/offline map renderer | deferred by request | — | The existing mobile layout/placeholder remains. The adjacent list is fed by real projected objects. No licensed offline basemap bundle is claimed. |
+| Mobile graphical/offline map renderer | ✅ implemented, device download unmeasured | 🟩 | MapLibre renders GPS and projected layers. A one-tap Assam pack downloads zooms 5–12 to persistent native storage and reports real progress, bytes and resources. |
+| Assam baseline operational registry | ✅ synthetic | 🟦 | A typed pack paints 23 Assam-focused demo objects and four corridors before packet deltas arrive. Facility labels are explicitly demo data, not an authority register. |
 
 ## Web authority and coordination
 
@@ -63,14 +64,13 @@ No row claims 🟥: no compatible Android handset or two-device acoustic setup w
 
 ## Mobile screens
 
-All 12 required routes exist and the original visual layout is retained. Readiness, SOS composer, nearby incidents, responder detail, resource detail and diagnostics are connected to runtime data. Home, active SOS, relay, Tier 2, profile and map are marked partial where the binding screen contract asks for data that cannot honestly be produced yet, such as a responder acknowledgement not observed locally, physical ggwave metrics, or the deferred map renderer.
+All 12 required routes exist. Readiness, SOS composer, nearby incidents, responder detail, resource detail, profile, diagnostics and the Assam map are connected to runtime data. Remaining partials concern evidence that cannot be invented, such as a responder acknowledgement not observed locally or physical radio measurements.
 
 ## Complete remaining list
 
-1. **Deferred mobile map renderer:** add the graphical offline renderer, a licensed tile/content bundle and sourced stable regional registry without changing the packet-to-map pipeline.
-2. **Android acoustic receiver, only if required on-phone:** connect `AudioRecord` PCM to a ggwave decoder and feed recovered frames into the existing Tier 2 receiver. Browser microphone and WAV input already work.
-3. **Physical evidence, not code:** run BLE and Classic on the selected phones, screen-off relay, restart recovery, battery/thermal measurements and a two-device acoustic success-rate matrix.
-4. **Production data/security:** replace synthetic Assam records with licensed authority data and production identity/key management. The prototype deliberately does not claim verified identities or production cryptography.
-5. **Documented protocol deviation:** implement a literal `PACKET_REQUEST` round trip only if HD-001 is reversed; the current missing-only filtered exchange already passes the relay acceptance behaviour.
+1. **Android acoustic receiver, only if required on-phone:** connect `AudioRecord` PCM to a ggwave decoder and feed recovered frames into the existing Tier 2 receiver. Browser microphone and WAV input already work.
+2. **Physical evidence, not code:** run BLE and Classic on selected phones, complete an Assam pack download, test airplane-mode restart/map rendering, screen-off relay, battery/thermal measurements and acoustic success rate.
+3. **Production map/data:** replace the hackathon style host and synthetic Assam facilities with authority-approved/self-hosted tiles and a sourced registry.
+4. **Documented protocol deviation:** implement a literal `PACKET_REQUEST` round trip only if HD-001 is reversed; the current missing-only filtered exchange already passes the relay acceptance behaviour.
 
 Everything else requested in this pass is implemented and covered by static, integration or simulator evidence. The items above must not be presented as finished until their stated evidence exists.

@@ -103,5 +103,8 @@ export interface ObjectResolver {
   resolve(objectId: ObjectId, expectedType?: PackObjectType): PackObject | undefined;
   resolveRoute(objectId: ObjectId): RouteEdge | undefined;
   resolveForm(objectId: ObjectId): CachedForm | undefined;
+  /** Baseline registry used to paint the offline operational picture before deltas arrive. */
+  baselineObjects(): readonly PackObject[];
+  baselineRoutes(): readonly RouteEdge[];
   readonly manifest: PackManifest;
 }

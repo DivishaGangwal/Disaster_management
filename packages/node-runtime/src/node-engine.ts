@@ -78,6 +78,11 @@ export interface IngestResult {
   readonly mapOperationsApplied: number;
 }
 
+export interface RebuiltLocalState {
+  readonly maxSourceSequence: number;
+  readonly activeIncidentId?: string;
+}
+
 export class NodeEngine {
   readonly packets: PacketRepository;
   readonly peers: PeerRepository;
@@ -444,10 +449,23 @@ export class NodeEngine {
    * re-derives it deterministically and reconciles the mirror so it can
    * never permanently drift.
    */
-  async rebuildMapFromStoredPackets(nowMs: number): Promise<void> {
+  async rebuildMapFromStoredPackets(nowMs: number): Promise<RebuiltLocalState> {
     const nowS = toEpochS(nowMs);
     const stored = await this.packets.listAll();
+    let maxSourceSequence = 0;
     for (const item of stored) {
+      if (item.packet.header.sourceId === this.options.localSourceId) {
+        maxSourceSequence = Math.max(maxSourceSequence, item.packet.sourceSequence ?? 0);
+        if (
+          item.packet.streamId &&
+          (item.packet.header.type === MessageType.SOS_CREATE ||
+            item.packet.header.type === MessageType.SOS_UPDATE ||
+            item.packet.header.type === MessageType.SOS_CANCEL)
+        ) {
+          this.claimIncident(item.packet.streamId);
+        }
+      }
+      this.incidents.apply(item.packet, { localSourceId: this.options.localSourceId });
       const observations = await this.packets.listObservations(item.packet.header.packetId);
       const transport = observations[0]?.transport ?? 'local';
       for (const operation of toMapOperations(item.packet, transport as TransportKind, nowS)) {
@@ -456,6 +474,14 @@ export class NodeEngine {
     }
     const visible = this.projection.visible(nowS);
     await this.mapObjects.replaceAll(visible.map(toMapObjectRecord));
+    const active = this.incidents
+      .list()
+      .filter((incident) => incident.ownedLocally && !['resolved', 'cancelled', 'expired'].includes(incident.state))
+      .sort((left, right) => right.updatedAtS - left.updatedAtS)[0];
+    return {
+      maxSourceSequence,
+      ...(active ? { activeIncidentId: active.incidentId } : {}),
+    };
   }
 
   /** Write-through for one changed object, called from ingest()'s apply loop. */
