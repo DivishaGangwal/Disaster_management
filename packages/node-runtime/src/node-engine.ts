@@ -32,6 +32,8 @@ import {
   type EventSink,
   type FileRepository,
   type LocalProfile,
+  type MapObjectRecord,
+  type MapObjectRepository,
   type Packet,
   type PacketId,
   type PacketObservation,
@@ -46,9 +48,9 @@ import { budgetClassFor, toEpochS } from '@dsm/codec';
 import { validate, type ValidationResult } from '@dsm/validator';
 import { DefaultPolicyEngine } from '@dsm/policy';
 import { IncidentReducer, type IncidentView } from '@dsm/incident';
-import { MapProjection, toMapOperations } from '@dsm/mapkit';
+import { MapProjection, toMapOperations, type VisibleObject } from '@dsm/mapkit';
 import { afterTransfer, planTransfer, type NeighborContext, type RelayCandidate } from '@dsm/routing';
-import { MemoryEventSink, MemoryFileRepository, MemoryPacketRepository, MemoryPeerRepository } from '@dsm/store';
+import { MemoryEventSink, MemoryFileRepository, MemoryMapObjectRepository, MemoryPacketRepository, MemoryPeerRepository } from '@dsm/store';
 import { FileAssembler } from './file-assembler.js';
 
 export interface NodeEngineOptions {
@@ -60,6 +62,7 @@ export interface NodeEngineOptions {
   readonly peers?: PeerRepository;
   readonly events?: EventSink;
   readonly files?: FileRepository;
+  readonly mapObjects?: MapObjectRepository;
   readonly projection?: MapProjection;
   readonly displayRadiusM?: number;
   readonly now?: () => number;
@@ -80,6 +83,7 @@ export class NodeEngine {
   readonly peers: PeerRepository;
   readonly files: FileAssembler;
   readonly events: EventSink;
+  readonly mapObjects: MapObjectRepository;
   readonly projection: MapProjection;
   readonly incidents = new IncidentReducer();
 
@@ -99,6 +103,7 @@ export class NodeEngine {
     this.packets = options.packets ?? new MemoryPacketRepository();
     this.peers = options.peers ?? new MemoryPeerRepository();
     this.events = options.events ?? new MemoryEventSink();
+    this.mapObjects = options.mapObjects ?? new MemoryMapObjectRepository();
     this.projection = options.projection ?? new MapProjection();
     this.now = options.now ?? (() => Date.now());
     this.files = new FileAssembler(options.files ?? new MemoryFileRepository(), this.packets, this.events);
@@ -305,7 +310,13 @@ export class NodeEngine {
     if (policy.act === 'apply-map' || policy.act === 'update-incident') {
       for (const operation of toMapOperations(packet, transport, nowS)) {
         const result = this.projection.apply(operation);
-        if (result.applied) mapOperationsApplied += 1;
+        if (result.applied) {
+          mapOperationsApplied += 1;
+          // Keep the persisted map-object mirror in lockstep with the live
+          // projection so a killed-and-relaunched app has something to paint
+          // before it replays the packet log (see rebuildMapFromStoredPackets).
+          await this.syncPersistedMapObject(result.objectId);
+        }
         this.emit({
           category: EventCategory.PROJECTION,
           name: operation.kind,
@@ -422,6 +433,42 @@ export class NodeEngine {
     return { evicted, peersEvicted, incidentsExpired };
   }
 
+  /**
+   * Rebuilds the map projection from every packet already held in storage,
+   * then overwrites the persisted map-object mirror with the result.
+   *
+   * Called once at startup, after the caller has already painted whatever
+   * was in that persisted mirror for a fast first render (mapObjects.list()
+   * predates this call and is not read here). The packet log stays the one
+   * source of truth (02-... "packet-to-map operation matrix"); this just
+   * re-derives it deterministically and reconciles the mirror so it can
+   * never permanently drift.
+   */
+  async rebuildMapFromStoredPackets(nowMs: number): Promise<void> {
+    const nowS = toEpochS(nowMs);
+    const stored = await this.packets.listAll();
+    for (const item of stored) {
+      const observations = await this.packets.listObservations(item.packet.header.packetId);
+      const transport = observations[0]?.transport ?? 'local';
+      for (const operation of toMapOperations(item.packet, transport as TransportKind, nowS)) {
+        this.projection.apply(operation);
+      }
+    }
+    const visible = this.projection.visible(nowS);
+    await this.mapObjects.replaceAll(visible.map(toMapObjectRecord));
+  }
+
+  /** Write-through for one changed object, called from ingest()'s apply loop. */
+  private async syncPersistedMapObject(objectId: string | undefined): Promise<void> {
+    if (!objectId) return;
+    const visible = this.projection.get(objectId);
+    if (!visible || visible.tombstoned) {
+      await this.mapObjects.remove(objectId);
+      return;
+    }
+    await this.mapObjects.upsert(toMapObjectRecord(visible));
+  }
+
   private policyContext(transport: TransportKind, nowS: number): PolicyContext {
     return {
       role: this.options.profile.role,
@@ -471,6 +518,20 @@ function peekPacketId(bytes: Uint8Array): string | undefined {
   let out = '';
   for (let i = 8; i < 24; i += 1) out += bytes[i]!.toString(16).padStart(2, '0');
   return out;
+}
+
+/** Flattens a VisibleObject to the shape MapObjectRepository persists. */
+function toMapObjectRecord(object: VisibleObject): MapObjectRecord {
+  return {
+    objectId: object.objectId,
+    kind: object.kind,
+    label: object.label,
+    ...(object.state !== undefined ? { state: object.state } : {}),
+    ...(object.latE7 !== undefined ? { latE7: object.latE7 } : {}),
+    ...(object.lonE7 !== undefined ? { lonE7: object.lonE7 } : {}),
+    asOfS: object.asOfS,
+    provenance: object.provenance,
+  };
 }
 
 export { Priority, MessageType };

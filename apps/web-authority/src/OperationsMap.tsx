@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { TIME } from '@dsm/contracts';
+import { e7ToFloat } from '@dsm/codec';
 import type { GatewayAudit, Incident, RegionalRecord } from './types';
 import { isOperationallyUsable } from './operational-status';
 
@@ -148,11 +149,11 @@ export function OperationsMap({ incidents, records, gateways, selected, onSelect
 
 function featureCollection(incidents: Incident[], records: RegionalRecord[], gateways: GatewayAudit | undefined, filters: Set<Filter>): GeoJSON.FeatureCollection<GeoJSON.Point> {
   const features: GeoJSON.Feature<GeoJSON.Point>[] = [];
-  if (filters.has('incidents')) for (const item of incidents) if (item.latE7 != null && item.lonE7 != null) features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [item.lonE7 / 1e7, item.latE7 / 1e7] }, properties: { id: item.incidentId, featureType: 'incident', glyph: `S${item.severity}`, label: categoryName(item.category), subtitle: `${item.peopleTotal ?? 0} people · ${item.observationCount} gateway observation${item.observationCount === 1 ? '' : 's'} · position ${locationAge(item)} old${item.locationAccuracyM == null ? '' : ` · ±${item.locationAccuracyM}m`}`, status: item.severity >= 3 ? 'critical' : item.severity === 2 ? 'urgent' : 'active', state: item.state, severity: item.severity } });
+  if (filters.has('incidents')) for (const item of incidents) if (item.latE7 != null && item.lonE7 != null) features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [e7ToFloat(item.lonE7), e7ToFloat(item.latE7)] }, properties: { id: item.incidentId, featureType: 'incident', glyph: `S${item.severity}`, label: categoryName(item.category), subtitle: `${item.peopleTotal ?? 0} people · ${item.observationCount} gateway observation${item.observationCount === 1 ? '' : 's'} · position ${locationAge(item)} old${item.locationAccuracyM == null ? '' : ` · ±${item.locationAccuracyM}m`}`, status: item.severity >= 3 ? 'critical' : item.severity === 2 ? 'urgent' : 'active', state: item.state, severity: item.severity } });
   for (const item of records) {
     const group: Filter = item.kind === 'route' ? 'routes' : item.kind === 'hazard' ? 'hazards' : 'centres';
     if (!filters.has(group)) continue;
-    features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [item.lonE7 / 1e7, item.latE7 / 1e7] }, properties: { id: item.objectId, featureType: 'record', glyph: markerGlyph(item.kind), label: item.name, subtitle: `${item.district} · ${item.kind} · version ${item.version}`, status: item.state, state: item.state, kind: item.kind } });
+    features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [e7ToFloat(item.lonE7), e7ToFloat(item.latE7)] }, properties: { id: item.objectId, featureType: 'record', glyph: markerGlyph(item.kind), label: item.name, subtitle: `${item.district} · ${item.kind} · version ${item.version}`, status: item.state, state: item.state, kind: item.kind } });
   }
   if (gateways && filters.has('gateways')) for (const gateway of gateways.gateways) {
     const point = gatewayPoint(gateway.gatewayToken);

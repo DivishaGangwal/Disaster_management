@@ -9,7 +9,7 @@
  * anyone else changing a line.
  */
 
-import type { EncodedPacket, Packet, PacketId, PacketObservation, StreamId } from './envelope.js';
+import type { EncodedPacket, ObjectId, Packet, PacketId, PacketObservation, StreamId } from './envelope.js';
 import type { CustodyState, IncidentState } from './profile.js';
 import type { MapOperation, ProjectionResult } from './map-ops.js';
 
@@ -86,6 +86,9 @@ export interface PacketRepository {
   /** Efficient after the payload has been evicted (02-... seen-ID lookup). */
   hasSeen(packetId: PacketId): Promise<boolean>;
   getDigest(packetId: PacketId): Promise<string | undefined>;
+  /** Every currently-stored packet, regardless of custody/relay state. Used to
+   * rebuild derived state (e.g. the map projection) from the packet log. */
+  listAll(): Promise<readonly StoredPacket[]>;
 
   addObservation(observation: PacketObservation): Promise<void>;
   listObservations(packetId: PacketId): Promise<readonly PacketObservation[]>;
@@ -171,4 +174,29 @@ export interface FileRepository {
   /** Fragment indexes still outstanding, for the resume path (FIL-005). */
   missingFragments(fileId: string, held: readonly number[]): Promise<readonly number[]>;
   evictExpired(nowS: number): Promise<number>;
+}
+
+/**
+ * A persisted mirror of one @dsm/mapkit VisibleObject, flattened for storage.
+ * The packet log is the source of truth; this exists only so a phone can
+ * paint the last-known map state on launch before it replays that log.
+ */
+export interface MapObjectRecord {
+  readonly objectId: ObjectId;
+  readonly kind: string;
+  readonly label: string;
+  readonly state?: number;
+  readonly latE7?: number;
+  readonly lonE7?: number;
+  readonly asOfS: number;
+  readonly provenance: string;
+}
+
+export interface MapObjectRepository {
+  upsert(record: MapObjectRecord): Promise<void>;
+  remove(objectId: ObjectId): Promise<void>;
+  list(): Promise<readonly MapObjectRecord[]>;
+  /** Bulk-replaces the whole table with a freshly-derived snapshot, so a
+   * reconciliation pass never leaves a stale record behind. */
+  replaceAll(records: readonly MapObjectRecord[]): Promise<void>;
 }

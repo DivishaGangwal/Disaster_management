@@ -5,6 +5,9 @@ import {
   type CustodyRecord,
   type FileRepository,
   type FragmentRecord,
+  type MapObjectRecord,
+  type MapObjectRepository,
+  type ObjectId,
   type PacketId,
   type PacketObservation,
   type PacketRepository,
@@ -36,12 +39,14 @@ export async function openMobileRepositories(name = 'disaster-sos-mesh.sqlite') 
     CREATE TABLE IF NOT EXISTS fragments(object_id TEXT NOT NULL, fragment_index INTEGER NOT NULL, body_json TEXT NOT NULL, PRIMARY KEY(object_id, fragment_index));
     CREATE TABLE IF NOT EXISTS peers(peer_token TEXT PRIMARY KEY, body_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS assembled_files(file_id TEXT PRIMARY KEY, body_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS map_objects(object_id TEXT PRIMARY KEY, kind TEXT NOT NULL, label TEXT NOT NULL, state INTEGER, lat_e7 INTEGER, lon_e7 INTEGER, as_of_s INTEGER NOT NULL, provenance TEXT NOT NULL);
   `);
   return {
     database,
     packets: new SQLitePacketRepository(database),
     peers: new SQLitePeerRepository(database),
     files: new SQLiteFileRepository(database),
+    mapObjects: new SQLiteMapObjectRepository(database),
   };
 }
 
@@ -90,6 +95,23 @@ export class SQLitePacketRepository implements PacketRepository {
 
   async hasSeen(packetId: PacketId) { return Boolean(await this.database.getFirstAsync('SELECT 1 FROM seen_packets WHERE packet_id = ?', packetId)); }
   async getDigest(packetId: PacketId) { return (await this.database.getFirstAsync<{ digest: string }>('SELECT digest FROM seen_packets WHERE packet_id = ?', packetId))?.digest; }
+  async listAll(): Promise<readonly StoredPacket[]> {
+    const rows = await this.database.getAllAsync<PacketRow>('SELECT * FROM packets ORDER BY stored_at_ms');
+    const out: StoredPacket[] = [];
+    for (const row of rows) {
+      const bytes = base64ToBytes(row.bytes_b64);
+      const decoded = decodePacket(bytes);
+      if (!decoded.ok) continue;
+      out.push({
+        packet: decoded.packet,
+        encoded: { packetId: row.packet_id, bytes, headerBytes: 64, payloadBytes: decoded.packet.header.payloadLength, totalBytes: bytes.length },
+        digest: row.digest,
+        storedAtMs: row.stored_at_ms,
+        retentionUntilS: row.retention_until_s,
+      });
+    }
+    return out;
+  }
   async addObservation(observation: PacketObservation) { await this.database.runAsync('INSERT INTO observations(packet_id,body_json) VALUES(?,?)', observation.packetId, JSON.stringify(observation)); }
   async listObservations(packetId: PacketId) { return (await this.database.getAllAsync<{ body_json: string }>('SELECT body_json FROM observations WHERE packet_id = ? ORDER BY id', packetId)).map((row) => JSON.parse(row.body_json) as PacketObservation); }
   async getCustody(packetId: PacketId) { const row = await this.database.getFirstAsync<{ custody_json: string }>('SELECT custody_json FROM packets WHERE packet_id = ?', packetId); return row ? JSON.parse(row.custody_json) as CustodyRecord : undefined; }
@@ -153,6 +175,77 @@ export class SQLiteFileRepository implements FileRepository {
   async missingFragments(fileId: string, held: readonly number[]) { const file = await this.getManifest(fileId); if (!file) return []; const have = new Set(held); return Array.from({ length: file.fragmentCount }, (_, index) => index).filter((index) => !have.has(index)); }
   async evictExpired(nowS: number) { const rows = await this.database.getAllAsync<{ file_id: string; body_json: string }>('SELECT file_id,body_json FROM assembled_files'); const expired = rows.filter((row) => decodeFile(row.body_json).expiresAtS <= nowS); for (const row of expired) await this.database.runAsync('DELETE FROM assembled_files WHERE file_id = ?', row.file_id); return expired.length; }
   private async write(file: AssembledFile) { await this.database.runAsync('INSERT OR REPLACE INTO assembled_files(file_id,body_json) VALUES(?,?)', file.fileId, JSON.stringify({ ...file, ...(file.bytes ? { bytes: bytesToBase64(file.bytes) } : {}) })); }
+}
+
+type MapObjectRow = {
+  object_id: string;
+  kind: string;
+  label: string;
+  state: number | null;
+  lat_e7: number | null;
+  lon_e7: number | null;
+  as_of_s: number;
+  provenance: string;
+};
+
+/** Persisted mirror of the live map projection. See MapObjectRepository. */
+export class SQLiteMapObjectRepository implements MapObjectRepository {
+  constructor(private readonly database: SQLiteDatabase) {}
+
+  async upsert(record: MapObjectRecord) {
+    await this.database.runAsync(
+      'INSERT OR REPLACE INTO map_objects(object_id,kind,label,state,lat_e7,lon_e7,as_of_s,provenance) VALUES(?,?,?,?,?,?,?,?)',
+      record.objectId,
+      record.kind,
+      record.label,
+      record.state ?? null,
+      record.latE7 ?? null,
+      record.lonE7 ?? null,
+      record.asOfS,
+      record.provenance,
+    );
+  }
+
+  async remove(objectId: ObjectId) {
+    await this.database.runAsync('DELETE FROM map_objects WHERE object_id = ?', objectId);
+  }
+
+  async list(): Promise<readonly MapObjectRecord[]> {
+    const rows = await this.database.getAllAsync<MapObjectRow>('SELECT * FROM map_objects');
+    return rows.map(rowToMapObjectRecord);
+  }
+
+  async replaceAll(records: readonly MapObjectRecord[]) {
+    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+      await transaction.runAsync('DELETE FROM map_objects');
+      for (const record of records) {
+        await transaction.runAsync(
+          'INSERT INTO map_objects(object_id,kind,label,state,lat_e7,lon_e7,as_of_s,provenance) VALUES(?,?,?,?,?,?,?,?)',
+          record.objectId,
+          record.kind,
+          record.label,
+          record.state ?? null,
+          record.latE7 ?? null,
+          record.lonE7 ?? null,
+          record.asOfS,
+          record.provenance,
+        );
+      }
+    });
+  }
+}
+
+function rowToMapObjectRecord(row: MapObjectRow): MapObjectRecord {
+  return {
+    objectId: row.object_id,
+    kind: row.kind,
+    label: row.label,
+    ...(row.state !== null ? { state: row.state } : {}),
+    ...(row.lat_e7 !== null ? { latE7: row.lat_e7 } : {}),
+    ...(row.lon_e7 !== null ? { lonE7: row.lon_e7 } : {}),
+    asOfS: row.as_of_s,
+    provenance: row.provenance,
+  };
 }
 
 function decodeFile(json: string): AssembledFile {

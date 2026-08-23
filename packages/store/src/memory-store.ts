@@ -23,6 +23,9 @@ import {
   type FragmentRecord,
   type IncidentEventRecord,
   type IncidentRecord,
+  type MapObjectRecord,
+  type MapObjectRepository,
+  type ObjectId,
   type PacketId,
   type PacketObservation,
   type PacketRepository,
@@ -79,6 +82,10 @@ export class MemoryPacketRepository implements PacketRepository {
 
   async getDigest(packetId: PacketId): Promise<string | undefined> {
     return this.seen.get(packetId)?.digest;
+  }
+
+  async listAll(): Promise<readonly StoredPacket[]> {
+    return [...this.slots.values()].map((slot) => slot.stored);
   }
 
   async addObservation(observation: PacketObservation): Promise<void> {
@@ -318,5 +325,27 @@ export class MemoryFileRepository implements FileRepository {
       }
     }
     return removed;
+  }
+}
+
+/** In-memory mirror of the last-known map projection. See MapObjectRepository. */
+export class MemoryMapObjectRepository implements MapObjectRepository {
+  private readonly objects = new Map<ObjectId, MapObjectRecord>();
+
+  async upsert(record: MapObjectRecord): Promise<void> {
+    this.objects.set(record.objectId, record);
+  }
+
+  async remove(objectId: ObjectId): Promise<void> {
+    this.objects.delete(objectId);
+  }
+
+  async list(): Promise<readonly MapObjectRecord[]> {
+    return [...this.objects.values()];
+  }
+
+  async replaceAll(records: readonly MapObjectRecord[]): Promise<void> {
+    this.objects.clear();
+    for (const record of records) this.objects.set(record.objectId, record);
   }
 }

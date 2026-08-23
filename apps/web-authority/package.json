@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@dsm/codec": "*",
     "@dsm/contracts": "*",
     "@fontsource-variable/atkinson-hyperlegible-next": "^5.3.0",
     "ggwave": "^0.4.0",

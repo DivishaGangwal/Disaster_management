@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { e7ToFloat, floatToE7 } from '@dsm/codec';
 import { OperationsMap } from './OperationsMap';
 import { DataInspector } from './DataInspector';
 import type { PacketStreamItem, RegionalRecord } from './types';
@@ -63,7 +64,7 @@ function ObjectControl({ record, nextState, packets, onState, onPublish, onUpser
   const centre = !['hazard', 'route'].includes(record.kind);
   return <aside className="object-control">
     <header><span className={`object-symbol ${record.kind}`}>{kindGlyph(record.kind)}</span><div><span>{record.kind.replaceAll('-', ' ')} · {record.district}</span><h3>{record.name}</h3><code>{record.objectId}</code></div></header>
-    <dl className="object-facts"><Fact label="Current state" value={record.state} /><Fact label="Record version" value={`v${record.version}`} /><Fact label="Latitude" value={(record.latE7 / 1e7).toFixed(5)} /><Fact label="Longitude" value={(record.lonE7 / 1e7).toFixed(5)} /></dl>
+    <dl className="object-facts"><Fact label="Current state" value={record.state} /><Fact label="Record version" value={`v${record.version}`} /><Fact label="Latitude" value={e7ToFloat(record.latE7).toFixed(5)} /><Fact label="Longitude" value={e7ToFloat(record.lonE7).toFixed(5)} /></dl>
     <div className="state-control"><div><strong>Set operational state</strong><span>The map changes only after publication succeeds.</span></div><div className="state-options">{stateOptions(record.kind).map((state) => <button key={state} className={nextState === state ? `selected state-${state}` : ''} onClick={() => onState(state)}><i />{state}</button>)}</div></div>
     <button className="publish-action" disabled={nextState === record.state} onClick={() => onPublish(record.objectId, nextState)}><span>{nextState === record.state ? 'No unpublished change' : `Publish ${nextState}`}</span><small>{nextState === record.state ? `Current record is v${record.version}` : `Creates v${record.version + 1} · queues IN-AS`}</small></button>
     {centre && <CentreEditor record={record} onUpsert={onUpsert} />}
@@ -74,11 +75,11 @@ function ObjectControl({ record, nextState, packets, onState, onPublish, onUpser
 function CentreEditor({ record, onUpsert }: { record: RegionalRecord; onUpsert: (input: RegionalCentreInput) => void }) {
   const [name, setName] = useState(record.name);
   const [district, setDistrict] = useState(record.district);
-  const [lat, setLat] = useState((record.latE7 / 1e7).toFixed(7));
-  const [lon, setLon] = useState((record.lonE7 / 1e7).toFixed(7));
-  useEffect(() => { setName(record.name); setDistrict(record.district); setLat((record.latE7 / 1e7).toFixed(7)); setLon((record.lonE7 / 1e7).toFixed(7)); }, [record.objectId, record.version]);
+  const [lat, setLat] = useState(e7ToFloat(record.latE7).toFixed(7));
+  const [lon, setLon] = useState(e7ToFloat(record.lonE7).toFixed(7));
+  useEffect(() => { setName(record.name); setDistrict(record.district); setLat(e7ToFloat(record.latE7).toFixed(7)); setLon(e7ToFloat(record.lonE7).toFixed(7)); }, [record.objectId, record.version]);
   const build = (create: boolean): RegionalCentreInput | undefined => {
-    const latE7 = Math.round(Number(lat) * 1e7); const lonE7 = Math.round(Number(lon) * 1e7);
+    const latE7 = floatToE7(Number(lat)); const lonE7 = floatToE7(Number(lon));
     if (!name.trim() || !district.trim() || !Number.isFinite(latE7) || !Number.isFinite(lonE7)) return undefined;
     return { ...(create ? {} : { objectId: record.objectId }), kind: record.kind as RegionalCentreInput['kind'], name: name.trim(), district: district.trim(), latE7, lonE7, state: record.state };
   };

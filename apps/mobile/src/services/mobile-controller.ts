@@ -13,7 +13,7 @@ import {
   Severity,
   type LocalProfile,
 } from '@dsm/contracts';
-import { buildResponderState, buildSosCancel, buildSosCreate, buildSosUpdate, decodePacket, newNodeToken, newSourceId, toEpochS } from '@dsm/codec';
+import { buildResponderState, buildSosCancel, buildSosCreate, buildSosUpdate, decodePacket, floatToE7, newNodeToken, newSourceId, toEpochS } from '@dsm/codec';
 import { MemoryEventSink } from '@dsm/store';
 import { createNativeTransport } from '@dsm/android-radio-bridge';
 import { HttpGatewayClient } from '@dsm/gateway-client';
@@ -58,6 +58,10 @@ class MobileController {
 
   private async create(role: UserRole) {
     const repositories = await openMobileRepositories();
+    // Fast perceived launch: paint whatever the persisted mirror already
+    // holds before the (potentially slower) packet-log replay below runs.
+    const persistedMapObjects = await repositories.mapObjects.list();
+    if (persistedMapObjects.length > 0) useAppStore.getState().setMapObjects([...persistedMapObjects]);
     const [sourceId, nodeToken, localUserId] = await Promise.all([
       stableValue(SOURCE_KEY, newSourceId),
       stableValue(NODE_KEY, newNodeToken),
@@ -74,6 +78,7 @@ class MobileController {
       packets: repositories.packets,
       peers: repositories.peers,
       files: repositories.files,
+      mapObjects: repositories.mapObjects,
       events: new MemoryEventSink(),
       ...(!expoGo ? { adapterFactory: createNativeTransport } : {}),
     });
@@ -94,6 +99,10 @@ class MobileController {
     state.setBatteryTemperatureC(report.batteryTemperatureC);
     state.setThermalState(report.thermalThrottled ? 'limited' : 'normal');
     state.setBluetoothEnabled(report.bluetoothEnabled);
+    // Packet log is the source of truth: re-derive the map projection from
+    // it and reconcile the persisted mirror before the first refresh() reads
+    // it, so the fast paint above never permanently drifts.
+    await runtime.engine.rebuildMapFromStoredPackets(Date.now());
     await this.refresh(runtime);
     await configureNotificationChannels();
     runtime.adapter.addEventListener((event) => {
@@ -213,6 +222,11 @@ class MobileController {
     return result;
   }
 
+  /** One-shot cached read of this device's own position, for the map's "Locate me" button. */
+  async locateMe() {
+    return bestEffortLocation();
+  }
+
   async probeGateway() {
     const state = useAppStore.getState();
     state.setInternetState('probing');
@@ -249,7 +263,7 @@ async function bestEffortLocation() {
     if (!permission.granted) return undefined;
     const fix = await Location.getLastKnownPositionAsync({ maxAge: 10 * 60_000, requiredAccuracy: 500 });
     if (!fix) return undefined;
-    return { source: LocationSource.CACHED_GNSS, latE7: Math.round(fix.coords.latitude * 1e7), lonE7: Math.round(fix.coords.longitude * 1e7), accuracyM: Math.round(fix.coords.accuracy ?? 500), ageS: Math.max(0, Math.round((Date.now() - fix.timestamp) / 1000)) };
+    return { source: LocationSource.CACHED_GNSS, latE7: floatToE7(fix.coords.latitude), lonE7: floatToE7(fix.coords.longitude), accuracyM: Math.round(fix.coords.accuracy ?? 500), ageS: Math.max(0, Math.round((Date.now() - fix.timestamp) / 1000)) };
   } catch { return undefined; }
 }
 

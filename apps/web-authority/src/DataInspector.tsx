@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { e7ToFloat } from '@dsm/codec';
 import type { PacketStreamItem } from './types';
 
 type InspectorView = 'decoded' | 'route' | 'raw';
@@ -43,7 +44,7 @@ export function DataInspector({ packet, compact = false }: { packet?: PacketStre
         <Evidence label="First stored" value={formatEpoch(packet.firstSeenAtMs)} />
         <Evidence label="Outbound regions" value={packet.outboundRegions.join(', ') || 'Not queued'} />
       </dl>
-      {packet.geo && <dl className="evidence-grid geo"><Evidence label="Latitude" value={(packet.geo.latE7 / 1e7).toFixed(6)} /><Evidence label="Longitude" value={(packet.geo.lonE7 / 1e7).toFixed(6)} /><Evidence label="Accuracy" value={`±${packet.geo.accuracyM} m`} /><Evidence label="Scope" value={`${packet.geo.scopeRadiusM} m`} /></dl>}
+      {packet.geo && <dl className="evidence-grid geo"><Evidence label="Latitude" value={e7ToFloat(packet.geo.latE7).toFixed(6)} /><Evidence label="Longitude" value={e7ToFloat(packet.geo.lonE7).toFixed(6)} /><Evidence label="Accuracy" value={`±${packet.geo.accuracyM} m`} /><Evidence label="Scope" value={`${packet.geo.scopeRadiusM} m`} /></dl>}
       <div className="route-ledger"><h4>Gateway observations</h4>{packet.observations.length ? packet.observations.map((observation, index) => <article key={`${observation.gatewayToken}-${index}`}><i /><div><strong>{observation.gatewayToken}</strong><span>{observation.transport} · arrived at hop {observation.hopCountOnArrival}</span><small>Received {formatEpoch(observation.receivedAtMs)} · uploaded {formatEpoch(observation.uploadedAtMs)}</small></div></article>) : <p>No gateway has observed this packet.</p>}</div>
     </div>}
     {view === 'raw' && <div className="inspector-body">

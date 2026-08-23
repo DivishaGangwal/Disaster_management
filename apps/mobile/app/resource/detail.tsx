@@ -14,10 +14,11 @@ import { useRouter } from 'expo-router';
 import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppStore } from '@/store/useAppStore';
+import { e7ToFloat } from '@dsm/codec';
 
 export default function ResourceDetailScreen() {
   const router = useRouter();
-  const { mapObjects, selectedMapObjectId } = useAppStore();
+  const { mapObjects, selectedMapObjectId, setFocusMapObjectId } = useAppStore();
   const object = mapObjects.find((item) => item.objectId === selectedMapObjectId);
 
   const ArrowLeftIcon = icons.arrowLeft;
@@ -89,7 +90,14 @@ export default function ResourceDetailScreen() {
       {/* Bottom navigate button */}
       <View style={{ padding: 20, backgroundColor: '#000000', borderTopWidth: 1, borderTopColor: '#3A3A3C' }}>
         <TouchableOpacity
-          onPress={() => Alert.alert('Map renderer deferred', 'The validated coordinate is stored locally. Turn-by-turn map rendering is the one deferred implementation.')}
+          onPress={() => {
+            if (!object || object.latE7 === undefined || object.lonE7 === undefined) {
+              Alert.alert('No coordinate available', 'This object has no coordinate in its packet, so there is nothing to navigate to.');
+              return;
+            }
+            setFocusMapObjectId(object.objectId);
+            router.push('/(tabs)/map');
+          }}
           style={{ backgroundColor: '#2D5A27', paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', borderWidth: 1, borderColor: '#2D5A27' }}
         >
           <Text style={{ color: '#FFFFFF', fontSize: 18, marginRight: 8 }}>△</Text>
@@ -101,4 +109,4 @@ export default function ResourceDetailScreen() {
 }
 
 function ageLabel(asOfS: number) { const age = Math.max(0, Math.round(Date.now() / 1000) - asOfS); return age < 60 ? 'just now' : `${Math.floor(age / 60)}m ago`; }
-function coordinateLabel(latE7?: number, lonE7?: number) { return latE7 === undefined || lonE7 === undefined ? 'NO COORDINATE IN PACKET' : `${(latE7 / 1e7).toFixed(5)}, ${(lonE7 / 1e7).toFixed(5)}`; }
+function coordinateLabel(latE7?: number, lonE7?: number) { return latE7 === undefined || lonE7 === undefined ? 'NO COORDINATE IN PACKET' : `${e7ToFloat(latE7).toFixed(5)}, ${e7ToFloat(lonE7).toFixed(5)}`; }

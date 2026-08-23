@@ -7,6 +7,7 @@
  */
 
 export * from './integrity.js';
+export * from './coordinates.js';
 export * from './varint.js';
 export * from './field-maps.js';
 export * from './value-codec.js';

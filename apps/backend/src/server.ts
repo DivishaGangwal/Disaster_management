@@ -214,6 +214,25 @@ export function createBackend(options: ServerOptions = {}) {
       return send(res, 200, { record: operations.updateRegionalRecord(objectId, String(body['state'] ?? 'unknown')) });
     }
 
+    // District-scoped routing over the same RegionalRecord.district field the
+    // /api/region/IN-AS routes already write. No new data model: a routing
+    // change only. Auth intentionally omitted here (deferred per team decision);
+    // the IN-AS routes above are unaffected and keep their existing auth.
+    const districtRecordsMatch = path.match(/^\/api\/districts\/([^/]+)\/records$/);
+    if (districtRecordsMatch && req.method === 'GET') {
+      if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
+      const districtId = decodeURIComponent(districtRecordsMatch[1]!);
+      const records = operations.listRegionalRecords().filter((record) => record.district === districtId);
+      return send(res, 200, { records });
+    }
+
+    if (districtRecordsMatch && req.method === 'POST') {
+      if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
+      const districtId = decodeURIComponent(districtRecordsMatch[1]!);
+      const body = await readJson(req);
+      return send(res, 201, { record: operations.upsertRegionalCentre({ ...regionalRecordInput(body), district: districtId }) });
+    }
+
     if (path === '/api/campaigns' && req.method === 'GET') {
       if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
       return send(res, 200, { campaigns: operations.listCampaigns() });

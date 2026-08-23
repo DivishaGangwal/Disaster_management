@@ -60,6 +60,9 @@ interface AppState {
   setSelectedIncidentId: (value?: string) => void;
   selectedMapObjectId?: string;
   setSelectedMapObjectId: (value?: string) => void;
+  /** Object the Map screen should fly the camera to on next mount, then clear. */
+  focusMapObjectId?: string;
+  setFocusMapObjectId: (value?: string) => void;
 
   // Region
   selectedRegion: string;
@@ -137,6 +140,8 @@ export const useAppStore = create<AppState>()(
       setSelectedIncidentId: (selectedIncidentId) => set({ selectedIncidentId }),
       selectedMapObjectId: undefined,
       setSelectedMapObjectId: (selectedMapObjectId) => set({ selectedMapObjectId }),
+      focusMapObjectId: undefined,
+      setFocusMapObjectId: (focusMapObjectId) => set({ focusMapObjectId }),
 
       // Region
       selectedRegion: 'Mumbai Metropolitan Region',

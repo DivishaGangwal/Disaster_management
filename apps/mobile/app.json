@@ -23,7 +23,8 @@
     "plugins": [
       "expo-router",
       "expo-location",
-      "expo-notifications"
+      "expo-notifications",
+      "@maplibre/maplibre-react-native"
     ]
   }
 }

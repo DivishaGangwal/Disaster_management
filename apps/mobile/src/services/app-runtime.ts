@@ -26,6 +26,7 @@ import {
   type EventSink,
   type FileRepository,
   type LocalProfile,
+  type MapObjectRepository,
   type PacketRepository,
   type PeerRepository,
   type TransportAdapter,
@@ -45,6 +46,7 @@ export interface RuntimeConfig {
   readonly packets?: PacketRepository;
   readonly peers?: PeerRepository;
   readonly files?: FileRepository;
+  readonly mapObjects?: MapObjectRepository;
   readonly events?: EventSink;
   readonly adapterFactory?: (selection: AdapterSelection) => Promise<TransportAdapter>;
 }
@@ -82,6 +84,7 @@ export class AppRuntime {
       ...(config.packets ? { packets: config.packets } : {}),
       ...(config.peers ? { peers: config.peers } : {}),
       ...(config.files ? { files: config.files } : {}),
+      ...(config.mapObjects ? { mapObjects: config.mapObjects } : {}),
       ...(config.events ? { events: config.events } : {}),
       projection: new MapProjection(resolver),
     });

@@ -8,7 +8,8 @@
     "apps/web-authority",
     "packages/*",
     "apps/*",
-    "tools/*"
+    "tools/*",
+    "native/*"
   ],
   "engines": {
     "node": ">=22.5"
