@@ -33,9 +33,11 @@ cd apps/mobile && npx expo prebuild --platform android && npx expo run:android
 Set `EXPO_PUBLIC_DSM_BACKEND_URL` to the coordination backend origin to enable
 the live-probed mesh-to-network and network-to-mesh gateway cycle.
 
-The admin web console implements ggwave microphone and WAV-file reception. The
-Android on-phone PCM decoder is not implemented and the Tier 2 screen says so;
-do not describe the phone as acoustically listening until that adapter exists.
+The admin web console uses WavePX for microphone reception, WAV recovery,
+playback and export. The Android development build includes a bounded WavePX
+`AudioRecord` receiver whose recovered raw frames enter `Tier2Receiver` and the
+same `NodeEngine.ingest()` path as Bluetooth. Physical acoustic reliability is
+still unmeasured and must not be claimed from build evidence alone.
 
 ## Rules for this app
 

@@ -63,6 +63,8 @@ export class Tier2Receiver {
   private framesValid = 0;
   private framesCorrupt = 0;
   private framesDuplicate = 0;
+  private activeCampaignHandle?: number;
+  private activeCampaignVersion?: number;
 
   /** A packet handle is only unique inside one campaign version. */
   private readonly assemblies = new Map<string, Assembly>();
@@ -113,6 +115,8 @@ export class Tier2Receiver {
     }
 
     const frame = decoded.frame;
+    this.activeCampaignHandle = frame.campaignHandle;
+    this.activeCampaignVersion = frame.campaignVersion;
     const key = `${frame.campaignHandle}:${frame.campaignVersion}:${frame.packetHandle}:${frame.fragmentIndex}`;
     if (this.seenFrameKeys.has(key)) {
       this.framesDuplicate += 1;
@@ -203,6 +207,8 @@ export class Tier2Receiver {
       state: this.state,
       source: this.source,
       ...(this.resolver ? { campaignId: this.resolver.campaignId, campaignVersion: this.resolver.campaignVersion } : {}),
+      ...(this.activeCampaignHandle !== undefined ? { campaignHandle: this.activeCampaignHandle } : {}),
+      ...(!this.resolver && this.activeCampaignVersion !== undefined ? { campaignVersion: this.activeCampaignVersion } : {}),
       framesDetected: this.framesDetected,
       framesValid: this.framesValid,
       framesCorrupt: this.framesCorrupt,
@@ -225,6 +231,8 @@ export class Tier2Receiver {
     this.framesValid = 0;
     this.framesCorrupt = 0;
     this.framesDuplicate = 0;
+    this.activeCampaignHandle = undefined;
+    this.activeCampaignVersion = undefined;
     this.assemblies.clear();
     this.recovered.clear();
     this.seenFrameKeys.clear();

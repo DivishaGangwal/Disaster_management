@@ -4,7 +4,7 @@
  * Spec: 02-... "Tier 2 detailed architecture", 01-... WEB-005..WEB-009,
  * T2-001..T2-013.
  *
- * DEC-007: ggwave is Tier 2 ONLY. There is no phone-to-phone acoustic path.
+ * DEC-007: WavePX is Tier 2 ONLY. There is no phone-to-phone acoustic path.
  * DEC-008: Tier 2 is one way. A check-in RESPONSE leaves by Tier 1 (T2-012).
  * DEC-025: editing approved content invalidates approval (WEB-007).
  */
@@ -75,7 +75,7 @@ export interface CampaignManifest {
 export interface RadioArtifact {
   readonly campaignId: string;
   readonly campaignVersion: number;
-  readonly ggwaveProfile: string;
+  readonly wavePxProfile: string;
   readonly sampleRateHz: number;
   readonly channels: number;
   readonly bitDepth: number;
@@ -120,6 +120,8 @@ export interface Tier2Metrics {
   readonly state: Tier2ReceiverState;
   readonly source: 'tier2-mic' | 'tier2-direct' | null;
   readonly campaignId?: string;
+  /** Compact over-air handle, available even without a preloaded manifest. */
+  readonly campaignHandle?: number;
   readonly campaignVersion?: number;
   readonly framesDetected: number;
   readonly framesValid: number;

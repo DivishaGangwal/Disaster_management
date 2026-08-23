@@ -1,44 +1,55 @@
 /*
- * Browser audio lifecycle adapted from WavePX (MIT):
+ * Disaster SOS Mesh integration for WavePX (MIT), pinned from:
  * https://github.com/0xNtive/wavepx/tree/81c7c30cc9c2f2a42bc04a43087b6fa9b43e237d
- * We use ggwave directly so the frozen Tier 2 frame bytes remain untouched.
+ *
+ * WavePX owns audio orchestration. Its bundled ggwave transport remains the
+ * physical modem. Canonical Tier 2 bytes use WavePX's raw-frame seam.
  */
 
-import { WavePxAudioManager } from './vendor/wavepx/audio-manager';
-import { WAVE_PX_SAMPLE_RATE as SAMPLE_RATE, WavePxTransport, type WavePxProfile } from './vendor/wavepx/transport';
+import { SonicPixel } from './vendor/wavepx/wavepx';
+import { SonicProtocol } from './vendor/wavepx/types';
 
 const BUFFER_SIZE = 1_024;
-const FRAME_GAP_MS = 180;
+const SAMPLE_RATE = 48_000;
 
-export type AudioProfile = WavePxProfile;
+export type AudioProfile = 'audible-fast' | 'audible-normal' | 'ultrasound-normal';
 
 interface AudioLinkOptions {
   readonly onFrame?: (frame: Uint8Array) => void;
   readonly onLevel?: (level: number) => void;
   readonly onState?: (state: 'idle' | 'initializing' | 'listening' | 'transmitting') => void;
+  readonly onError?: (error: Error) => void;
 }
 
 export class Tier2AudioLink {
-  private readonly transport = new WavePxTransport();
-  private audio?: WavePxAudioManager;
-  private stream?: MediaStream;
-  private source?: MediaStreamAudioSourceNode;
-  private processor?: ScriptProcessorNode;
+  private sonic?: SonicPixel;
+  private profile?: AudioProfile;
+  private decoding = false;
   private transmissionToken = 0;
 
   constructor(private readonly options: AudioLinkOptions = {}) {}
 
-  async init(): Promise<void> {
-    if (this.audio) return;
+  async init(profile: AudioProfile = 'audible-fast'): Promise<void> {
+    if (this.sonic && this.profile === profile) return;
+    this.destroy();
     this.options.onState?.('initializing');
+    const sonic = new SonicPixel({
+      protocol: protocolFor(profile),
+      volume: 55,
+      onAudioLevel: this.options.onLevel,
+      onRawReceive: this.options.onFrame,
+      onStateChange: (state) => {
+        if (this.decoding) return;
+        this.options.onState?.(state === 'listening' ? 'listening' : state === 'sending' ? 'transmitting' : 'idle');
+      },
+      onError: this.options.onError,
+    });
     try {
-      await this.transport.init();
-      this.audio = new WavePxAudioManager();
-      await this.audio.ready();
+      await sonic.init();
+      this.sonic = sonic;
+      this.profile = profile;
     } catch (reason) {
-      this.transport.destroy();
-      void this.audio?.close();
-      this.audio = undefined;
+      sonic.destroy();
       throw reason;
     } finally {
       this.options.onState?.('idle');
@@ -48,37 +59,19 @@ export class Tier2AudioLink {
   async listen(): Promise<void> {
     await this.init();
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone access requires HTTPS or localhost');
-    this.stopListening();
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: false, autoGainControl: false, noiseSuppression: false },
-    });
-    this.source = this.audio!.context.createMediaStreamSource(this.stream);
-    this.processor = this.audio!.context.createScriptProcessor(BUFFER_SIZE, 1, 1);
-    this.processor.onaudioprocess = (event) => {
-      const samples = new Float32Array(event.inputBuffer.getChannelData(0));
-      let level = 0;
-      for (const sample of samples) level += Math.abs(sample);
-      this.options.onLevel?.(level / samples.length);
-      const decoded = this.transport.decode(samples);
-      if (decoded) this.options.onFrame?.(decoded);
-    };
-    this.source.connect(this.processor);
-    this.processor.connect(this.audio!.context.destination);
-    this.options.onState?.('listening');
+    await this.sonic!.startListening();
   }
 
   async transmit(frames: readonly Uint8Array[], profile: AudioProfile, onProgress?: (sent: number, total: number) => void): Promise<boolean> {
-    await this.init();
-    this.stopListening();
+    await this.init(profile);
     const token = ++this.transmissionToken;
     this.options.onState?.('transmitting');
     try {
       for (let index = 0; index < frames.length; index += 1) {
         if (token !== this.transmissionToken) return false;
-        await this.audio!.play(this.transport.encode(frames[index]!, profile));
+        await this.sonic!.sendRaw(frames[index]!);
         if (token !== this.transmissionToken) return false;
         onProgress?.(index + 1, frames.length);
-        if (index < frames.length - 1) await delay(FRAME_GAP_MS);
       }
       return true;
     } finally {
@@ -88,19 +81,22 @@ export class Tier2AudioLink {
 
   async decodeAudioFile(file: File, onProgress?: (processed: number, total: number) => void): Promise<readonly Uint8Array[]> {
     await this.init();
-    this.stopListening();
+    this.sonic!.stopListening();
+    this.decoding = true;
     this.options.onState?.('listening');
-    const audio = await this.audio!.context.decodeAudioData(await file.arrayBuffer());
-    const samples = audio.getChannelData(0);
+    const context = new AudioContext({ sampleRate: SAMPLE_RATE });
     const recovered: Uint8Array[] = [];
+    const seen = new Set<string>();
     try {
+      const audio = await context.decodeAudioData(await file.arrayBuffer());
+      const samples = audio.getChannelData(0);
       for (let offset = 0; offset < samples.length; offset += BUFFER_SIZE) {
         const block = new Float32Array(BUFFER_SIZE);
         block.set(samples.subarray(offset, Math.min(samples.length, offset + BUFFER_SIZE)));
-        const decoded = this.transport.decode(block);
+        const decoded = this.sonic!.decodeSamples(block);
         if (decoded) {
-          recovered.push(decoded);
-          this.options.onFrame?.(decoded);
+          const key = encodeBase64(decoded);
+          if (!seen.has(key)) { seen.add(key); recovered.push(decoded); }
         }
         if (offset % (BUFFER_SIZE * 120) === 0) {
           onProgress?.(Math.min(offset + BUFFER_SIZE, samples.length), samples.length);
@@ -110,50 +106,32 @@ export class Tier2AudioLink {
       onProgress?.(samples.length, samples.length);
       return recovered;
     } finally {
+      this.decoding = false;
       this.options.onState?.('idle');
+      await context.close();
     }
   }
 
   createWav(frames: readonly Uint8Array[], profile: AudioProfile): Blob {
-    const waveforms = frames.map((frame) => this.transport.encode(frame, profile));
-    const gapSamples = Math.floor(SAMPLE_RATE * FRAME_GAP_MS / 1_000);
-    const totalSamples = waveforms.reduce((total, waveform) => total + Math.floor(waveform.length / 4), 0)
-      + Math.max(0, waveforms.length - 1) * gapSamples;
-    const pcm = new Int16Array(totalSamples);
-    let offset = 0;
-    waveforms.forEach((waveform, waveformIndex) => {
-      const aligned = waveform.slice().buffer;
-      for (const sample of new Float32Array(aligned)) {
-        const bounded = Math.max(-1, Math.min(1, sample));
-        pcm[offset++] = bounded < 0 ? bounded * 0x8000 : bounded * 0x7fff;
-      }
-      if (waveformIndex < waveforms.length - 1) offset += gapSamples;
-    });
-    return wavBlob(pcm);
+    if (!this.sonic || this.profile !== profile) throw new Error('Initialize the selected WavePX profile before exporting WAV');
+    return this.sonic.generateWav([...frames]);
   }
 
   stopListening(): void {
-    this.processor?.disconnect();
-    if (this.processor) this.processor.onaudioprocess = null;
-    this.source?.disconnect();
-    this.stream?.getTracks().forEach((track) => track.stop());
-    this.processor = undefined;
-    this.source = undefined;
-    this.stream = undefined;
+    this.sonic?.stopListening();
     this.options.onState?.('idle');
   }
 
   stopTransmission(): void {
     this.transmissionToken += 1;
-    this.audio?.stop();
+    this.sonic?.abortSend();
+    this.options.onState?.('idle');
   }
 
   destroy(): void {
-    this.stopListening();
-    this.stopTransmission();
-    this.transport.destroy();
-    void this.audio?.close();
-    this.audio = undefined;
+    this.sonic?.destroy();
+    this.sonic = undefined;
+    this.profile = undefined;
   }
 }
 
@@ -168,30 +146,8 @@ export function encodeBase64(value: Uint8Array): string {
   return window.btoa(binary);
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function wavBlob(pcm: Int16Array): Blob {
-  const buffer = new ArrayBuffer(44 + pcm.byteLength);
-  const view = new DataView(buffer);
-  write(view, 0, 'RIFF');
-  view.setUint32(4, 36 + pcm.byteLength, true);
-  write(view, 8, 'WAVE');
-  write(view, 12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, SAMPLE_RATE, true);
-  view.setUint32(28, SAMPLE_RATE * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  write(view, 36, 'data');
-  view.setUint32(40, pcm.byteLength, true);
-  new Uint8Array(buffer).set(new Uint8Array(pcm.buffer), 44);
-  return new Blob([buffer], { type: 'audio/wav' });
-}
-
-function write(view: DataView, offset: number, value: string): void {
-  for (let index = 0; index < value.length; index += 1) view.setUint8(offset + index, value.charCodeAt(index));
+function protocolFor(profile: AudioProfile): SonicProtocol {
+  if (profile === 'audible-normal') return SonicProtocol.AudibleNormal;
+  if (profile === 'ultrasound-normal') return SonicProtocol.UltrasoundNormal;
+  return SonicProtocol.AudibleFast;
 }

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { Tier2Metrics } from '@dsm/contracts';
 
 export type UserRole = 'general-public' | 'responder';
 export type InternetState = 'untested' | 'unavailable' | 'probing' | 'proven gateway';
@@ -79,6 +80,8 @@ interface AppState {
   // Tier 2
   tier2Listening: boolean;
   setTier2Listening: (v: boolean) => void;
+  tier2Metrics?: Tier2Metrics;
+  setTier2Metrics: (value: Tier2Metrics) => void;
 
   // Language
   language: string;
@@ -162,6 +165,8 @@ export const useAppStore = create<AppState>()(
       // Tier 2
       tier2Listening: false,
       setTier2Listening: (v) => set({ tier2Listening: v }),
+      tier2Metrics: undefined,
+      setTier2Metrics: (tier2Metrics) => set({ tier2Metrics }),
 
       // Language
       language: 'en',

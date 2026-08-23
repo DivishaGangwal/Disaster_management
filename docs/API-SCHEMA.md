@@ -318,7 +318,7 @@ truncated.
 
 ### `POST /api/campaigns/:id/broadcast-program` ✅
 
-Creates the immutable raw Tier 2 frame list through the vendored WavePX-style
+Creates the immutable raw Tier 2 frame list through the vendored WavePX
 browser transport backed by `ggwave`, plus the scheduled repetition sequence,
 records a SHA-256 artifact digest, and advances `broadcaster-ready` to
 `audio-generated`. Repeated calls return the same stored program.

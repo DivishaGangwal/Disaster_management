@@ -21,14 +21,14 @@ import {
 } from '@dsm/contracts';
 import { toTier2Frames, TIER2_OVERHEAD_BYTES } from './frame-codec.js';
 
-/** ggwave throughput assumption. Measure and update; never leave it implicit. */
-export const GGWAVE_PROFILES = {
+/** WavePX throughput assumption. Measure and update; never leave it implicit. */
+export const WAVEPX_PROFILES = {
   'audible-fast': { bytesPerSecond: 16, label: 'Audible fast' },
   'audible-normal': { bytesPerSecond: 8, label: 'Audible normal' },
   'ultrasound-normal': { bytesPerSecond: 8, label: 'Ultrasound normal' },
 } as const;
 
-export type GgwaveProfileName = keyof typeof GGWAVE_PROFILES;
+export type WavePxProfileName = keyof typeof WAVEPX_PROFILES;
 
 export interface CampaignInput {
   readonly campaignId: string;
@@ -39,7 +39,7 @@ export interface CampaignInput {
   readonly validUntilS: number;
   readonly requiredPackId: string;
   readonly requiredPackVersion: number;
-  readonly profile: GgwaveProfileName;
+  readonly profile: WavePxProfileName;
   readonly packets: readonly {
     readonly packetId: PacketId;
     /** Canonical Tier 1 bytes. Tier 2 derives from these; it never diverges. */
@@ -71,7 +71,7 @@ export function planCampaign(input: CampaignInput): CampaignPlan {
     throw new RangeError(`campaign has ${input.packets.length} packets, over ${TIER2.MAX_CAMPAIGN_PACKETS}`);
   }
 
-  const bytesPerSecond = GGWAVE_PROFILES[input.profile].bytesPerSecond;
+  const bytesPerSecond = WAVEPX_PROFILES[input.profile].bytesPerSecond;
   const handleTable = new Map<number, PacketId>();
   const items: CampaignItem[] = [];
 

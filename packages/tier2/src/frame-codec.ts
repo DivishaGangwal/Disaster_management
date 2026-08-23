@@ -3,7 +3,7 @@
  *
  * Spec: 02-... "The previous 64-byte fixed-header proposal is a
  * maximum-oriented design, not an obligation to waste 64 bytes on every
- * ggwave message." T2-004: both receive paths must produce EQUIVALENT
+ * WavePX message." T2-004: both receive paths must produce EQUIVALENT
  * canonical packet identities and payload meanings.
  *
  * So Tier 2 carries an ultra-compact frame that maps DETERMINISTICALLY back
@@ -21,7 +21,7 @@
  *   [10..n]  canonical Tier 1 packet byte slice
  *   [n+1..2] CRC-16 over bytes 0..n
  *
- * Overhead: 12 bytes, versus 64 for Tier 1. At ggwave bitrates that matters.
+ * Overhead: 12 bytes, versus 64 for Tier 1. At WavePX bitrates that matters.
  */
 
 import { TIER2 } from '@dsm/contracts';

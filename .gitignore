@@ -7,6 +7,8 @@ build/
 android/
 !native/android-radio-bridge/android/
 !native/android-radio-bridge/android/**
+native/android-radio-bridge/android/.cxx/
+native/android-radio-bridge/android/build/
 ios/
 .env
 .env.local

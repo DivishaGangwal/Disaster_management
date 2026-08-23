@@ -28,17 +28,17 @@ No row claims 🟥: no compatible Android handset or two-device acoustic setup w
 | Mesh → network → mesh | ✅ | 🟦 | The phone attaches `GatewaySynchronizer` when `EXPO_PUBLIC_DSM_BACKEND_URL` is configured. A live identity probe gates upload; downloads re-enter the same validator and become relayable. |
 | Literal `PACKET_REQUEST` exchange | deferred deviation | 🟦 | Filtered inventory push provides the required missing-only behaviour. The literal request packet remains the documented HD-001 deviation. |
 
-## Canonical packets and ggwave/WavePX
+## Canonical packets and WavePX
 
 | Feature | Status | Evidence | Current truth |
 |---|---:|---:|---|
 | One canonical packet across website, receiver, gateway and mesh | ✅ | 🟦 | Tier 2 fragments carry the complete canonical Tier 1 bytes. The receiver reconstructs and decodes those bytes independently; a manifest verifies expected bytes but never invents a header. |
-| ggwave encode/decode | ✅ browser | 🟩 | The admin console uses `ggwave` through the vendored WavePX-style audio lifecycle. |
+| WavePX encode/decode | ✅ browser + Android native build | 🟩 | The console vendors WavePX `SonicPixel`/audio components; Android implements the same raw-frame receive seam with ggwave kept inside WavePX as the physical modem. |
 | Microphone input | ✅ browser, unmeasured acoustically | 🟩 | The receiving station captures microphone PCM and submits recovered raw frames through CRC, reassembly, canonical decode and exact expected-byte comparison. |
 | Audio-file input | ✅ | 🟩 | WAV files use the same decoder and comparison path as microphone input. |
 | File export and playback | ✅ | 🟩 | The approved immutable schedule exports 48 kHz mono WAV and playback is decode-gated. |
 | Independent receiver without campaign manifest | ✅ | 🟦 | Automated tests recover and decode the packet with no preloaded manifest. |
-| Android microphone ggwave decoder | not implemented | — | The mobile Tier 2 screen is intentionally honest. A native `AudioRecord`/decoder integration remains if acoustic reception is required on the Android app rather than the admin browser. |
+| Android WavePX microphone receiver | ✅ implemented, unmeasured acoustically | 🟩 | Explicit start/stop drives bounded 48 kHz `AudioRecord`; native decoding emits raw WavePX frames into `Tier2Receiver`, `NodeEngine.ingest()` and the live/persisted mobile map. |
 
 ## Centre and map-operation pipeline
 
@@ -47,7 +47,7 @@ No row claims 🟥: no compatible Android handset or two-device acoustic setup w
 | Create a temporary centre | ✅ | 🟦 | The admin API/UI creates a stable temporary object and emits a canonical resource packet. |
 | Open or close a centre | ✅ | 🟦 | State changes emit versioned packets; no UI-only mutation is used. |
 | Move or edit a centre | ✅ | 🟦 | Name, district and coordinates are encoded in the same regional packet model. |
-| Packet → ggwave → decode → map operation | ✅ | 🟦 | Tests cover create, close, move and reopen. Recovered canonical bytes are translated by the shared `toMapOperations()` path. |
+| Packet → WavePX → decode → map operation | ✅ | 🟦 | Tests cover create, close, move and reopen. Recovered canonical bytes are translated by the shared `toMapOperations()` path. |
 | Tier 1/gateway/Tier 2 projection agreement | ✅ | 🟦 | All paths enter `NodeEngine.ingest()` and the same deterministic `MapProjection`. |
 | Mobile graphical/offline map renderer | ✅ implemented, device download unmeasured | 🟩 | MapLibre renders GPS and projected layers. A one-tap Assam pack downloads zooms 5–12 to persistent native storage and reports real progress, bytes and resources. |
 | Assam baseline operational registry | ✅ synthetic | 🟦 | A typed pack paints 23 Assam-focused demo objects and four corridors before packet deltas arrive. Facility labels are explicitly demo data, not an authority register. |
@@ -68,9 +68,8 @@ All 12 required routes exist. Readiness, SOS composer, nearby incidents, respond
 
 ## Complete remaining list
 
-1. **Android acoustic receiver, only if required on-phone:** connect `AudioRecord` PCM to a ggwave decoder and feed recovered frames into the existing Tier 2 receiver. Browser microphone and WAV input already work.
-2. **Physical evidence, not code:** run BLE and Classic on selected phones, complete an Assam pack download, test airplane-mode restart/map rendering, screen-off relay, battery/thermal measurements and acoustic success rate.
-3. **Production map/data:** replace the hackathon style host and synthetic Assam facilities with authority-approved/self-hosted tiles and a sourced registry.
-4. **Documented protocol deviation:** implement a literal `PACKET_REQUEST` round trip only if HD-001 is reversed; the current missing-only filtered exchange already passes the relay acceptance behaviour.
+1. **Physical evidence, not code:** run website-speaker-to-phone WavePX trials plus BLE and Classic on selected phones; complete an Assam pack download, test airplane-mode restart/map rendering, screen-off relay, battery/thermal measurements and acoustic success rate.
+2. **Production map/data:** replace the hackathon style host and synthetic Assam facilities with authority-approved/self-hosted tiles and a sourced registry.
+3. **Documented protocol deviation:** implement a literal `PACKET_REQUEST` round trip only if HD-001 is reversed; the current missing-only filtered exchange already passes the relay acceptance behaviour.
 
 Everything else requested in this pass is implemented and covered by static, integration or simulator evidence. The items above must not be presented as finished until their stated evidence exists.

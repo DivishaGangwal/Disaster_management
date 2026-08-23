@@ -28,7 +28,7 @@ test('Assam demo seed supplies a populated, idempotent realtime command picture'
   }
 });
 
-test('approved campaign becomes an exact, persisted ggwave frame program', async () => {
+test('approved campaign becomes an exact, persisted WavePX frame program', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'dsm-broadcast-'));
   const databasePath = join(directory, 'operations.sqlite');
   try {
@@ -225,7 +225,7 @@ test('reception decodes the coordinates that came back off the air, and refuses 
   }
 });
 
-test('ggwave centre packets project create, close, move, and reopen operations without a map renderer', async () => {
+test('WavePX centre packets project create, close, move, and reopen operations without a map renderer', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'dsm-centre-operations-'));
   try {
     const backend = createBackend({ databasePath: join(directory, 'operations.sqlite') });

@@ -6,9 +6,10 @@ development build. Physical-device behaviour remains unmeasured.
 
 ## The one rule
 
-Keep `TransportAdapter` and the eventual `AudioInputAdapter` aligned with
+Keep `TransportAdapter` and `AudioInputAdapter` aligned with
 [`@dsm/contracts`](../../packages/contracts/src/native-bridge.ts). The transport
-adapter exists; the Android PCM/ggwave audio adapter remains separate work.
+adapter and Android WavePX PCM receiver both exist behind separate contracts;
+ggwave remains WavePX's internal physical modem.
 
 If you find yourself wanting to change a packet, a policy, a map rule, or a
 screen to make Bluetooth work — stop. That is a Gate II conversation
@@ -63,9 +64,10 @@ or queueing. Those are done. You move bytes and emit normalized events.
 - A **foreground service** with an ongoing notification whose Stop action shuts
   down both the notification and module-owned relay resources (`REL-001`).
 - **Runtime capability + permission reporting** → `CapabilityReport`.
-- **Not yet implemented:** `AudioRecord` PCM capture → ggwave decode →
-  `Tier2RawFrame`. The browser admin receiver already supports microphone and
-  WAV input; this item is needed only for on-phone acoustic reception.
+- **Implemented, not yet physically measured:** bounded `AudioRecord` 48 kHz
+  PCM capture → WavePX native modem decode → `Tier2RawFrame`. Recovered frames
+  still pass CRC, reassembly, canonical validation, persistence, policy and map
+  projection before they can change application state.
 
 ## Discovery is probabilistic — design for missed advertisements
 

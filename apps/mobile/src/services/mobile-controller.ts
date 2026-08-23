@@ -4,6 +4,7 @@ import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import {
   EmergencyCategory,
+  EventCategory,
   LocationSource,
   MessageType,
   Mobility,
@@ -11,14 +12,18 @@ import {
   ResolutionOutcome,
   ReplyCapability,
   Severity,
+  TIER2,
+  type AudioInputAdapter,
   type LocalProfile,
+  type Tier2RawFrame,
 } from '@dsm/contracts';
 import { buildResponderState, buildSosCancel, buildSosCreate, buildSosUpdate, decodePacket, floatToE7, newNodeToken, newSourceId, toEpochS } from '@dsm/codec';
 import { MemoryEventSink } from '@dsm/store';
-import { createNativeTransport } from '@dsm/android-radio-bridge';
+import { createNativeTransport, createNativeWavePxAudioInput, requestNativeWavePxPermission } from '@dsm/android-radio-bridge';
 import { HttpGatewayClient } from '@dsm/gateway-client';
 import { GatewaySynchronizer } from '@dsm/node-runtime';
 import { ASSAM_CONTENT_PACK, PackResolver } from '@dsm/mapkit';
+import { Tier2Receiver } from '@dsm/tier2';
 import { AppRuntime } from './app-runtime';
 import { openMobileRepositories } from './sqlite-repositories';
 import { configureNotificationChannels, notifyPacketReceived } from './notifications';
@@ -43,6 +48,10 @@ class MobileController {
   private runtime?: AppRuntime;
   private initializing?: Promise<AppRuntime>;
   private sequence = 1;
+  private wavePxInput?: AudioInputAdapter;
+  private readonly wavePxReceiver = new Tier2Receiver();
+  private wavePxTimeout?: ReturnType<typeof setTimeout>;
+  private removeWavePxFrameListener?: () => void;
 
   async initialize(role: UserRole = useAppStore.getState().role) {
     if (this.runtime) return this.runtime;
@@ -53,6 +62,10 @@ class MobileController {
   }
 
   async reconfigureRole(role: UserRole) {
+    await this.stopWavePxListening();
+    this.removeWavePxFrameListener?.();
+    this.removeWavePxFrameListener = undefined;
+    this.wavePxInput = undefined;
     if (this.runtime?.relay.isRunning) await this.runtime.stopRelay();
     this.runtime = undefined;
     return this.initialize(role);
@@ -123,7 +136,64 @@ class MobileController {
       }
       if (event.kind === 'error') current.setRuntimeError(event.message);
     });
+    if (!expoGo) {
+      this.wavePxInput = createNativeWavePxAudioInput();
+      this.removeWavePxFrameListener = this.wavePxInput.addFrameListener((frame) => { void this.acceptWavePxFrame(runtime, frame); });
+    }
+    state.setTier2Metrics(this.wavePxReceiver.metrics());
     return runtime;
+  }
+
+  async startWavePxListening() {
+    await this.initialize();
+    if (!this.wavePxInput) throw new Error('WavePX microphone listening requires the Android development build; Expo Go has no native audio decoder.');
+    const microphone = await requestNativeWavePxPermission();
+    useAppStore.getState().setMicrophoneEnabled(microphone === 'granted');
+    if (microphone !== 'granted') throw new Error('Grant microphone permission before starting WavePX listening.');
+    clearTimeout(this.wavePxTimeout);
+    this.wavePxReceiver.reset();
+    const nowMs = Date.now();
+    this.wavePxReceiver.startListening('tier2-mic', nowMs);
+    useAppStore.getState().setTier2Metrics(this.wavePxReceiver.metrics());
+    await this.wavePxInput.startListening({ timeoutMs: TIER2.MICROPHONE_TIMEOUT_MS });
+    useAppStore.getState().setTier2Listening(true);
+    this.wavePxTimeout = setTimeout(() => { void this.stopWavePxListening(); }, TIER2.MICROPHONE_TIMEOUT_MS);
+  }
+
+  async stopWavePxListening() {
+    clearTimeout(this.wavePxTimeout);
+    this.wavePxTimeout = undefined;
+    await this.wavePxInput?.stopListening();
+    this.wavePxReceiver.stop();
+    const state = useAppStore.getState();
+    state.setTier2Listening(false);
+    state.setTier2Metrics(this.wavePxReceiver.metrics());
+  }
+
+  private async acceptWavePxFrame(runtime: AppRuntime, frame: Tier2RawFrame) {
+    const recovered = this.wavePxReceiver.accept(frame);
+    runtime.engine.events.emit({
+      category: EventCategory.TIER2,
+      name: recovered.packet ? 'packet-reassembled' : 'frame-observed',
+      severity: recovered.reason.includes('corrupt') ? 'warn' : 'info',
+      atMs: frame.receivedAtMs,
+      reason: recovered.reason,
+      transport: frame.source,
+      bytes: frame.bytes.length,
+      ...(recovered.packet ? { packetId: recovered.packet.packetId } : {}),
+    });
+    useAppStore.getState().setTier2Metrics(this.wavePxReceiver.metrics());
+    if (!recovered.packet) { await this.refresh(runtime); return; }
+    const result = await runtime.engine.ingest(recovered.packet.bytes, recovered.packet.source, {
+      atMs: recovered.packet.recoveredAtMs,
+      ...(this.wavePxReceiver.metrics().campaignId ? { campaignId: this.wavePxReceiver.metrics().campaignId } : {}),
+    });
+    if (result.accepted) {
+      const decoded = decodePacket(recovered.packet.bytes);
+      if (decoded.ok) await notifyPacketReceived(decoded.packet.header.priority, decoded.packet.header.packetId);
+      if (runtime.relay.isRunning) await runtime.relay.refreshAdvertisement();
+    }
+    await this.refresh(runtime);
   }
 
   async requestPermissions() {

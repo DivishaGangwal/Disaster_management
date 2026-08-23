@@ -1,6 +1,7 @@
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import {
   type CapabilityReport,
+  type AudioInputAdapter,
   type DiscoverySummary,
   type EncodedPacket,
   type PermissionSnapshot,
@@ -8,15 +9,19 @@ import {
   type TransportEvent,
   type TransportEventListener,
   type TransportKind,
+  type Tier2RawFrame,
 } from '@dsm/contracts';
 import { decodeAdvertisement, encodeAdvertisement, type AdapterSelection } from '@dsm/transport-core';
 
 type NativeEvent = TransportEvent
   | { kind: 'peer-advertisement'; bytesBase64: string; rssi?: number; atMs: number }
-  | { kind: 'record-received-native'; sessionId: string; peerToken: string; transport: 'tier1-ble' | 'tier1-classic'; bytesBase64: string; rssi?: number; atMs: number };
+  | { kind: 'record-received-native'; sessionId: string; peerToken: string; transport: 'tier1-ble' | 'tier1-classic'; bytesBase64: string; rssi?: number; atMs: number }
+  | { kind: 'wavepx-frame-native'; bytesBase64: string; source: 'tier2-mic' | 'tier2-direct'; atMs: number }
+  | { kind: 'wavepx-listening-state'; state: 'listening' | 'stopped'; reason?: string; timeoutMs?: number; atMs: number };
 type NativeModuleShape = {
   getCapabilities(): Promise<CapabilityReport>;
   requestPermissions(): Promise<void>;
+  requestWavePxPermission(): Promise<void>;
   startRelay(advertisementBase64: string, mode: 'ble' | 'classic'): Promise<void>;
   stopRelay(): Promise<void>;
   updateAdvertisement(advertisementBase64: string): Promise<void>;
@@ -24,6 +29,9 @@ type NativeModuleShape = {
   closeSession(sessionId: string): Promise<void>;
   sendRecord(sessionId: string, packetId: string, bytesBase64: string): Promise<void>;
   cancelTransfer(sessionId: string): Promise<void>;
+  startWavePxListening(timeoutMs: number): Promise<void>;
+  stopWavePxListening(): Promise<void>;
+  feedWavePxDirectPcm(pcmBase64: string, sampleRateHz: number): Promise<void>;
   addListener(eventName: 'onTransportEvent', listener: (event: NativeEvent) => void): { remove(): void };
 };
 
@@ -75,6 +83,7 @@ export class NativeTransportAdapter implements TransportAdapter {
           this.emit({ kind: 'record-received', sessionId: event.sessionId, peerToken: event.peerToken, transport: event.transport, bytes: fromBase64(event.bytesBase64), ...(event.rssi !== undefined ? { rssi: event.rssi } : {}), atMs: event.atMs });
           return;
         }
+        if (event.kind === 'wavepx-frame-native' || event.kind === 'wavepx-listening-state') return;
         this.emit(event);
       });
     }
@@ -85,6 +94,55 @@ export class NativeTransportAdapter implements TransportAdapter {
   }
 
   private emit(event: TransportEvent) { for (const listener of this.listeners) listener(event); }
+}
+
+/** Native Android audio backend for WavePX. ggwave remains internal DSP only. */
+export class NativeWavePxAudioInputAdapter implements AudioInputAdapter {
+  readonly id = 'android-wavepx';
+  private readonly listeners = new Set<(frame: Tier2RawFrame) => void>();
+  private subscription?: { remove(): void };
+
+  startListening(options: { readonly timeoutMs: number }): Promise<void> {
+    this.ensureSubscribed();
+    return moduleOrThrow().startWavePxListening(options.timeoutMs);
+  }
+
+  stopListening(): Promise<void> {
+    return moduleOrThrow().stopWavePxListening();
+  }
+
+  feedDirectAudio(pcm: Float32Array, sampleRateHz: number): Promise<void> {
+    this.ensureSubscribed();
+    const bytes = new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+    return moduleOrThrow().feedWavePxDirectPcm(toBase64(bytes), sampleRateHz);
+  }
+
+  addFrameListener(listener: (frame: Tier2RawFrame) => void): () => void {
+    this.listeners.add(listener);
+    this.ensureSubscribed();
+    return () => {
+      this.listeners.delete(listener);
+      if (this.listeners.size === 0) { this.subscription?.remove(); this.subscription = undefined; }
+    };
+  }
+
+  private ensureSubscribed(): void {
+    if (this.subscription) return;
+    this.subscription = moduleOrThrow().addListener('onTransportEvent', (event: NativeEvent) => {
+      if (event.kind !== 'wavepx-frame-native') return;
+      const frame: Tier2RawFrame = { bytes: fromBase64(event.bytesBase64), source: event.source, receivedAtMs: event.atMs };
+      for (const listener of this.listeners) listener(frame);
+    });
+  }
+}
+
+export function createNativeWavePxAudioInput(): AudioInputAdapter {
+  return new NativeWavePxAudioInputAdapter();
+}
+
+export async function requestNativeWavePxPermission(): Promise<PermissionSnapshot['microphone']> {
+  await moduleOrThrow().requestWavePxPermission();
+  return (await moduleOrThrow().getCapabilities()).permissions.microphone;
 }
 
 function toBase64(bytes: Uint8Array) {

@@ -11,5 +11,10 @@ useDefaultAndroidSdkVersions()
 
 android {
   namespace "com.dsm.radio"
-  defaultConfig { versionCode 1; versionName "0.1.0" }
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+    externalNativeBuild { cmake { cppFlags "-std=c++11" } }
+  }
+  externalNativeBuild { cmake { path "src/main/cpp/CMakeLists.txt" } }
 }

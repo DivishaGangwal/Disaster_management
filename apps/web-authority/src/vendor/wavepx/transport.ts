@@ -1,43 +1,87 @@
-import createGgWave from 'ggwave';
+import { SonicProtocol } from './types.js';
 
-export const WAVE_PX_SAMPLE_RATE = 48_000;
-
-export type WavePxProfile = 'audible-fast' | 'audible-normal' | 'ultrasound-normal';
-
-/** Low-level WavePX-compatible transport kept separate from our frozen Tier 2 framing. */
-export class WavePxTransport {
-  private module: any;
-  private instance: any;
+export class GGWaveTransport {
+  private instance: any = null;
+  private gg: any = null;
 
   async init(): Promise<void> {
-    if (this.instance != null) return;
-    this.module = await createGgWave();
-    const parameters = this.module.getDefaultParameters();
-    parameters.sampleRateInp = WAVE_PX_SAMPLE_RATE;
-    parameters.sampleRateOut = WAVE_PX_SAMPLE_RATE;
-    this.instance = this.module.init(parameters);
-    if (this.instance == null) throw new Error('WavePX acoustic transport could not initialize');
+    const mod = await import('ggwave');
+    const factory = mod.default || mod;
+    this.gg = await factory();
+    const params = this.gg.getDefaultParameters();
+    params.sampleRateInp = 48000;
+    params.sampleRateOut = 48000;
+    // sampleFormatInp/Out default to F32 — leave as-is
+    this.instance = this.gg.init(params);
+
+    if (this.instance === null || this.instance === undefined) {
+      throw new Error('ggwave init returned null instance');
+    }
   }
 
-  encode(payload: Uint8Array, profile: WavePxProfile): Uint8Array {
-    if (payload.length > 140) throw new Error(`Tier 2 frame exceeds WavePX/ggwave's 140-byte limit (${payload.length})`);
-    const protocolName = {
-      'audible-normal': 'GGWAVE_PROTOCOL_AUDIBLE_NORMAL',
-      'audible-fast': 'GGWAVE_PROTOCOL_AUDIBLE_FAST',
-      'ultrasound-normal': 'GGWAVE_PROTOCOL_ULTRASOUND_NORMAL',
-    }[profile];
-    const protocol = this.module.ProtocolId?.[protocolName] ?? 0;
-    return new Uint8Array(this.module.encode(this.instance, payload, protocol, 55));
+  /**
+   * Encode a payload into audio waveform for transmission.
+   */
+  encode(payload: Uint8Array, protocol: SonicProtocol, volume: number): Uint8Array {
+    if (this.instance == null || !this.gg) {
+      throw new Error('Transport not initialized');
+    }
+
+    // Pass payload as Uint8Array directly — embind copies raw bytes into std::string
+    // (avoids UTF-8 mangling that happens with JS string → std::string conversion)
+    const ggProto = this.getProtocolEnum(protocol);
+    const waveform = this.gg.encode(this.instance, payload, ggProto, volume);
+    return new Uint8Array(waveform);
   }
 
-  decode(samples: Float32Array): Uint8Array | undefined {
-    const bytes = new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength);
-    const decoded = this.module.decode(this.instance, bytes);
-    return decoded?.length ? new Uint8Array(decoded) : undefined;
+  /**
+   * Decode received audio samples.
+   */
+  decode(samples: Float32Array): Uint8Array | null {
+    if (this.instance == null || !this.gg) {
+      throw new Error('Transport not initialized');
+    }
+
+    // Pass raw Float32 bytes as Uint8Array
+    const rawBytes = new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength);
+    const result = this.gg.decode(this.instance, rawBytes);
+
+    if (!result || result.length === 0) {
+      return null;
+    }
+
+    const decoded = new Uint8Array(result.length);
+    for (let i = 0; i < result.length; i++) {
+      decoded[i] = result[i];
+    }
+    return decoded;
   }
 
   destroy(): void {
-    if (this.instance != null && this.module) this.module.free(this.instance);
-    this.instance = undefined;
+    if (this.instance != null && this.gg) {
+      this.gg.free(this.instance);
+      this.instance = null;
+    }
+  }
+
+  private getProtocolEnum(protocol: SonicProtocol): any {
+    const names = [
+      'GGWAVE_PROTOCOL_AUDIBLE_NORMAL',
+      'GGWAVE_PROTOCOL_AUDIBLE_FAST',
+      'GGWAVE_PROTOCOL_AUDIBLE_FASTEST',
+      'GGWAVE_PROTOCOL_ULTRASOUND_NORMAL',
+      'GGWAVE_PROTOCOL_ULTRASOUND_FAST',
+      'GGWAVE_PROTOCOL_ULTRASOUND_FASTEST',
+      'GGWAVE_PROTOCOL_DT_NORMAL',
+      'GGWAVE_PROTOCOL_DT_FAST',
+      'GGWAVE_PROTOCOL_DT_FASTEST',
+    ];
+    const name = names[protocol];
+    // Return the enum object itself, not .value — embind expects the enum type
+    if (this.gg.ProtocolId && name && this.gg.ProtocolId[name] !== undefined) {
+      return this.gg.ProtocolId[name];
+    }
+    // Fallback: try numeric
+    return protocol as number;
   }
 }

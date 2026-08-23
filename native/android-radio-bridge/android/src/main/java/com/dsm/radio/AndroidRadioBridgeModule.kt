@@ -56,6 +56,8 @@ class AndroidRadioBridgeModule : Module() {
   private var sessionCounter = 0
   private val mainHandler = Handler(Looper.getMainLooper())
   private var stopReceiverRegistered = false
+  private var wavePxReceiver: WavePxAudioReceiver? = null
+  private var wavePxDirectDecoder = -1
 
   private data class PendingWrite(val packetId: String, val bytes: ByteArray, val promise: Promise)
 
@@ -72,6 +74,11 @@ class AndroidRadioBridgeModule : Module() {
       if (permissions == null) promise.reject("E_PERMISSIONS", "Permissions service is unavailable", null)
       else Permissions.askForPermissionsWithPermissionsManager(permissions, promise, *requested.toTypedArray())
     }
+    AsyncFunction("requestWavePxPermission") { promise: Promise ->
+      val permissions = appContext.permissions
+      if (permissions == null) promise.reject("E_PERMISSIONS", "Permissions service is unavailable", null)
+      else Permissions.askForPermissionsWithPermissionsManager(permissions, promise, Manifest.permission.RECORD_AUDIO)
+    }
     AsyncFunction("startRelay") { advertisementBase64: String, mode: String -> startRelay(advertisementBase64, mode) }
     AsyncFunction("stopRelay") { stopRelay() }
     AsyncFunction("updateAdvertisement") { value: String -> advertisement = Base64.decode(value, Base64.NO_WRAP); restartAdvertising() }
@@ -79,7 +86,50 @@ class AndroidRadioBridgeModule : Module() {
     AsyncFunction("closeSession") { sessionId: String -> closeSession(sessionId) }
     AsyncFunction("sendRecord") { sessionId: String, packetId: String, bytesBase64: String, promise: Promise -> sendRecord(sessionId, packetId, Base64.decode(bytesBase64, Base64.NO_WRAP), promise) }
     AsyncFunction("cancelTransfer") { sessionId: String -> closeSession(sessionId) }
-    OnDestroy { stopRelay() }
+    AsyncFunction("startWavePxListening") { timeoutMs: Double -> startWavePxListening(timeoutMs.toLong()) }
+    AsyncFunction("stopWavePxListening") { stopWavePxListening() }
+    AsyncFunction("feedWavePxDirectPcm") { pcmBase64: String, sampleRateHz: Int -> feedWavePxDirectPcm(pcmBase64, sampleRateHz) }
+    OnDestroy { stopWavePxListening(); stopRelay() }
+  }
+
+  private fun startWavePxListening(timeoutMs: Long) {
+    stopWavePxListening()
+    val boundedTimeout = timeoutMs.coerceIn(1_000L, 120_000L)
+    val receiver = WavePxAudioReceiver(
+      context,
+      onFrame = { bytes, atMs -> wavePxFrame(bytes, "tier2-mic", atMs) },
+      onStopped = { reason, atMs -> emit(mapOf("kind" to "wavepx-listening-state", "state" to "stopped", "reason" to reason, "atMs" to atMs)) },
+      onError = { code, message, _ -> transportError(code, message, true) },
+    )
+    wavePxReceiver = receiver
+    receiver.start(boundedTimeout)
+    emit(mapOf("kind" to "wavepx-listening-state", "state" to "listening", "timeoutMs" to boundedTimeout, "atMs" to System.currentTimeMillis()))
+  }
+
+  private fun stopWavePxListening() {
+    wavePxReceiver?.stop()
+    wavePxReceiver = null
+    if (wavePxDirectDecoder >= 0) {
+      WavePxNative.destroyDecoder(wavePxDirectDecoder)
+      wavePxDirectDecoder = -1
+    }
+  }
+
+  private fun feedWavePxDirectPcm(pcmBase64: String, sampleRateHz: Int) {
+    if (sampleRateHz !in 8_000..96_000) throw IllegalArgumentException("WavePX sample rate is outside 8-96 kHz")
+    if (wavePxDirectDecoder < 0) wavePxDirectDecoder = WavePxNative.createF32Decoder(sampleRateHz)
+    if (wavePxDirectDecoder < 0) throw IllegalStateException("WavePX direct decoder could not initialize")
+    val decoded = WavePxNative.decodeF32(wavePxDirectDecoder, Base64.decode(pcmBase64, Base64.NO_WRAP))
+    if (decoded != null && decoded.isNotEmpty()) wavePxFrame(decoded, "tier2-direct", System.currentTimeMillis())
+  }
+
+  private fun wavePxFrame(bytes: ByteArray, source: String, atMs: Long) {
+    emit(mapOf(
+      "kind" to "wavepx-frame-native",
+      "bytesBase64" to Base64.encodeToString(bytes, Base64.NO_WRAP),
+      "source" to source,
+      "atMs" to atMs,
+    ))
   }
 
   private fun permission(name: String): String = if (ContextCompat.checkSelfPermission(context, name) == PackageManager.PERMISSION_GRANTED) "granted" else "denied"

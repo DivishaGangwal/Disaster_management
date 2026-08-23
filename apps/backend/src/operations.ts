@@ -35,7 +35,7 @@ import {
   transitionCampaign,
   Tier2Receiver,
   type CampaignHandleResolver,
-  type GgwaveProfileName,
+  type WavePxProfileName,
 } from '@dsm/tier2';
 import { IngestService, OutboundService } from './services.js';
 import {
@@ -58,7 +58,7 @@ export interface CampaignCreateInput {
   readonly severity?: number;
   readonly category?: number;
   readonly instruction?: number;
-  readonly profile?: GgwaveProfileName;
+  readonly profile?: WavePxProfileName;
   readonly dataType?: 'official-alert' | 'regional-record';
   readonly objectId?: string;
   /** Broadcast point, degrees × 1e7. Both must be present to carry a location. */
@@ -593,7 +593,7 @@ export class OperationsService {
     severity: number;
     category: number;
     instruction: number;
-    profile: GgwaveProfileName;
+    profile: WavePxProfileName;
     dataType: 'official-alert' | 'regional-record';
     objectId?: string;
     location?: { latE7: number; lonE7: number; radiusM: number };

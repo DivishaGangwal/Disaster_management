@@ -74,7 +74,7 @@ Campaigns open on the version register. The selected campaign owns the focus pan
 - The lifecycle is a wrapping grid: five columns on desktop and three columns on mobile. Do not turn it into a horizontally scrolling strip.
 - Actions unlock only when their prerequisite state is satisfied. Disabled controls and guidance must explain why.
 - Transmission, WAV export, microphone reception, file decode, and exact frame comparison are station tools, not campaign-authoring decoration.
-- The decoder also provides an explicit **GGWave audio preview**. It starts only from a user action, plays through the current device, exposes a real stop control, and never records a broadcast event.
+- The decoder also provides an explicit **WavePX audio preview**. It starts only from a user action, plays through the current device, exposes a real stop control, and never records a broadcast event.
 
 ## Operational state semantics
 
