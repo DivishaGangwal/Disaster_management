@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { e7ToFloat, floatToE7 } from '@dsm/codec';
+import { e7ToFloat, floatToE7 } from './coordinates';
 import { OperationsMap } from './OperationsMap';
 import { DataInspector } from './DataInspector';
 import type { PacketStreamItem, RegionalRecord } from './types';

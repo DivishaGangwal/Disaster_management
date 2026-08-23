@@ -1,6 +1,6 @@
 import type { CampaignState, IncidentState, WebRole } from '@dsm/contracts';
 
-export type SectionKey = 'coordinate' | 'publish' | 'campaigns' | 'network';
+export type SectionKey = 'coordinate' | 'publish' | 'campaigns' | 'wavepx' | 'network';
 
 export interface OperatorSession {
   readonly operatorLabel: string;

@@ -31,10 +31,18 @@ export class Tier2AudioLink {
   async init(): Promise<void> {
     if (this.audio) return;
     this.options.onState?.('initializing');
-    await this.transport.init();
-    this.audio = new WavePxAudioManager();
-    await this.audio.ready();
-    this.options.onState?.('idle');
+    try {
+      await this.transport.init();
+      this.audio = new WavePxAudioManager();
+      await this.audio.ready();
+    } catch (reason) {
+      this.transport.destroy();
+      void this.audio?.close();
+      this.audio = undefined;
+      throw reason;
+    } finally {
+      this.options.onState?.('idle');
+    }
   }
 
   async listen(): Promise<void> {
@@ -59,19 +67,20 @@ export class Tier2AudioLink {
     this.options.onState?.('listening');
   }
 
-  async transmit(frames: readonly Uint8Array[], profile: AudioProfile, onProgress?: (sent: number, total: number) => void): Promise<void> {
+  async transmit(frames: readonly Uint8Array[], profile: AudioProfile, onProgress?: (sent: number, total: number) => void): Promise<boolean> {
     await this.init();
     this.stopListening();
     const token = ++this.transmissionToken;
     this.options.onState?.('transmitting');
     try {
       for (let index = 0; index < frames.length; index += 1) {
-        if (token !== this.transmissionToken) return;
+        if (token !== this.transmissionToken) return false;
         await this.audio!.play(this.transport.encode(frames[index]!, profile));
-        if (token !== this.transmissionToken) return;
+        if (token !== this.transmissionToken) return false;
         onProgress?.(index + 1, frames.length);
         if (index < frames.length - 1) await delay(FRAME_GAP_MS);
       }
+      return true;
     } finally {
       this.options.onState?.('idle');
     }

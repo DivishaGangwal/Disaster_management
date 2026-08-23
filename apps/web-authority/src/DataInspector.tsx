@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { e7ToFloat } from '@dsm/codec';
+import { e7ToFloat } from './coordinates';
 import type { PacketStreamItem } from './types';
 
 type InspectorView = 'decoded' | 'route' | 'raw';

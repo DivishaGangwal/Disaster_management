@@ -441,8 +441,8 @@ textarea {
 
 .ops-map-marker {
   position: relative;
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   display: grid;
   place-items: center;
@@ -487,13 +487,15 @@ textarea {
 .ops-map-marker:focus-visible small,
 .ops-map-marker.selected small { display: block; }
 .ops-map-marker.selected { outline: 3px solid #132c3a; outline-offset: 3px; }
-.ops-map-marker.marker-incident { width: 42px; height: 42px; }
+.ops-map-marker.marker-incident { width: 48px; height: 48px; }
 .ops-map-marker.marker-gateway { background: var(--atlas-blue); }
 .ops-map-marker.status-critical,
 .ops-map-marker.status-damaged,
 .ops-map-marker.status-blocked,
 .ops-map-marker.status-active { background: var(--atlas-red); }
 .ops-map-marker.status-urgent { background: var(--atlas-orange); }
+.ops-map-marker.status-assistance { background: var(--atlas-amber); }
+.ops-map-marker.status-information { background: #657781; }
 .ops-map-marker.status-full,
 .ops-map-marker.status-restricted,
 .ops-map-marker.status-watch,
@@ -1155,14 +1157,14 @@ textarea {
 }
 
 .campaign-editor label,
-.decoder-workspace label {
+.wavepx-workspace label {
   color: var(--atlas-ink);
   font-size: .76rem;
   font-weight: 680;
 }
 
 .campaign-editor :where(input, select, textarea),
-.decoder-workspace select {
+.wavepx-workspace select {
   min-height: 46px;
   padding: 10px 12px;
   border: 1px solid var(--atlas-line-strong);
@@ -1187,7 +1189,7 @@ textarea {
   min-height: 350px;
 }
 
-.decoder-workspace {
+.wavepx-workspace {
   min-height: 690px;
   border: 1px solid var(--atlas-line);
   border-radius: 12px;
@@ -1195,35 +1197,48 @@ textarea {
   background: var(--atlas-paper);
 }
 
-.decoder-workspace > header {
-  min-height: 104px;
-  padding: 18px 22px;
+.wavepx-header {
+  min-height: 126px;
+  padding: 22px 26px;
   display: flex;
-  align-items: end;
+  align-items: center;
   justify-content: space-between;
   gap: 24px;
   background: var(--atlas-navy);
   color: #fffdf7;
 }
 
-.decoder-workspace > header h3 {
-  margin: 4px 0 2px;
-  font-size: 1.45rem;
+.wavepx-header h2 {
+  margin: 5px 0 4px;
+  font-size: 1.7rem;
   letter-spacing: -.025em;
 }
 
-.decoder-workspace > header p {
+.wavepx-header p {
   margin: 0;
   color: #b7c8ce;
   font-size: .78rem;
 }
 
-.decoder-workspace > header .back-link { color: #92b8ff; }
-.decoder-workspace > header label { min-width: 330px; color: #dce7eb; }
-.decoder-workspace > header label span { display: block; margin-block-end: 5px; font-size: .7rem; }
-.decoder-workspace .broadcast-console { padding: 24px; }
-.decoder-workspace .mode-tabs { max-width: 460px; border: 1px solid var(--atlas-line); border-radius: 8px; overflow: hidden; }
-.decoder-workspace .mode-tabs button { min-height: 46px; font-size: .78rem; }
+.wavepx-kicker { color: #8fc7ff; font-size: .7rem; font-weight: 760; letter-spacing: .08em; text-transform: uppercase; }
+.wavepx-header label { min-width: 360px; color: #dce7eb; }
+.wavepx-header label span { display: block; margin-block-end: 6px; font-size: .7rem; }
+.wavepx-header select { width: 100%; }
+.wavepx-summary {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.5fr) minmax(130px, .7fr) minmax(220px, 1fr) minmax(90px, .45fr);
+  border-block-end: 1px solid var(--atlas-line);
+  background: #eef2ef;
+}
+.wavepx-summary > span { min-width: 0; padding: 13px 18px; display: flex; flex-direction: column; gap: 5px; border-inline-end: 1px solid var(--atlas-line); }
+.wavepx-summary > span:last-child { border-inline-end: 0; }
+.wavepx-summary small { color: var(--atlas-muted); font-size: .66rem; font-weight: 720; text-transform: uppercase; letter-spacing: .04em; }
+.wavepx-summary strong,
+.wavepx-summary code { overflow: hidden; color: var(--atlas-ink); font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.wavepx-workspace > .empty { min-height: 420px; display: grid; place-items: center; }
+.wavepx-workspace .broadcast-console { padding: 24px; }
+.wavepx-workspace .mode-tabs { max-width: 460px; border: 1px solid var(--atlas-line); border-radius: 8px; overflow: hidden; }
+.wavepx-workspace .mode-tabs button { min-height: 46px; font-size: .78rem; }
 .audio-preview {
   margin-block: 18px 14px;
   padding: 16px;
@@ -1239,8 +1254,8 @@ textarea {
 .audio-preview strong { color: var(--atlas-ink); font-size: .95rem; }
 .audio-preview span { color: var(--atlas-muted); font-size: .74rem; }
 .audio-preview .action-line { margin: 0; flex-wrap: nowrap; }
-.decoder-workspace .program-strip { margin-block-start: 16px; border-radius: 8px; overflow: hidden; }
-.decoder-workspace .station-state { margin-block-start: 0; border-radius: 7px; }
+.wavepx-workspace .program-strip { margin-block-start: 16px; border-radius: 8px; overflow: hidden; }
+.wavepx-workspace .station-state { margin-block-start: 0; border-radius: 7px; }
 
 /* Keep the other operational surfaces in the same system. */
 .publish-header,
@@ -1505,16 +1520,23 @@ textarea {
     margin-block-start: 16px;
   }
 
-  .decoder-workspace > header {
+  .wavepx-header {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .decoder-workspace > header label {
+  .wavepx-header label {
     min-width: 0;
   }
 
-  .decoder-workspace .broadcast-console {
+  .wavepx-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .wavepx-summary > span:nth-child(2) { border-inline-end: 0; }
+  .wavepx-summary > span:nth-child(-n + 2) { border-block-end: 1px solid var(--atlas-line); }
+
+  .wavepx-workspace .broadcast-console {
     padding: 14px;
   }
 

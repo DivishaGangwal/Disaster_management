@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { TIME } from '@dsm/contracts';
-import { e7ToFloat } from '@dsm/codec';
+import { e7ToFloat } from './coordinates';
 import type { GatewayAudit, Incident, RegionalRecord } from './types';
 import { isOperationallyUsable } from './operational-status';
+import { reconcileKeyed } from './keyed-reconciler';
 
 type Filter = 'incidents' | 'centres' | 'routes' | 'hazards' | 'gateways';
 
@@ -23,11 +24,22 @@ interface Props {
   compact?: boolean;
 }
 
+type OperationFeature = GeoJSON.Feature<GeoJSON.Point, GeoJSON.GeoJsonProperties>;
+
+interface OperationMarker {
+  readonly marker: maplibregl.Marker;
+  readonly element: HTMLButtonElement;
+  readonly glyph: HTMLSpanElement;
+  readonly label: HTMLElement;
+  properties: Record<string, string>;
+  coordinates: [number, number];
+}
+
 export function OperationsMap({ incidents, records, gateways, selected, onSelect, onQuickState, pick, onPick, compact }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap>();
   const pickMarker = useRef<maplibregl.Marker>();
-  const operationMarkers = useRef<Map<string, maplibregl.Marker>>(new Map());
+  const operationMarkers = useRef<Map<string, OperationMarker>>(new Map());
   const initialSelection = useRef(selected);
   const callbacks = useRef({ onSelect, onQuickState, onPick });
   const [ready, setReady] = useState(false);
@@ -82,33 +94,60 @@ export function OperationsMap({ incidents, records, gateways, selected, onSelect
       instance.on('zoomend', () => setMapReadout((current) => ({ ...current, zoom: instance.getZoom() })));
       setReady(true);
     });
-    return () => { operationMarkers.current.forEach((marker) => marker.remove()); operationMarkers.current.clear(); instance.remove(); map.current = undefined; setCreated(false); };
+    return () => { operationMarkers.current.forEach((entry) => entry.marker.remove()); operationMarkers.current.clear(); instance.remove(); map.current = undefined; setCreated(false); };
   }, []);
 
   useEffect(() => {
     if (!ready || !map.current) return;
-    operationMarkers.current.forEach((marker) => marker.remove());
-    operationMarkers.current.clear();
-    for (const feature of data.features) {
-      if (feature.geometry.type !== 'Point' || !feature.properties) continue;
+    const features = data.features.filter((feature): feature is OperationFeature => feature.geometry.type === 'Point' && Boolean(feature.properties));
+    const update = (entry: OperationMarker, feature: OperationFeature) => {
       const properties = feature.properties as Record<string, string>;
       const coordinates = feature.geometry.coordinates as [number, number];
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'ops-map-marker marker-' + properties.featureType + ' status-' + properties.status + (properties.id === selected ? ' selected' : '');
-      button.setAttribute('aria-label', properties.label + ': ' + properties.subtitle);
-      button.title = properties.label + ' — ' + properties.subtitle;
-      const glyph = document.createElement('span'); glyph.textContent = properties.glyph;
-      const label = document.createElement('small'); label.textContent = properties.label;
-      button.append(glyph, label);
-      button.addEventListener('click', (event) => {
-        event.stopPropagation();
-        callbacks.current.onSelect(properties.id);
-        showPopup(map.current!, coordinates, properties, callbacks.current.onQuickState);
-      });
-      operationMarkers.current.set(properties.id, new maplibregl.Marker({ element: button, anchor: 'center' }).setLngLat(coordinates).addTo(map.current));
-    }
-  }, [data, ready, selected]);
+      entry.properties = properties;
+      entry.coordinates = coordinates;
+      entry.element.className = 'ops-map-marker marker-' + properties.featureType + ' status-' + properties.status;
+      entry.element.classList.toggle('selected', properties.id === selected);
+      entry.element.setAttribute('aria-label', properties.label + ': ' + properties.subtitle);
+      entry.element.title = properties.label + ' — ' + properties.subtitle;
+      entry.glyph.textContent = properties.glyph;
+      entry.label.textContent = properties.label;
+      entry.marker.setLngLat(coordinates);
+    };
+    reconcileKeyed(
+      operationMarkers.current,
+      features,
+      (feature) => String(feature.properties?.id),
+      (feature) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        const glyph = document.createElement('span');
+        const label = document.createElement('small');
+        const entry: OperationMarker = {
+          marker: new maplibregl.Marker({ element: button, anchor: 'center' }),
+          element: button,
+          glyph,
+          label,
+          properties: {},
+          coordinates: [0, 0],
+        };
+        button.append(glyph, label);
+        button.addEventListener('click', (event) => {
+          event.stopPropagation();
+          callbacks.current.onSelect(entry.properties.id);
+          showPopup(map.current!, entry.coordinates, entry.properties, callbacks.current.onQuickState);
+        });
+        update(entry, feature);
+        entry.marker.addTo(map.current!);
+        return entry;
+      },
+      update,
+      (entry) => entry.marker.remove(),
+    );
+  }, [data, ready]);
+
+  useEffect(() => {
+    operationMarkers.current.forEach((entry, id) => entry.element.classList.toggle('selected', id === selected));
+  }, [selected]);
 
   useEffect(() => {
     const instance = map.current;
@@ -149,7 +188,7 @@ export function OperationsMap({ incidents, records, gateways, selected, onSelect
 
 function featureCollection(incidents: Incident[], records: RegionalRecord[], gateways: GatewayAudit | undefined, filters: Set<Filter>): GeoJSON.FeatureCollection<GeoJSON.Point> {
   const features: GeoJSON.Feature<GeoJSON.Point>[] = [];
-  if (filters.has('incidents')) for (const item of incidents) if (item.latE7 != null && item.lonE7 != null) features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [e7ToFloat(item.lonE7), e7ToFloat(item.latE7)] }, properties: { id: item.incidentId, featureType: 'incident', glyph: `S${item.severity}`, label: categoryName(item.category), subtitle: `${item.peopleTotal ?? 0} people · ${item.observationCount} gateway observation${item.observationCount === 1 ? '' : 's'} · position ${locationAge(item)} old${item.locationAccuracyM == null ? '' : ` · ±${item.locationAccuracyM}m`}`, status: item.severity >= 3 ? 'critical' : item.severity === 2 ? 'urgent' : 'active', state: item.state, severity: item.severity } });
+  if (filters.has('incidents')) for (const item of incidents) if (item.latE7 != null && item.lonE7 != null) features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [e7ToFloat(item.lonE7), e7ToFloat(item.latE7)] }, properties: { id: item.incidentId, featureType: 'incident', glyph: `S${item.severity}`, label: categoryName(item.category), subtitle: `${item.peopleTotal ?? 0} people · ${item.observationCount} gateway observation${item.observationCount === 1 ? '' : 's'} · position ${locationAge(item)} old${item.locationAccuracyM == null ? '' : ` · ±${item.locationAccuracyM}m`}`, status: item.severity >= 3 ? 'critical' : item.severity === 2 ? 'urgent' : item.severity === 1 ? 'assistance' : 'information', state: item.state, severity: item.severity } });
   for (const item of records) {
     const group: Filter = item.kind === 'route' ? 'routes' : item.kind === 'hazard' ? 'hazards' : 'centres';
     if (!filters.has(group)) continue;

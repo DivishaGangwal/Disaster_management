@@ -47,7 +47,7 @@ Colour is semantic and must be paired with a label, glyph, number, shape, or sta
 
 ### Global shell
 
-The desktop shell uses a 238 px navy command rail, a compact top bar, and a narrow live-metrics strip. Navigation is operational: **Coordinate**, **Publish**, **Campaigns**, and **Packet network**. Connection state, operator identity, jurisdiction, and refresh/sign-out remain visible without competing with the work.
+The desktop shell uses a 238 px navy command rail, a compact top bar, and a narrow live-metrics strip. Navigation is operational: **Coordinate**, **Publish**, **Campaigns**, **WavePX**, and **Packet network**. Connection state, operator identity, jurisdiction, and refresh/sign-out remain visible without competing with the work.
 
 ### Coordinate: map first
 
@@ -69,7 +69,7 @@ Publishing remains map-first: one working map, one object-control rail, then the
 Campaigns open on the version register. The selected campaign owns the focus pane with its lifecycle, exact content, budget, approval digest, and allowed next action.
 
 - **Compose** is a conditional workspace entered from the register; it is not a permanent column.
-- **Audio decoder** is a separate station workspace with its own navy header and approved-campaign selector.
+- **WavePX** is a separate station workspace with its own navy header and prepared-artifact selector. It owns both transmit and decode modes.
 - The lifecycle is explicit: Draft → Budget checked → Authority approved → Broadcast desk → Audio ready → Software decode passed → Scheduled → Playback recorded → Archived.
 - The lifecycle is a wrapping grid: five columns on desktop and three columns on mobile. Do not turn it into a horizontally scrolling strip.
 - Actions unlock only when their prerequisite state is satisfied. Disabled controls and guidance must explain why.
