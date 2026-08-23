@@ -106,6 +106,13 @@ export class OperationsService {
     private readonly ingest: IngestService,
     private readonly outbound: OutboundService,
   ) {
+    let migratedCampaign = false;
+    for (const campaign of store.campaigns.values()) {
+      if ((campaign as { packetPreview?: CampaignRecord['packetPreview'] }).packetPreview) continue;
+      store.campaigns.set(campaign.campaignId, this.withPacketPreview(campaign));
+      migratedCampaign = true;
+    }
+    if (migratedCampaign) store.saveOperations();
     for (const responder of store.responders.values()) {
       if (!responder.incidentId) continue;
       const incident = store.incidents.view(responder.incidentId);
@@ -359,7 +366,7 @@ export class OperationsService {
   }
 
   listCampaigns(): readonly CampaignRecord[] {
-    return [...this.store.campaigns.values()].sort((a, b) => b.updatedAtMs - a.updatedAtMs);
+    return [...this.store.campaigns.values()].map((campaign) => this.withPacketPreview(campaign)).sort((a, b) => b.updatedAtMs - a.updatedAtMs);
   }
 
   campaignPreview(campaignId: string): CampaignRecord['preview'] {
@@ -708,7 +715,41 @@ export class OperationsService {
   private requireCampaign(campaignId: string): CampaignRecord {
     const campaign = this.store.campaigns.get(campaignId);
     if (!campaign) throw new Error('unknown campaign');
-    return campaign;
+    return this.withPacketPreview(campaign);
+  }
+
+  /** Rebuild evidence added after the first campaign schema shipped. */
+  private withPacketPreview(campaign: CampaignRecord): CampaignRecord {
+    const existing = (campaign as { packetPreview?: CampaignRecord['packetPreview'] }).packetPreview;
+    if (existing) return campaign;
+    const bytes = Buffer.from(campaign.packetBytesBase64, 'base64');
+    const decoded = decodePacket(bytes);
+    if (!decoded.ok) {
+      return {
+        ...campaign,
+        packetPreview: {
+          typeName: messageTypeName(campaign.messageType) ?? `TYPE_${campaign.messageType}`,
+          family: packetFamily(campaign.messageType),
+          sourceLabel: 'Stored authority packet',
+          payload: { migrationError: decoded.reason },
+          bytesHex: bytes.toString('hex'),
+          totalBytes: bytes.length,
+          mapOperations: [],
+        },
+      };
+    }
+    return {
+      ...campaign,
+      packetPreview: {
+        typeName: messageTypeName(decoded.packet.header.type) ?? `TYPE_${decoded.packet.header.type}`,
+        family: packetFamily(decoded.packet.header.type),
+        sourceLabel: sourceClassLabel(decoded.packet.header.sourceClass),
+        payload: jsonSafe(decoded.packet.payload) as Record<string, unknown>,
+        bytesHex: bytes.toString('hex'),
+        totalBytes: bytes.length,
+        mapOperations: toMapOperations(decoded.packet, 'tier2-direct', toEpochS(campaign.updatedAtMs)),
+      },
+    };
   }
 
   private audit(action: string, subject: string, detail: string): void {

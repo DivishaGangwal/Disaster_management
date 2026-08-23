@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 import { createBackend } from './server.js';
 
 test('Assam demo seed supplies a populated, idempotent realtime command picture', async () => {
@@ -85,6 +86,32 @@ test('approved campaign becomes an exact, persisted WavePX frame program', async
     assert.equal(persisted?.decodeResult?.passed, true);
     assert.equal(persisted?.state, 'played');
     assert.equal(persisted?.broadcastEvents?.length, 2);
+    await restored.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('legacy campaigns rebuild packet preview evidence from stored canonical bytes', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'dsm-legacy-campaign-'));
+  const databasePath = join(directory, 'operations.sqlite');
+  try {
+    const backend = createBackend({ databasePath });
+    const created = backend.operations!.createCampaign({ title: 'Legacy flood notice', summary: 'Move to higher ground.' });
+    await backend.close();
+
+    const database = new DatabaseSync(databasePath);
+    const row = database.prepare('SELECT value FROM app_snapshot WHERE key = ?').get('operations') as { value: string };
+    const snapshot = JSON.parse(row.value) as { campaigns: Array<Record<string, unknown>> };
+    delete snapshot.campaigns.find((campaign) => campaign['campaignId'] === created.campaignId)?.['packetPreview'];
+    database.prepare('UPDATE app_snapshot SET value = ? WHERE key = ?').run(JSON.stringify(snapshot), 'operations');
+    database.close();
+
+    const restored = createBackend({ databasePath, seed: false });
+    const migrated = restored.operations!.listCampaigns().find((campaign) => campaign.campaignId === created.campaignId);
+    assert.equal(migrated?.packetPreview.typeName, 'OFFICIAL_ALERT');
+    assert.equal(migrated?.packetPreview.totalBytes, Buffer.from(created.packetBytesBase64, 'base64').length);
+    assert.equal(migrated?.packetPreview.bytesHex.length, migrated!.packetPreview.totalBytes * 2);
     await restored.close();
   } finally {
     rmSync(directory, { recursive: true, force: true });

@@ -77,7 +77,7 @@ export interface Campaign {
   readonly packetBytesBase64: string;
   readonly messageType: number;
   readonly priority: number;
-  readonly packetPreview: {
+  readonly packetPreview?: {
     readonly typeName: string;
     readonly family: string;
     readonly sourceLabel: string;
