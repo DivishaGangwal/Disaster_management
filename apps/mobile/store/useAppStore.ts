@@ -11,6 +11,20 @@ export type OfflinePackStatus = 'checking' | 'downloading' | 'ready' | 'not-down
 export interface RuntimeIncident { id: string; category: number; severity: number; peopleTotal?: number; injured?: number; updatedAtS: number; }
 export interface RuntimeMapObject { objectId: string; kind: string; label: string; state?: number; latE7?: number; lonE7?: number; asOfS: number; provenance: string; }
 export interface RuntimeDiagnostic { category: string; name: string; severity: string; atMs: number; transport?: string; packetId?: string; result?: string; reason?: string; }
+export interface ReceivedPacketImpact { kind: string; label: string; detail: string; objectId?: string; applied: boolean; }
+export interface ReceivedPacketSummary {
+  packetId: string;
+  campaignId?: string;
+  campaignVersion?: number;
+  typeName: string;
+  message: string;
+  severity: number;
+  receivedAtMs: number;
+  transport: 'tier2-mic' | 'tier2-direct';
+  outcome: 'applied' | 'stored' | 'duplicate' | 'rejected';
+  payload: Record<string, unknown>;
+  impacts: ReceivedPacketImpact[];
+}
 
 interface AppState {
   // Profile & role
@@ -82,6 +96,8 @@ interface AppState {
   setTier2Listening: (v: boolean) => void;
   tier2Metrics?: Tier2Metrics;
   setTier2Metrics: (value: Tier2Metrics) => void;
+  receivedPackets: ReceivedPacketSummary[];
+  addReceivedPacket: (value: ReceivedPacketSummary) => void;
 
   // Language
   language: string;
@@ -167,6 +183,8 @@ export const useAppStore = create<AppState>()(
       setTier2Listening: (v) => set({ tier2Listening: v }),
       tier2Metrics: undefined,
       setTier2Metrics: (tier2Metrics) => set({ tier2Metrics }),
+      receivedPackets: [],
+      addReceivedPacket: (value) => set((state) => ({ receivedPackets: [value, ...state.receivedPackets.filter((item) => item.packetId !== value.packetId)].slice(0, 20) })),
 
       // Language
       language: 'en',
@@ -182,7 +200,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'dsm-app-state',
-      version: 2,
+      version: 3,
       migrate: (persisted) => {
         const previous = persisted as Partial<AppState>;
         const staleRegion = !previous.selectedRegion || previous.selectedRegion.includes('Mumbai') || previous.selectedRegion.endsWith('DISTRICT');
@@ -197,6 +215,7 @@ export const useAppStore = create<AppState>()(
         transportMode: state.transportMode,
         activeIncidentId: state.activeIncidentId,
         hasActiveSos: state.hasActiveSos,
+        receivedPackets: state.receivedPackets,
       }),
     },
   ),

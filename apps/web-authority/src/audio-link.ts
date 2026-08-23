@@ -79,7 +79,7 @@ export class Tier2AudioLink {
     }
   }
 
-  async decodeAudioFile(file: File, onProgress?: (processed: number, total: number) => void): Promise<readonly Uint8Array[]> {
+  async decodeAudioFile(file: Blob, onProgress?: (processed: number, total: number) => void): Promise<readonly Uint8Array[]> {
     await this.init();
     this.sonic!.stopListening();
     this.decoding = true;

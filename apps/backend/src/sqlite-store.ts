@@ -55,6 +55,16 @@ export interface CampaignRecord {
   readonly severity: number;
   readonly category: number;
   readonly instruction: number;
+  /** Human-readable evidence derived from the exact canonical packet bytes. */
+  readonly packetPreview: {
+    readonly typeName: string;
+    readonly family: string;
+    readonly sourceLabel: string;
+    readonly payload: Record<string, unknown>;
+    readonly bytesHex: string;
+    readonly totalBytes: number;
+    readonly mapOperations: readonly MapOperation[];
+  };
   readonly broadcastProgram?: BroadcastProgramRecord;
   readonly decodeResult?: BroadcastDecodeResult;
   readonly broadcastEvents?: readonly BroadcastEventRecord[];

@@ -74,6 +74,18 @@ export interface Campaign {
   readonly severity: number;
   readonly category: number;
   readonly instruction: number;
+  readonly packetBytesBase64: string;
+  readonly messageType: number;
+  readonly priority: number;
+  readonly packetPreview: {
+    readonly typeName: string;
+    readonly family: string;
+    readonly sourceLabel: string;
+    readonly payload: Record<string, unknown>;
+    readonly bytesHex: string;
+    readonly totalBytes: number;
+    readonly mapOperations: readonly DecodedMapOperation[];
+  };
   readonly broadcastProgram?: BroadcastProgram;
   readonly decodeResult?: BroadcastDecodeResult;
   readonly broadcastEvents?: readonly BroadcastEvent[];

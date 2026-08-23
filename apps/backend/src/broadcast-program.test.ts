@@ -171,6 +171,14 @@ test('campaign composer emits distinct canonical alert and regional packet types
     assert.equal(alert.radiusM, 7500);
     assert.equal(regional.messageType, 0x40);
     assert.equal(regional.dataType, 'regional-record');
+    assert.equal(alert.packetPreview.typeName, 'OFFICIAL_ALERT');
+    assert.equal(alert.packetPreview.mapOperations.length, 0, 'official instructions display without inventing a map mutation');
+    assert.equal(regional.packetPreview.typeName, 'SHELTER');
+    assert.deepEqual(regional.packetPreview.mapOperations.map((operation) => operation.kind), ['upsert-resource']);
+    const regionalImpact = regional.packetPreview.mapOperations[0];
+    if (!regionalImpact || regionalImpact.kind !== 'upsert-resource') assert.fail('expected a resource map preview');
+    assert.equal(regionalImpact.objectId, regional.objectId);
+    assert.equal(regional.packetPreview.bytesHex.length, regional.packetPreview.totalBytes * 2);
     assert.notEqual(alert.packetId, regional.packetId);
     assert.ok(alert.preview.totalTier2Bytes > 0);
     assert.ok(regional.preview.totalTier2Bytes > 0);

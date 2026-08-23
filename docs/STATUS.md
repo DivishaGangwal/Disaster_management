@@ -33,6 +33,8 @@ The Android command compiled the Expo application and the autolinked `dsm-androi
 - Conditional two-way gateway wiring. Set `EXPO_PUBLIC_DSM_BACKEND_URL` to the backend origin; only a successful identity probe permits upload, and downloaded packets re-enter validation before relay.
 - Backend and admin console for incident coordination, responder lifecycle, regional publishing, campaign approval, audio transmission/reception and locally stored packet evidence.
 - Android WavePX listener with explicit start/stop, a 120-second bound, microphone permission, native 48 kHz PCM capture, four-ABI native decoder build, frame metrics and canonical packet-to-map ingestion.
+- Integrated campaign desk showing the decoded message, canonical packet bytes and expected map impact before WavePX generation, local decode testing or transmission.
+- Mobile received-packet ledger showing the decoded message, ingest outcome and exact map impact, with direct navigation to the changed map object and SQLite-backed recovery across restarts.
 - Truthful delivery semantics. A direct receipt means another phone stored a copy; it does not mean rescue is coming. Neither mobile nor web claims to follow a packet globally after it leaves an observed device.
 
 ## Explicitly deferred or unmeasured

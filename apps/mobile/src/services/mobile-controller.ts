@@ -13,6 +13,8 @@ import {
   ReplyCapability,
   Severity,
   TIER2,
+  messageTypeName,
+  type MapOperation,
   type AudioInputAdapter,
   type LocalProfile,
   type Tier2RawFrame,
@@ -22,7 +24,7 @@ import { MemoryEventSink } from '@dsm/store';
 import { createNativeTransport, createNativeWavePxAudioInput, requestNativeWavePxPermission } from '@dsm/android-radio-bridge';
 import { HttpGatewayClient } from '@dsm/gateway-client';
 import { GatewaySynchronizer } from '@dsm/node-runtime';
-import { ASSAM_CONTENT_PACK, PackResolver } from '@dsm/mapkit';
+import { ASSAM_CONTENT_PACK, PackResolver, toMapOperations } from '@dsm/mapkit';
 import { Tier2Receiver } from '@dsm/tier2';
 import { AppRuntime } from './app-runtime';
 import { openMobileRepositories } from './sqlite-repositories';
@@ -184,14 +186,32 @@ class MobileController {
     });
     useAppStore.getState().setTier2Metrics(this.wavePxReceiver.metrics());
     if (!recovered.packet) { await this.refresh(runtime); return; }
+    const decoded = decodePacket(recovered.packet.bytes);
+    const mapOperations = decoded.ok ? toMapOperations(decoded.packet, recovered.packet.source, toEpochS(recovered.packet.recoveredAtMs)) : [];
     const result = await runtime.engine.ingest(recovered.packet.bytes, recovered.packet.source, {
       atMs: recovered.packet.recoveredAtMs,
       ...(this.wavePxReceiver.metrics().campaignId ? { campaignId: this.wavePxReceiver.metrics().campaignId } : {}),
     });
     if (result.accepted) {
-      const decoded = decodePacket(recovered.packet.bytes);
       if (decoded.ok) await notifyPacketReceived(decoded.packet.header.priority, decoded.packet.header.packetId);
       if (runtime.relay.isRunning) await runtime.relay.refreshAdvertisement();
+    }
+    if (decoded.ok) {
+      const payload = jsonSafePayload(decoded.packet.payload) as Record<string, unknown>;
+      const campaignId = this.wavePxReceiver.metrics().campaignId ?? stringValue(payload['campaignId']);
+      useAppStore.getState().addReceivedPacket({
+        packetId: decoded.packet.header.packetId,
+        ...(campaignId ? { campaignId } : {}),
+        ...(this.wavePxReceiver.metrics().campaignVersion !== undefined ? { campaignVersion: this.wavePxReceiver.metrics().campaignVersion } : {}),
+        typeName: messageTypeName(decoded.packet.header.type) ?? `TYPE_${decoded.packet.header.type}`,
+        message: packetMessage(payload, messageTypeName(decoded.packet.header.type)),
+        severity: decoded.packet.header.severity,
+        receivedAtMs: recovered.packet.recoveredAtMs,
+        transport: recovered.packet.source,
+        outcome: !result.accepted ? 'rejected' : result.storeOutcome === 'duplicate' ? 'duplicate' : result.mapOperationsApplied > 0 ? 'applied' : 'stored',
+        payload,
+        impacts: packetImpacts(mapOperations, result.mapOperationsApplied),
+      });
     }
     await this.refresh(runtime);
   }
@@ -377,6 +397,59 @@ async function currentPositionWithTimeout() {
   } finally {
     if (timeout) clearTimeout(timeout);
   }
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function jsonSafePayload(value: unknown): unknown {
+  if (value instanceof Uint8Array) return { bytes: Array.from(value), byteLength: value.length };
+  if (Array.isArray(value)) return value.map(jsonSafePayload);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, jsonSafePayload(item)]));
+  return value;
+}
+
+function packetMessage(payload: Record<string, unknown>, typeName?: string): string {
+  return stringValue(payload['fallbackText'])
+    ?? stringValue(payload['fallbackLabel'])
+    ?? stringValue(payload['name'])
+    ?? `${typeName ?? 'Packet'} received and validated.`;
+}
+
+function packetImpacts(operations: readonly MapOperation[], appliedCount: number) {
+  if (operations.length === 0) return [];
+  return operations.map((operation, index) => ({
+    kind: operation.kind,
+    label: mobileMapOperationLabel(operation.kind),
+    detail: mobileMapOperationDetail(operation),
+    ...('objectId' in operation ? { objectId: operation.objectId } : 'hazardId' in operation ? { objectId: operation.hazardId } : 'routeId' in operation ? { objectId: operation.routeId } : {}),
+    applied: index < appliedCount,
+  }));
+}
+
+function mobileMapOperationLabel(kind: MapOperation['kind']): string {
+  return ({
+    'upsert-resource': 'Resource added or updated',
+    'set-resource-state': 'Resource availability changed',
+    'set-capacity': 'Resource capacity changed',
+    'upsert-hazard': 'Hazard added or updated',
+    'clear-hazard': 'Hazard cleared',
+    'set-route-state': 'Route status changed',
+    'upsert-incident-marker': 'Incident marker updated',
+    'upsert-responder-marker': 'Responder marker updated',
+    'upsert-peer-marker': 'Peer marker updated',
+    'set-incident-state': 'Incident status changed',
+    'activate-content': 'Offline content activated',
+    'tombstone-object': 'Map object removed',
+  } as Record<MapOperation['kind'], string>)[kind];
+}
+
+function mobileMapOperationDetail(operation: MapOperation): string {
+  const target = 'objectId' in operation ? operation.objectId : 'hazardId' in operation ? operation.hazardId : 'routeId' in operation ? operation.routeId : 'incidentId' in operation ? operation.incidentId : 'responderRef' in operation ? operation.responderRef : 'peerToken' in operation ? operation.peerToken : 'local map';
+  const state = 'state' in operation ? ` · state ${operation.state}` : '';
+  const coordinate = 'latE7' in operation && 'lonE7' in operation && typeof operation.latE7 === 'number' && typeof operation.lonE7 === 'number' ? ` · ${(operation.latE7 / 1e7).toFixed(5)}, ${(operation.lonE7 / 1e7).toFixed(5)}` : '';
+  return `${target}${state}${coordinate}`;
 }
 
 export const mobileController = new MobileController();

@@ -78,6 +78,16 @@ export default function HomeScreen() {
         <StatusChip label="NET" value={internetState === 'proven gateway' ? 'GW' : internetState.toUpperCase()} color={internetState === 'proven gateway' ? '#a1d494' : '#FFD60A'} />
       </View>
 
+      <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel="Open WavePX packet receiver"
+        onPress={() => router.push('/tier2')}
+        style={{ minHeight: 48, marginHorizontal: 20, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#101410', borderWidth: 1, borderColor: '#2D5A27' }}
+      >
+        <View><Text style={{ color: '#a1d494', fontSize: 11, fontWeight: '900', letterSpacing: 1 }}>WAVEPX PACKETS</Text><Text style={{ color: '#8F9991', fontSize: 11, marginTop: 3 }}>Listen, decode, and verify map changes</Text></View>
+        <Text style={{ color: '#a1d494', fontSize: 20 }}>›</Text>
+      </TouchableOpacity>
+
       {/* SOS Button — centered, with action buttons below */}
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         {/* The giant SOS circle */}

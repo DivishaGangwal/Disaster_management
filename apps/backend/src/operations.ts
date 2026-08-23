@@ -622,6 +622,7 @@ export class OperationsService {
       });
     const decoded = decodePacket(packet.bytes);
     if (!decoded.ok) throw new Error(`campaign packet failed local decode: ${decoded.reason}`);
+    const packetMapOperations = toMapOperations(decoded.packet, 'tier2-direct', toEpochS(now));
     const plan = planCampaign({
       campaignId: input.campaignId,
       campaignVersion: input.campaignVersion,
@@ -659,6 +660,15 @@ export class OperationsService {
       severity: decoded.packet.header.severity,
       category: input.category,
       instruction: input.instruction,
+      packetPreview: {
+        typeName: messageTypeName(decoded.packet.header.type) ?? `TYPE_${decoded.packet.header.type}`,
+        family: packetFamily(decoded.packet.header.type),
+        sourceLabel: sourceClassLabel(decoded.packet.header.sourceClass),
+        payload: jsonSafe(decoded.packet.payload) as Record<string, unknown>,
+        bytesHex: Buffer.from(packet.bytes).toString('hex'),
+        totalBytes: packet.bytes.length,
+        mapOperations: packetMapOperations,
+      },
       preview: {
         totalTier2Bytes: plan.manifest.totalTier2Bytes,
         totalDurationS: plan.manifest.totalDurationS,

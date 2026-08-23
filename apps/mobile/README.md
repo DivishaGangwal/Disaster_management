@@ -36,8 +36,11 @@ the live-probed mesh-to-network and network-to-mesh gateway cycle.
 The admin web console uses WavePX for microphone reception, WAV recovery,
 playback and export. The Android development build includes a bounded WavePX
 `AudioRecord` receiver whose recovered raw frames enter `Tier2Receiver` and the
-same `NodeEngine.ingest()` path as Bluetooth. Physical acoustic reliability is
-still unmeasured and must not be claimed from build evidence alone.
+same `NodeEngine.ingest()` path as Bluetooth. Accepted packets and their map
+objects are stored in SQLite; the receiver screen shows the decoded message and
+typed map impact and can open the changed object on the live map. Physical
+acoustic reliability is still unmeasured and must not be claimed from build
+evidence alone.
 
 ## Rules for this app
 

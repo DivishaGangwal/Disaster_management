@@ -39,6 +39,8 @@ No row claims 🟥: no compatible Android handset or two-device acoustic setup w
 | File export and playback | ✅ | 🟩 | The approved immutable schedule exports 48 kHz mono WAV and playback is decode-gated. |
 | Independent receiver without campaign manifest | ✅ | 🟦 | Automated tests recover and decode the packet with no preloaded manifest. |
 | Android WavePX microphone receiver | ✅ implemented, unmeasured acoustically | 🟩 | Explicit start/stop drives bounded 48 kHz `AudioRecord`; native decoding emits raw WavePX frames into `Tier2Receiver`, `NodeEngine.ingest()` and the live/persisted mobile map. |
+| Shared campaign packet and impact inspection | ✅ | 🟩 | The campaign desk and Android receiver show the decoded message, canonical packet evidence and the exact typed map operations before/after reception. |
+| Streamlined campaign-to-WavePX workflow | ✅ | 🟩 | Compose, approve, generate/decode and transmit are one guided campaign workflow, with the full WavePX station still available for direct operation. |
 
 ## Centre and map-operation pipeline
 
@@ -49,6 +51,7 @@ No row claims 🟥: no compatible Android handset or two-device acoustic setup w
 | Move or edit a centre | ✅ | 🟦 | Name, district and coordinates are encoded in the same regional packet model. |
 | Packet → WavePX → decode → map operation | ✅ | 🟦 | Tests cover create, close, move and reopen. Recovered canonical bytes are translated by the shared `toMapOperations()` path. |
 | Tier 1/gateway/Tier 2 projection agreement | ✅ | 🟦 | All paths enter `NodeEngine.ingest()` and the same deterministic `MapProjection`. |
+| Website regional update → WavePX → mobile SQLite/map | ✅ implemented, physical acoustics unmeasured | 🟩 | Website resource packets use the canonical codec; recovered mobile packets are stored in SQLite, projected through typed map operations and shown in the received-packet ledger and map. |
 | Mobile graphical/offline map renderer | ✅ implemented, device download unmeasured | 🟩 | MapLibre renders GPS and projected layers. A one-tap Assam pack downloads zooms 5–12 to persistent native storage and reports real progress, bytes and resources. |
 | Assam baseline operational registry | ✅ synthetic | 🟦 | A typed pack paints 23 Assam-focused demo objects and four corridors before packet deltas arrive. Facility labels are explicitly demo data, not an authority register. |
 
