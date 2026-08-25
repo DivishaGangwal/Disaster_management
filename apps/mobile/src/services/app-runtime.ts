@@ -31,7 +31,7 @@ import {
   type PeerRepository,
   type TransportAdapter,
 } from '@dsm/contracts';
-import { NodeEngine, RelayLoop, GatewaySynchronizer } from '@dsm/node-runtime';
+import { NodeEngine, RelayLoop, GatewaySynchronizer, type NodeEngineOptions } from '@dsm/node-runtime';
 import { RadioMedium, SimulatedTransportAdapter, type AdapterSelection } from '@dsm/transport-core';
 import { MapProjection, PackResolver } from '@dsm/mapkit';
 import { newNodeToken, newSourceId } from '@dsm/codec';
@@ -49,6 +49,10 @@ export interface RuntimeConfig {
   readonly mapObjects?: MapObjectRepository;
   readonly events?: EventSink;
   readonly adapterFactory?: (selection: AdapterSelection) => Promise<TransportAdapter>;
+  /** Forwarded to NodeEngine. Lets the app react to the POLICY decision for
+   *  an ingested packet rather than re-deriving one from the raw transport
+   *  event -- see notifications.ts. */
+  readonly onIngested?: NodeEngineOptions['onIngested'];
 }
 
 export class AppRuntime {
@@ -86,6 +90,7 @@ export class AppRuntime {
       ...(config.files ? { files: config.files } : {}),
       ...(config.mapObjects ? { mapObjects: config.mapObjects } : {}),
       ...(config.events ? { events: config.events } : {}),
+      ...(config.onIngested ? { onIngested: config.onIngested } : {}),
       projection: new MapProjection(resolver),
     });
 

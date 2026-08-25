@@ -54,6 +54,7 @@ class MobileController {
   private readonly wavePxReceiver = new Tier2Receiver();
   private wavePxTimeout?: ReturnType<typeof setTimeout>;
   private removeWavePxFrameListener?: () => void;
+  private removeAdapterListener?: () => void;
 
   async initialize(role: UserRole = useAppStore.getState().role) {
     if (this.runtime) return this.runtime;
@@ -68,6 +69,8 @@ class MobileController {
     this.removeWavePxFrameListener?.();
     this.removeWavePxFrameListener = undefined;
     this.wavePxInput = undefined;
+    this.removeAdapterListener?.();
+    this.removeAdapterListener = undefined;
     if (this.runtime?.relay.isRunning) await this.runtime.stopRelay();
     this.runtime = undefined;
     return this.initialize(role);
@@ -97,6 +100,17 @@ class MobileController {
       files: repositories.files,
       mapObjects: repositories.mapObjects,
       events: new MemoryEventSink(),
+      // 01-... "Notification policy" is the policy engine's job, so the alert
+      // decision is taken there and merely rendered here. Duplicates never
+      // re-notify (REL-006).
+      onIngested: (result, transport) => {
+        if (!result.accepted || result.storeOutcome === 'duplicate') return;
+        if (!result.policy || !result.packetId) return;
+        // Locally created packets are confirmed by the SOS screen itself; a
+        // notification for your own action is noise.
+        if (transport === 'local') return;
+        void notifyPacketReceived(result.policy.alert, result.packetId, transport);
+      },
       ...(!expoGo ? { adapterFactory: createNativeTransport } : {}),
     }, new PackResolver(ASSAM_CONTENT_PACK));
     const report = await runtime.getCapabilities();
@@ -127,15 +141,22 @@ class MobileController {
     await this.refresh(runtime);
     void this.refreshOfflineMap();
     await configureNotificationChannels();
-    runtime.adapter.addEventListener((event) => {
+    // Handle retained so reconfigureRole() can detach it. Without this the
+    // listener leaked on every role change: create() registers a new one,
+    // the old adapter subscription stays live, and each native transport
+    // event is then delivered N times -- which is why relay/peer/session
+    // rows appeared 7-8x in the diagnostics log while locally-created
+    // packet rows (emitted by NodeEngine, not the transport) appeared once.
+    this.removeAdapterListener?.();
+    this.removeAdapterListener = runtime.adapter.addEventListener((event) => {
       const current = useAppStore.getState();
       if (event.kind === 'peer-observed') void runtime.engine.peers.list(Date.now()).then((peers) => current.setPeersRecentlySeen(peers.length));
       if (event.kind === 'relay-state-changed') current.setRelayActive(!['stopped', 'permission-required', 'error-user-action-required'].includes(event.state));
       if (event.kind === 'capability-changed') { current.setBatteryPercent(event.report.batteryPercent); current.setBatteryTemperatureC(event.report.batteryTemperatureC); current.setThermalState(event.report.thermalThrottled ? 'limited' : 'normal'); }
-      if (event.kind === 'record-received') {
-        const decoded = decodePacket(event.bytes);
-        if (decoded.ok) void notifyPacketReceived(decoded.packet.header.priority, decoded.packet.header.packetId);
-      }
+      // Notifications are NOT raised here any more. This event fires for every
+      // record off the radio -- including INVENTORY -- so notifying from it
+      // meant an emergency-channel alert per inventory exchange. The engine's
+      // onIngested hook carries the policy decision instead.
       if (event.kind === 'error') current.setRuntimeError(event.message);
     });
     if (!expoGo) {
@@ -193,7 +214,9 @@ class MobileController {
       ...(this.wavePxReceiver.metrics().campaignId ? { campaignId: this.wavePxReceiver.metrics().campaignId } : {}),
     });
     if (result.accepted) {
-      if (decoded.ok) await notifyPacketReceived(decoded.packet.header.priority, decoded.packet.header.packetId);
+      // No notify() here: engine.ingest() already fired the onIngested hook for
+      // this packet, using the policy engine's alert decision. Calling again
+      // would double-notify every Tier 2 recovery.
       if (runtime.relay.isRunning) await runtime.relay.refreshAdvertisement();
     }
     if (decoded.ok) {
@@ -293,7 +316,13 @@ class MobileController {
   async setRelay(active: boolean) {
     const runtime = await this.initialize();
     if (active) await runtime.startRelay(); else await runtime.stopRelay();
-    useAppStore.getState().setRelayActive(active);
+    const state = useAppStore.getState();
+    state.setRelayActive(active);
+    // Peer count is only ever refreshed by a peer-observed event, and peer
+    // records stay inside PEER_OBSERVATION_RETENTION_S (30 min) regardless.
+    // So a stopped relay -- or a switched-off radio -- kept reporting the
+    // last seen count indefinitely. Not scanning means no current peers.
+    if (!active) state.setPeersRecentlySeen(0);
   }
 
   async responderTransition(action: 'accepted' | 'declined' | 'en-route' | 'arrived' | 'resolved') {

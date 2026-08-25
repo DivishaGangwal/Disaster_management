@@ -66,6 +66,19 @@ export interface NodeEngineOptions {
   readonly projection?: MapProjection;
   readonly displayRadiusM?: number;
   readonly now?: () => number;
+  /**
+   * Called once per ingest, whatever the outcome.
+   *
+   * Exists so a platform layer can react to the POLICY ENGINE's decision
+   * instead of re-deriving one. The mobile notification path used to fire
+   * off the raw transport event, which meant it notified for INVENTORY
+   * records (priority RESPONSE_CONTROL) on the emergency channel roughly
+   * once a minute, and re-notified for duplicates.
+   *
+   * The engine stays platform-agnostic: it hands over a result, it does not
+   * know what a notification is.
+   */
+  readonly onIngested?: (result: IngestResult, transport: TransportKind) => void;
 }
 
 export interface IngestResult {
@@ -101,6 +114,35 @@ export class NodeEngine {
   private storagePressure: 'ok' | 'high' | 'critical' = 'ok';
   private coarseLocation?: { latE7: number; lonE7: number };
   private queueEpoch = 0;
+  /**
+   * Most urgent priority currently waiting to be relayed, advertised so a peer
+   * can decide whether a session is worth opening (02-... "Highest waiting
+   * priority"). LOWER is more urgent, so an empty queue is the LOWEST class --
+   * this used to be hardcoded to 0, which made every node permanently claim
+   * life-critical traffic.
+   *
+   * Maintained as a running minimum on insert and recomputed exactly in
+   * maintain(), because a minimum cannot rise again on its own when the packet
+   * that set it expires. Between those points the value can only be too
+   * urgent, never not urgent enough, which costs an extra session rather than
+   * a missed one.
+   */
+  private waitingPriority: number = Priority.FILE_FRAGMENT;
+  /**
+   * Order-independent 16-bit fingerprint of the relayable set (02-... "Compact
+   * inventory hint": a low-cost probability that useful packets differ).
+   *
+   * This is NOT queueEpoch. The epoch says "my queue changed since you last
+   * saw me" and is self-referential; two peers cannot compare epochs to learn
+   * whether they hold the same packets. This digest they can compare directly.
+   *
+   * XOR-folded so insertion order does not matter, and recomputed in maintain()
+   * because eviction happens inside the repository and cannot be XORed back
+   * out. It is therefore a HINT: a mismatch is reliable, a match is probable.
+   * Nothing gates a session on it today; anything that later skips work on a
+   * match must account for that.
+   */
+  private inventoryDigest = 0;
   private gatewayProven = false;
   private gatewayProvenAtMs?: number;
 
@@ -128,6 +170,16 @@ export class NodeEngine {
 
   get currentQueueEpoch(): number {
     return this.queueEpoch;
+  }
+
+  /** Most urgent waiting priority; Priority.FILE_FRAGMENT (7) when nothing waits. */
+  get currentHighestWaitingPriority(): number {
+    return this.waitingPriority;
+  }
+
+  /** 16-bit fingerprint of the relayable set. Advisory: see inventoryDigest. */
+  get currentInventoryHint(): number {
+    return this.inventoryDigest;
   }
 
   setBatteryBand(band: number): void {
@@ -172,6 +224,16 @@ export class NodeEngine {
     bytes: Uint8Array,
     transport: TransportKind,
     meta: { readonly previousHopToken?: string; readonly atMs?: number; readonly campaignId?: string } = {},
+  ): Promise<IngestResult> {
+    const result = await this.ingestInternal(bytes, transport, meta);
+    this.options.onIngested?.(result, transport);
+    return result;
+  }
+
+  private async ingestInternal(
+    bytes: Uint8Array,
+    transport: TransportKind,
+    meta: { readonly previousHopToken?: string; readonly atMs?: number; readonly campaignId?: string },
   ): Promise<IngestResult> {
     const atMs = meta.atMs ?? this.now();
     const nowS = toEpochS(atMs);
@@ -265,6 +327,13 @@ export class NodeEngine {
 
       if (storeOutcome === 'inserted') {
         this.queueEpoch = (this.queueEpoch + 1) & 0xffff;
+        // Only packets that can actually be offered belong in the advertised
+        // queue summary. A stored-but-never-relayed packet must not make this
+        // node look busy to its neighbours.
+        if (policy.relay !== 'never') {
+          this.waitingPriority = Math.min(this.waitingPriority, packet.header.priority);
+          this.inventoryDigest ^= fold16(packetId);
+        }
       }
       if (storeOutcome === 'conflict') {
         // 02-... "Same packet ID/different digest: quarantine conflict."
@@ -429,13 +498,36 @@ export class NodeEngine {
     return custodies.map((c) => c.packetId);
   }
 
-  /** Housekeeping: expiry, peer eviction, incident expiry. */
+  /** Housekeeping: expiry, peer eviction, incident expiry, queue summary. */
   async maintain(nowMs: number): Promise<{ evicted: number; peersEvicted: number; incidentsExpired: number }> {
     const nowS = toEpochS(nowMs);
     const evicted = await this.packets.evictExpired(nowS);
     const peersEvicted = await this.peers.evictStale(nowMs);
     const incidentsExpired = this.incidents.expireOlderThan(nowS, CLASS_BUDGETS.HIGH.ttlS).length;
+    await this.recomputeQueueSummary();
     return { evicted, peersEvicted, incidentsExpired };
+  }
+
+  /**
+   * Rebuilds the advertised queue summary exactly, from the relayable set.
+   *
+   * The incremental updates on insert are one-directional -- a running minimum
+   * cannot rise, and an XOR cannot be undone for a packet the repository
+   * evicted without telling us which. This is the correction point, and it
+   * runs on the housekeeping pass that already walks storage.
+   */
+  async recomputeQueueSummary(): Promise<void> {
+    const custodies = await this.packets.listRelayable(STORAGE.MAX_STORED_PACKETS);
+    let priority: number = Priority.FILE_FRAGMENT;
+    let digest = 0;
+    for (const custody of custodies) {
+      const stored = await this.packets.get(custody.packetId);
+      if (!stored) continue;
+      priority = Math.min(priority, stored.packet.header.priority);
+      digest ^= fold16(custody.packetId);
+    }
+    this.waitingPriority = priority;
+    this.inventoryDigest = digest;
   }
 
   /**
@@ -544,6 +636,22 @@ function peekPacketId(bytes: Uint8Array): string | undefined {
   let out = '';
   for (let i = 8; i < 24; i += 1) out += bytes[i]!.toString(16).padStart(2, '0');
   return out;
+}
+
+/**
+ * Folds a packet ID into 16 bits for the advertised inventory hint.
+ *
+ * FNV-1a over the lower-case hex identity. It must be deterministic across
+ * nodes -- two phones folding the same ID have to get the same number, or the
+ * hint is noise -- so it deliberately depends on nothing but the string.
+ */
+function fold16(packetId: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < packetId.length; i += 1) {
+    hash ^= packetId.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return ((hash >>> 16) ^ hash) & 0xffff;
 }
 
 /** Flattens a VisibleObject to the shape MapObjectRepository persists. */

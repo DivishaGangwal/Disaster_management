@@ -45,6 +45,23 @@ export class RelayLoop {
    * since, there is nothing to exchange and the whole session is skipped.
    */
   private readonly lastReconciled = new Map<string, { theirs: number; ours: number }>();
+  /**
+   * Peers with an openSession() still in flight.
+   *
+   * `sessions` cannot serve this: the entry is only added AFTER openSession
+   * RESOLVES, and that takes until the GATT handshake completes -- up to the
+   * 15s setup timeout. Advertisements arrive every 1-8s, so without this set
+   * every advertisement during that window started ANOTHER connectGatt to the
+   * same peer.
+   *
+   * That is fatal rather than merely wasteful: ATT MTU is negotiated per ACL
+   * LINK, not per GATT client. The first interface negotiates it, and every
+   * later one's configureMTU() is swallowed with no onMtuChanged callback, so
+   * the handshake stalls and every stacked attempt times out. Observed on a
+   * Samsung M53 as three interfaces (134/135/136) holding one link while
+   * `configureMTU() mtu: 247` never returned.
+   */
+  private readonly connecting = new Set<string>();
   private unsubscribe?: () => void;
   private running = false;
 
@@ -52,6 +69,23 @@ export class RelayLoop {
 
   async start(): Promise<void> {
     const { adapter, engine } = this.options;
+
+    // Starting an already-running relay must be a no-op that only refreshes
+    // the advertisement. Without this guard every call leaked another event
+    // listener (the old `unsubscribe` handle was overwritten, so each native
+    // event was delivered N times) AND re-entered the native startRelay, which
+    // re-registers the GATT service and re-advertises -- producing
+    // ADVERTISE_FAILED_ALREADY_STARTED / SCAN_FAILED_ALREADY_STARTED and
+    // leaving a second, orphaned GATT server behind.
+    //
+    // Two callers hit this routinely: creating an SOS starts relay (REL-001),
+    // and so does the Relay toggle, so any SOS raised while relaying was
+    // already re-entrant.
+    if (this.running) {
+      await this.refreshAdvertisement();
+      return;
+    }
+
     this.unsubscribe = adapter.addEventListener((event) => {
       void this.handle(event);
     });
@@ -68,6 +102,13 @@ export class RelayLoop {
   async stop(): Promise<void> {
     this.running = false;
     this.unsubscribe?.();
+    // Drop the handle too, so a later start() cannot double-unsubscribe and
+    // so the leak above cannot reappear through a stop/start cycle.
+    this.unsubscribe = undefined;
+    // Stopping tears every native session down, so nothing may stay marked as
+    // in-flight or open across a restart.
+    this.connecting.clear();
+    this.sessions.clear();
     await this.options.adapter.stopRelay();
     this.options.engine.events.emit({
       category: EventCategory.RELAY_LIFECYCLE,
@@ -92,8 +133,12 @@ export class RelayLoop {
     return buildDiscoverySummary({
       nodeToken: engine.nodeToken,
       queueEpoch: engine.currentQueueEpoch,
-      highestWaitingPriority: 0,
-      inventoryHint: engine.currentQueueEpoch,
+      // Both used to be wrong: the priority was hardcoded to 0 (EMERGENCY, so
+      // every node always claimed life-critical traffic) and the hint was a
+      // copy of queueEpoch, carrying no information the field beside it did
+      // not already have.
+      highestWaitingPriority: engine.currentHighestWaitingPriority,
+      inventoryHint: engine.currentInventoryHint,
       gatewayProven: this.options.gatewayProven?.() ?? false,
       gatewayFreshnessClass: this.options.gatewayProven?.() ? 0 : 2,
       acceptingConnections: this.sessions.size < 2,
@@ -162,7 +207,12 @@ export class RelayLoop {
         }
 
         if (this.running && backoffElapsed && shouldInitiate(engine.nodeToken, event.nodeToken)) {
-          if (!this.hasSessionWith(event.nodeToken) && event.summary.acceptingConnections) {
+          if (
+            !this.hasSessionWith(event.nodeToken) &&
+            !this.connecting.has(event.nodeToken) &&
+            event.summary.acceptingConnections
+          ) {
+            this.connecting.add(event.nodeToken);
             try {
               const sessionId = await adapter.openSession(event.nodeToken);
               this.sessions.set(
@@ -174,6 +224,10 @@ export class RelayLoop {
               // Out of range or refused. Record it: repeatedly unreachable
               // peers must lose reliability weight in the routing score.
               await this.recordPeerOutcome(event.nodeToken, false, now());
+            } finally {
+              // Cleared only once the attempt has fully settled, so the next
+              // advertisement cannot stack a second GATT client on the link.
+              this.connecting.delete(event.nodeToken);
             }
           }
         }

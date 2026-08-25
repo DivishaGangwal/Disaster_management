@@ -29,4 +29,8 @@ config.resolver.extraNodeModules = {
   'node:crypto': cryptoShim,
 };
 
-module.exports = withNativeWind(config, { input: './global.css' });
+// Absolute, not './global.css': nativewind resolves this against process.cwd(),
+// and the Android release build runs the bundler from the WORKSPACE root, not
+// from apps/mobile. A relative path silently resolves to <workspace>/global.css
+// and the build dies inside withNativeWind.
+module.exports = withNativeWind(config, { input: path.resolve(projectRoot, 'global.css') });

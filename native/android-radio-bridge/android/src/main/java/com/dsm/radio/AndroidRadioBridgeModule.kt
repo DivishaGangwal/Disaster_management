@@ -15,7 +15,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
-import android.os.ParcelUuid
 import android.util.Base64
 import androidx.core.content.ContextCompat
 import androidx.core.os.bundleOf
@@ -53,6 +52,12 @@ class AndroidRadioBridgeModule : Module() {
   private var scanner: BluetoothLeScanner? = null
   private var gattServer: BluetoothGattServer? = null
   private var advertisement = byteArrayOf()
+  /** True only after the controller confirms the advertisement through onStartSuccess. */
+  private var advertisingConfirmed = false
+  /** Guards the one-shot DEC-006 switch to Bluetooth Classic. */
+  private var classicFallbackAttempted = false
+  /** True between startRelay() and stopRelay(); makes startRelay idempotent. */
+  private var relayRunning = false
   private var sessionCounter = 0
   private val mainHandler = Handler(Looper.getMainLooper())
   private var stopReceiverRegistered = false
@@ -184,8 +189,26 @@ class AndroidRadioBridgeModule : Module() {
       relayState("permission-required", "Grant Nearby Devices permissions before starting relay mode")
       throw SecurityException("Nearby Devices permissions are required before starting Bluetooth relay mode")
     }
-    selectedMode = mode
     advertisement = Base64.decode(base64, Base64.NO_WRAP)
+
+    // IDEMPOTENT. Re-entering startRelay while already relaying used to
+    // re-register the GATT service and re-advertise, which the controller
+    // refuses with ADVERTISE_FAILED_ALREADY_STARTED / SCAN_FAILED_ALREADY_STARTED
+    // and which left an ORPHANED BluetoothGattServer behind each time --
+    // `gattServer` was overwritten without closing the previous instance. A peer
+    // then ran service discovery against a server whose service registration had
+    // been disturbed and got E_GATT_SERVICE, so sessions connected and died
+    // before the inventory phase.
+    //
+    // relay-loop.ts guards this too; this is the backstop, because the native
+    // layer owns the radio and must not be corruptible by a double call.
+    if (relayRunning) {
+      restartAdvertising()
+      return
+    }
+    relayRunning = true
+
+    selectedMode = mode
     registerStopReceiver()
     ContextCompat.startForegroundService(context, Intent(context, RelayForegroundService::class.java))
     relayState("starting", "$mode transport selected")
@@ -195,9 +218,12 @@ class AndroidRadioBridgeModule : Module() {
       return
     }
     openGattServer()
-    startAdvertising()
     startScanning()
-    relayState("advertising-scanning", "BLE advertising, scanning and GATT are active")
+    // startAdvertising() reports success or failure asynchronously through
+    // advertiseCallback, which is where "advertising-scanning" is emitted. Do
+    // NOT claim the radio is live here: this method previously reported a
+    // healthy transport while the controller was rejecting the advertisement.
+    startAdvertising()
   }
 
   @SuppressLint("MissingPermission")
@@ -213,6 +239,7 @@ class AndroidRadioBridgeModule : Module() {
     activeWrites.forEach { (_, write) -> write.promise.reject("E_RELAY_STOPPED", "Relay stopped before the record was written", null) }; activeWrites.clear()
     writeQueues.values.forEach { queue -> while (queue.isNotEmpty()) queue.removeFirst().promise.reject("E_RELAY_STOPPED", "Relay stopped before the record was written", null) }; writeQueues.clear()
     sessionTimeouts.values.forEach(mainHandler::removeCallbacks); sessionTimeouts.clear(); negotiatedMtu.clear(); sessionPeers.clear(); serverDevices.clear()
+    advertisingConfirmed = false; classicFallbackAttempted = false; relayRunning = false
     unregisterStopReceiver()
     context.stopService(Intent(context, RelayForegroundService::class.java)); relayState("stopped", "relay stopped")
   }
@@ -237,18 +264,99 @@ class AndroidRadioBridgeModule : Module() {
     stopReceiverRegistered = false
   }
 
+  /**
+   * Publishes the 12-byte discovery payload as manufacturer-specific data.
+   *
+   * The 128-bit SERVICE_UUID is deliberately NOT advertised. A legacy
+   * advertising PDU carries 31 bytes; a complete 128-bit UUID AD element costs
+   * 18 of them, which together with the mandatory Flags element (3) and our
+   * manufacturer element (4 + 12) totals 37 and is rejected by the controller
+   * as ADVERTISE_FAILED_DATA_TOO_LARGE. Peers match on company id 0xffff plus
+   * the 0xd5 magic byte (see startScanning), and SERVICE_UUID is exchanged
+   * after connection -- GATT service discovery and the RFCOMM record -- where
+   * there is no size pressure. This mirrors buildAdvertisingPdu() in
+   * packages/transport-core, which models exactly these two AD elements.
+   */
   @SuppressLint("MissingPermission")
   private fun startAdvertising() {
     advertiser = adapter?.bluetoothLeAdvertiser ?: throw IllegalStateException("BLE advertising unavailable")
+
+    // Fail loudly at the source rather than as an opaque controller error code.
+    val pduBytes = FLAGS_ELEMENT_BYTES + MANUFACTURER_HEADER_BYTES + advertisement.size
+    if (pduBytes > ADVERTISING_PDU_BYTES) {
+      transportError(
+        "BLE_ADVERTISE_PDU_OVERFLOW",
+        "Advertising PDU would be ${pduBytes}B, over the ${ADVERTISING_PDU_BYTES}B legacy limit",
+        true,
+      )
+      onAdvertisingUnavailable("advertising payload does not fit a legacy PDU")
+      return
+    }
+
     val settings = AdvertiseSettings.Builder().setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_POWER).setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM).setConnectable(true).build()
-    val data = AdvertiseData.Builder().setIncludeDeviceName(false).addServiceUuid(ParcelUuid(SERVICE_UUID)).addManufacturerData(COMPANY_ID, advertisement).build()
+    val data = AdvertiseData.Builder().setIncludeDeviceName(false).addManufacturerData(COMPANY_ID, advertisement).build()
     advertiser?.startAdvertising(settings, data, advertiseCallback)
   }
 
   @SuppressLint("MissingPermission")
   private fun restartAdvertising() { if (advertiser == null) return; advertiser?.stopAdvertising(advertiseCallback); startAdvertising() }
+
   private val advertiseCallback = object : AdvertiseCallback() {
-    override fun onStartFailure(errorCode: Int) { transportError("BLE_ADVERTISE_$errorCode", "BLE advertising failed", true) }
+    override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
+      advertisingConfirmed = true
+      relayState("advertising-scanning", "BLE advertising, scanning and GATT are active")
+    }
+
+    override fun onStartFailure(errorCode: Int) {
+      val reason = advertiseFailureReason(errorCode)
+      transportError("BLE_ADVERTISE_$errorCode", "BLE advertising failed: $reason", true)
+      // Scanning alone cannot make this node discoverable: a node that never
+      // advertises is invisible to every peer, so BLE relay is not merely
+      // degraded, it is inoperative. Fall back rather than report a radio that
+      // is not transmitting. A failure AFTER a confirmed start leaves the
+      // existing BLE session work intact and is reported without a switch.
+      if (!advertisingConfirmed) onAdvertisingUnavailable(reason)
+    }
+  }
+
+  private fun advertiseFailureReason(code: Int): String = when (code) {
+    AdvertiseCallback.ADVERTISE_FAILED_DATA_TOO_LARGE -> "advertising data too large"
+    AdvertiseCallback.ADVERTISE_FAILED_TOO_MANY_ADVERTISERS -> "controller has too many advertisers"
+    AdvertiseCallback.ADVERTISE_FAILED_ALREADY_STARTED -> "advertising already started"
+    AdvertiseCallback.ADVERTISE_FAILED_INTERNAL_ERROR -> "internal controller error"
+    AdvertiseCallback.ADVERTISE_FAILED_FEATURE_UNSUPPORTED -> "advertising unsupported on this device"
+    else -> "error $code"
+  }
+
+  /**
+   * DEC-006 contingency, triggered at runtime instead of by capability report.
+   *
+   * getCapabilities() can only report that a BluetoothLeAdvertiser object
+   * exists, which is true on devices whose controller then refuses to start.
+   * This is the gate that catches that case: it switches to the Bluetooth
+   * Classic adapter once, behind the same session contract, so packet, policy,
+   * map and UI rules are unchanged and only the radio differs.
+   */
+  @SuppressLint("MissingPermission")
+  private fun onAdvertisingUnavailable(reason: String) {
+    if (selectedMode == "classic" || classicFallbackAttempted) return
+    classicFallbackAttempted = true
+    mainHandler.post {
+      try { advertiser?.stopAdvertising(advertiseCallback) } catch (_: Exception) {}
+      try { scanner?.stopScan(scanCallback) } catch (_: Exception) {}
+      advertiser = null; scanner = null
+      clientGatts.values.forEach { it.close() }; clientGatts.clear()
+      try { gattServer?.close() } catch (_: Exception) {}; gattServer = null
+      // selectedMode is what openSession() and recordReceived() read, so the
+      // whole native surface follows this one assignment.
+      selectedMode = "classic"
+      try {
+        startClassic()
+        relayState("advertising-scanning", "Bluetooth Classic relay active: BLE advertising unavailable ($reason)")
+      } catch (error: Exception) {
+        relayState("error-user-action-required", "Neither BLE advertising nor Bluetooth Classic is available: ${error.message}")
+      }
+    }
   }
 
   @SuppressLint("MissingPermission")
@@ -329,7 +437,12 @@ class AndroidRadioBridgeModule : Module() {
   }
 
   @SuppressLint("MissingPermission")
-  private fun openSession(peerToken: String, mode: String, promise: Promise) {
+  private fun openSession(peerToken: String, requestedMode: String, promise: Promise) {
+    // selectedMode is authoritative. The JS adapter fixes its mode at
+    // construction and cannot know about a runtime fallback to Classic, so a
+    // stale "ble" request after onAdvertisingUnavailable() must not reach
+    // connectGatt on a Classic-discovered device.
+    val mode = if (selectedMode == "classic") "classic" else requestedMode
     if (mode == "classic") { openClassicSession(peerToken, promise); return }
     val device = peerDevices[peerToken] ?: run { promise.reject("E_PEER_GONE", "Peer is no longer observable", null); return }
     val sessionId = "ble-${System.currentTimeMillis()}-${++sessionCounter}"
@@ -373,9 +486,16 @@ class AndroidRadioBridgeModule : Module() {
     override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
       val sessionId = clientGatts.entries.firstOrNull { it.value == gatt }?.key ?: return
       if (newState == BluetoothProfile.STATE_CONNECTED) {
-        if (!gatt.requestMtu(247)) gatt.discoverServices()
+        // HD-011: "must negotiate MTU 247 and FAIL LOUDLY if the peer refuses,
+        // never silently truncate a record." Continuing to service discovery
+        // here left negotiatedMtu unset, so the budget silently fell back to
+        // the 23-byte default and every record failed much later, one at a
+        // time, with no indication that MTU was the cause.
+        if (!gatt.requestMtu(REQUIRED_ATT_MTU)) {
+          failSession(sessionId, "E_GATT_MTU_NEGOTIATION", "Could not start ATT MTU negotiation with the peer")
+        }
       } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-        pendingSessions.remove(sessionId)?.reject("E_GATT_DISCONNECTED", "Peer disconnected before the session was ready", null)
+        rejectPendingSession(sessionId, "E_GATT_DISCONNECTED", "Peer disconnected before the session was ready")
         failWrites(sessionId, "E_GATT_DISCONNECTED", "Peer disconnected before the record was written")
         closeFromNative(sessionId, if (status == BluetoothGatt.GATT_SUCCESS) "peer-closed" else "error")
       }
@@ -383,17 +503,32 @@ class AndroidRadioBridgeModule : Module() {
     @SuppressLint("MissingPermission")
     override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
       val sessionId = clientGatts.entries.firstOrNull { it.value == gatt }?.key ?: return
-      negotiatedMtu[sessionId] = if (status == BluetoothGatt.GATT_SUCCESS) mtu else 23
+      // The granted MTU is reported so the failure names the actual number:
+      // if this rejects real handsets, that value is what tells you whether
+      // REQUIRED_ATT_MTU should be relaxed, and by how much.
+      if (status != BluetoothGatt.GATT_SUCCESS) {
+        failSession(sessionId, "E_GATT_MTU_NEGOTIATION", "Peer refused ATT MTU negotiation (status $status)")
+        return
+      }
+      if (mtu < REQUIRED_ATT_MTU) {
+        failSession(
+          sessionId,
+          "E_GATT_MTU_TOO_SMALL",
+          "Peer granted ATT MTU $mtu, below the $REQUIRED_ATT_MTU this build requires to fit a $MAX_RECORD_BYTES-byte record in one write",
+        )
+        return
+      }
+      negotiatedMtu[sessionId] = mtu
       gatt.discoverServices()
     }
     @SuppressLint("MissingPermission")
     override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
       val sessionId = clientGatts.entries.firstOrNull { it.value == gatt }?.key ?: return
-      if (status != BluetoothGatt.GATT_SUCCESS || gatt.getService(SERVICE_UUID) == null) { pendingSessions.remove(sessionId)?.reject("E_GATT_SERVICE", "Peer does not expose the DSM service", null); closeFromNative(sessionId, "error"); return }
+      if (status != BluetoothGatt.GATT_SUCCESS || gatt.getService(SERVICE_UUID) == null) { rejectPendingSession(sessionId, "E_GATT_SERVICE", "Peer does not expose the DSM service (service discovery found no $SERVICE_UUID)"); closeFromNative(sessionId, "error"); return }
       val tx = gatt.getService(SERVICE_UUID)?.getCharacteristic(TX_UUID)
       val descriptor = tx?.getDescriptor(CCCD_UUID)
       if (tx == null || descriptor == null || !gatt.setCharacteristicNotification(tx, true)) {
-        pendingSessions.remove(sessionId)?.reject("E_GATT_NOTIFY", "Peer notification channel is unavailable", null)
+        rejectPendingSession(sessionId, "E_GATT_NOTIFY", "Peer notification channel is unavailable")
         closeSession(sessionId)
         return
       }
@@ -406,7 +541,7 @@ class AndroidRadioBridgeModule : Module() {
         gatt.writeDescriptor(descriptor)
       }
       if (!started) {
-        pendingSessions.remove(sessionId)?.reject("E_GATT_NOTIFY", "Could not subscribe to the peer notification channel", null)
+        rejectPendingSession(sessionId, "E_GATT_NOTIFY", "Could not subscribe to the peer notification channel")
         closeSession(sessionId)
       }
     }
@@ -414,7 +549,7 @@ class AndroidRadioBridgeModule : Module() {
       if (descriptor.uuid != CCCD_UUID) return
       val sessionId = clientGatts.entries.firstOrNull { it.value == gatt }?.key ?: return
       if (status != BluetoothGatt.GATT_SUCCESS) {
-        pendingSessions.remove(sessionId)?.reject("E_GATT_NOTIFY", "Peer notification subscription failed", null)
+        rejectPendingSession(sessionId, "E_GATT_NOTIFY", "Peer notification subscription failed")
         closeSession(sessionId)
         return
       }
@@ -448,8 +583,51 @@ class AndroidRadioBridgeModule : Module() {
       negotiatedMtu[sessionId] = mtu
     }
     @SuppressLint("MissingPermission")
+    /**
+     * Answers the CCCD subscribe. WITHOUT THIS THE SESSION CANNOT COMPLETE.
+     *
+     * Writing the Client Characteristic Configuration Descriptor is how a peer
+     * subscribes to our TX notifications, and it is the LAST step of
+     * openSession on the initiating side. Android's default implementation of
+     * this callback does nothing at all -- in particular it never calls
+     * sendResponse() -- so the initiator sat waiting for an ATT response that
+     * was never sent, its onDescriptorWrite never fired, openSession never
+     * resolved, and the session died on its 15s setup timeout.
+     *
+     * Observed exactly that way: connection established, onConfigureMTU
+     * status=0 mtu=517, onSearchComplete status=0, then silence until
+     * E_GATT_TIMEOUT. Every ATT request with responseNeeded MUST be answered.
+     */
+    override fun onDescriptorWriteRequest(device: BluetoothDevice, requestId: Int, descriptor: BluetoothGattDescriptor, preparedWrite: Boolean, responseNeeded: Boolean, offset: Int, value: ByteArray) {
+      val accepted = descriptor.uuid == CCCD_UUID && !preparedWrite && offset == 0
+      if (responseNeeded) {
+        gattServer?.sendResponse(
+          device,
+          requestId,
+          if (accepted) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_FAILURE,
+          offset,
+          value,
+        )
+      }
+    }
+
+    /** Some stacks read the CCCD before writing it; an unanswered read stalls the same way. */
+    override fun onDescriptorReadRequest(device: BluetoothDevice, requestId: Int, offset: Int, descriptor: BluetoothGattDescriptor) {
+      val payload = if (descriptor.uuid == CCCD_UUID) BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE else byteArrayOf()
+      gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, payload)
+    }
+
     override fun onCharacteristicWriteRequest(device: BluetoothDevice, requestId: Int, characteristic: BluetoothGattCharacteristic, preparedWrite: Boolean, responseNeeded: Boolean, offset: Int, value: ByteArray) {
-      val accepted = characteristic.uuid == RX_UUID && !preparedWrite && offset == 0 && value.size <= ((serverDevices.entries.firstOrNull { it.value.address == device.address }?.key?.let { negotiatedMtu[it] } ?: 23) - 3)
+      // Bounded against the PROTOCOL constant, not this session's negotiated
+      // MTU. One physical link has two session ids -- the initiator's
+      // "ble-..." and this side's "ble-in-..." -- and the server-side entry
+      // starts at 23 until BluetoothGattServerCallback.onMtuChanged fires. If
+      // the first write lands before that callback, checking the negotiated
+      // value rejects a perfectly valid record. Android already enforces the
+      // negotiated MTU at the link layer, so an oversized write cannot arrive
+      // intact; the only thing this check can add is a size bound, and
+      // MAX_RECORD_BYTES is the real one (02-... bounded record sizes).
+      val accepted = characteristic.uuid == RX_UUID && !preparedWrite && offset == 0 && value.size <= MAX_RECORD_BYTES
       if (accepted) {
         val sessionId = serverDevices.entries.firstOrNull { it.value.address == device.address }?.key ?: return
         recordReceived(sessionId, sessionPeers[sessionId] ?: "", value)
@@ -485,9 +663,23 @@ class AndroidRadioBridgeModule : Module() {
       promise.reject("E_UNKNOWN_SESSION", "Session is no longer active", null)
       return
     }
+    // SENDING deliberately still uses the negotiated value rather than the
+    // protocol constant: writing more than the link actually negotiated fails
+    // at the controller, so under-sending is the safe direction. (The inbound
+    // check in onCharacteristicWriteRequest is the opposite case -- there a
+    // stale value can only cause a FALSE rejection.)
+    //
+    // With MTU negotiation now gated in onMtuChanged, an absent or small value
+    // here means the session was established without a usable MTU, so the
+    // message says so instead of just quoting a number.
     val payloadBudget = (negotiatedMtu[sessionId] ?: 23) - 3
     if (bytes.size > payloadBudget) {
-      promise.reject("E_GATT_MTU", "Record is ${bytes.size} bytes but the negotiated GATT payload budget is $payloadBudget", null)
+      promise.reject(
+        "E_GATT_MTU",
+        "Record is ${bytes.size} bytes but this session's GATT payload budget is $payloadBudget" +
+          (if (negotiatedMtu[sessionId] == null) " (ATT MTU was never negotiated for this session)" else ""),
+        null,
+      )
       return
     }
     val queue = writeQueues.getOrPut(sessionId) { ArrayDeque() }
@@ -549,7 +741,7 @@ class AndroidRadioBridgeModule : Module() {
   private fun scheduleSessionTimeout(sessionId: String) {
     val timeout = Runnable {
       sessionTimeouts.remove(sessionId)
-      pendingSessions.remove(sessionId)?.reject("E_GATT_TIMEOUT", "Bluetooth session setup timed out", null)
+      rejectPendingSession(sessionId, "E_GATT_TIMEOUT", "Bluetooth session setup timed out after 15s")
       closeSession(sessionId)
     }
     sessionTimeouts[sessionId] = timeout
@@ -564,6 +756,37 @@ class AndroidRadioBridgeModule : Module() {
 
   @SuppressLint("MissingPermission")
   private fun closeSession(sessionId: String) { cancelSessionTimeout(sessionId); pendingSessions.remove(sessionId)?.reject("E_SESSION_CLOSED", "Session closed before setup completed", null); failWrites(sessionId, "E_SESSION_CLOSED", "Session closed before the record was written"); try { classicSockets.remove(sessionId)?.close() } catch (_: Exception) {}; clientGatts.remove(sessionId)?.run { disconnect(); close() }; serverDevices.remove(sessionId)?.let { gattServer?.cancelConnection(it) }; closeFromNative(sessionId, "complete") }
+
+  /**
+   * Aborts a half-open session with a named cause.
+   *
+   * Both the pending openSession promise AND a transport error event are
+   * raised: the promise unblocks the relay loop, and the event is what
+   * actually reaches the user, because a rejected promise is swallowed by the
+   * loop's per-peer catch.
+   */
+  /**
+   * Rejects a pending openSession AND surfaces the cause as a transport error.
+   *
+   * A bare promise rejection is INVISIBLE: relay-loop catches it per peer and
+   * records only "contact-failed" with no reason attached. That is what made a
+   * session that connects, then dies before the inventory phase, impossible to
+   * diagnose from the app log -- the failure had a cause, and nothing carried
+   * it out of the native layer.
+   */
+  private fun rejectPendingSession(sessionId: String, code: String, message: String) {
+    if (!pendingSessions.containsKey(sessionId)) return
+    transportError(code, message, true)
+    pendingSessions.remove(sessionId)?.reject(code, message, null)
+  }
+
+  private fun failSession(sessionId: String, code: String, message: String) {
+    cancelSessionTimeout(sessionId)
+    transportError(code, message, true)
+    pendingSessions.remove(sessionId)?.reject(code, message, null)
+    clientGatts.remove(sessionId)?.run { disconnect(); close() }
+    closeFromNative(sessionId, "error")
+  }
   private fun closeFromNative(sessionId: String, reason: String) { cancelSessionTimeout(sessionId); negotiatedMtu.remove(sessionId); val peer = sessionPeers.remove(sessionId) ?: return; emit(mapOf("kind" to "session-closed", "sessionId" to sessionId, "peerToken" to peer, "reason" to reason, "recordsAccepted" to 0, "bytesTransferred" to 0, "atMs" to System.currentTimeMillis())) }
   private fun sessionEvent(id: String, peer: String, local: Boolean) = emit(mapOf("kind" to "session", "sessionId" to id, "peerToken" to peer, "phase" to "establish", "initiatedLocally" to local, "atMs" to System.currentTimeMillis()))
   private fun recordReceived(id: String, peer: String, bytes: ByteArray) = emit(mapOf("kind" to "record-received-native", "sessionId" to id, "peerToken" to peer, "transport" to if (selectedMode == "classic") "tier1-classic" else "tier1-ble", "bytesBase64" to Base64.encodeToString(bytes, Base64.NO_WRAP), "atMs" to System.currentTimeMillis()))
@@ -573,6 +796,24 @@ class AndroidRadioBridgeModule : Module() {
 
   companion object {
     const val COMPANY_ID = 0xffff; const val MAGIC = 0xd5
+    /** Legacy advertising PDU budget, and the two AD elements we actually emit. */
+    const val ADVERTISING_PDU_BYTES = 31
+    const val FLAGS_ELEMENT_BYTES = 3
+    const val MANUFACTURER_HEADER_BYTES = 4
+
+    /**
+     * MIRRORS @dsm/contracts `LINK` (packages/contracts/src/limits.ts).
+     *
+     * REQUIRED_ATT_MTU 247 - 3 ATT header = 244 usable = MAX_RECORD_BYTES,
+     * which is the 64-byte envelope plus the 180-byte per-class payload cap.
+     * That is what lets every record travel in a single GATT write with no
+     * link-layer chunking layer (HD-011).
+     *
+     * Nothing enforces that these stay in step with the TypeScript constants:
+     * tools/boundaries only scans .ts/.tsx. Change one, change both.
+     */
+    const val REQUIRED_ATT_MTU = 247
+    const val MAX_RECORD_BYTES = 244
     val SERVICE_UUID: UUID = UUID.fromString("7d4f0000-9a1c-4b6e-8f21-3c5d7e9a1b02")
     val RX_UUID: UUID = UUID.fromString("7d4f0001-9a1c-4b6e-8f21-3c5d7e9a1b02")
     val TX_UUID: UUID = UUID.fromString("7d4f0002-9a1c-4b6e-8f21-3c5d7e9a1b02")
