@@ -8,7 +8,7 @@ The file-by-file implementation record for this pass is in
 ## Verified in this pass
 
 ```text
-npm test                                      68/68 passing
+npm test                                      74/74 passing
 npm run build                                 strict TypeScript build passing
 npm run typecheck --workspace @dsm/mobile     passing
 npm run web:build                             passing
@@ -30,7 +30,7 @@ The Android command compiled the Expo application and the autolinked `dsm-androi
 - Mobile `expo-sqlite` persistence, stable local identities, restart-safe incident/sequence recovery, bounded packet storage, SOS/update/cancel packets, relay start on SOS, responder transitions, priority notifications and runtime-fed incident/resource/diagnostic lists.
 - MapLibre mobile map with GPS, filters and an Assam operational registry. The Assam basemap downloads once while internet is available and remains in MapLibre's persistent native offline database for subsequent no-network use.
 - Home status for relay, selected radio, peer count, battery percentage, battery-sensor temperature when available, thermal throttling and proven gateway.
-- Conditional two-way gateway wiring. Set `EXPO_PUBLIC_DSM_BACKEND_URL` to the backend origin; only a successful identity probe permits upload, and downloaded packets re-enter validation before relay.
+- Conditional two-way gateway wiring. Set `EXPO_PUBLIC_DSM_BACKEND_URL` to the backend origin; only a successful identity probe permits upload. The foreground app synchronizes immediately and every 30 seconds, while downloaded packets re-enter validation, SQLite persistence, map projection and relay.
 - Backend and admin console for incident coordination, responder lifecycle, regional publishing, campaign approval, audio transmission/reception and locally stored packet evidence.
 - Android WavePX listener with explicit start/stop, a 120-second bound, microphone permission, native 48 kHz PCM capture, four-ABI native decoder build, frame metrics and canonical packet-to-map ingestion.
 - Integrated campaign desk showing the decoded message, canonical packet bytes and expected map impact before WavePX generation, local decode testing or transmission.

@@ -77,21 +77,30 @@ export function createBackend(options: ServerOptions = {}) {
     if (path === '/gateway/register') {
       if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' });
       const body = await readJson(req);
-      const gatewayToken = `GW-${String(body['nodeToken'] ?? 'unknown')}`;
-      store.registerGateway(gatewayToken, String(body['nodeToken'] ?? ''), String(body['regionCode'] ?? ''));
+      const nodeToken = typeof body['nodeToken'] === 'string' ? body['nodeToken'].trim() : '';
+      const regionCode = typeof body['regionCode'] === 'string' ? body['regionCode'].trim() : '';
+      if (!nodeToken || nodeToken.length > 64 || !/^IN-[A-Z0-9-]{2,24}$/.test(regionCode)) {
+        return send(res, 400, { error: 'A bounded node token and valid region code are required.' });
+      }
+      const gatewayToken = `GW-${nodeToken}`;
+      store.registerGateway(gatewayToken, nodeToken, regionCode);
       return send(res, 200, { gatewayToken });
     }
 
     if (path === '/gateway/upload') {
       if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' });
       const body = await readJson(req);
-      const items = (body['items'] as { packetId: string; bytesBase64: string; observation: unknown }[]) ?? [];
+      const gatewayToken = String(body['gatewayToken'] ?? '');
+      if (!store.gatewayTokens.has(gatewayToken)) return send(res, 401, { error: 'Register this gateway before uploading.' });
+      const rawItems = Array.isArray(body['items']) ? body['items'] : [];
+      if (!rawItems.every(isGatewayUploadItem)) return send(res, 400, { error: 'Every upload item must contain packetId, bytesBase64 and an observation.' });
+      const items = rawItems as { packetId: string; bytesBase64: string; observation: unknown }[];
       if (items.length > GATEWAY.MAX_UPLOAD_BATCH) {
         return send(res, 413, { error: 'batch over limit' });
       }
       const response = ingest.ingest(
         {
-          gatewayToken: String(body['gatewayToken'] ?? ''),
+          gatewayToken,
           batchId: String(body['batchId'] ?? ''),
           items: items.map((item) => ({
             packetId: item.packetId,
@@ -101,20 +110,25 @@ export function createBackend(options: ServerOptions = {}) {
         },
         Date.now(),
       );
-      store.recordGatewayTransfer({ gatewayToken: String(body['gatewayToken'] ?? ''), direction: 'upload', regionCode: store.gatewayTokens.get(String(body['gatewayToken'] ?? ''))?.regionCode ?? 'UNKNOWN', itemCount: items.length, atMs: Date.now() });
+      store.recordGatewayTransfer({ gatewayToken, direction: 'upload', regionCode: store.gatewayTokens.get(gatewayToken)!.regionCode, itemCount: items.length, atMs: Date.now() });
       return send(res, 200, response);
     }
 
     if (path === '/gateway/outbound') {
       if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' });
       const body = await readJson(req);
+      const gatewayToken = String(body['gatewayToken'] ?? '');
+      const gateway = store.gatewayTokens.get(gatewayToken);
+      if (!gateway) return send(res, 401, { error: 'Register this gateway before polling.' });
+      const regionCode = String(body['regionCode'] ?? '');
+      if (gateway.regionCode !== regionCode) return send(res, 403, { error: 'Gateway is not registered for the requested region.' });
       const page = outbound.poll(
-        String(body['gatewayToken'] ?? ''),
-        String(body['regionCode'] ?? ''),
+        gatewayToken,
+        regionCode,
         body['cursor'] ? String(body['cursor']) : undefined,
         Math.min(Number(body['maxItems'] ?? GATEWAY.MAX_DOWNLOAD_BATCH), GATEWAY.MAX_DOWNLOAD_BATCH),
       );
-      store.recordGatewayTransfer({ gatewayToken: String(body['gatewayToken'] ?? ''), direction: 'download', regionCode: String(body['regionCode'] ?? ''), itemCount: page.items.length, atMs: Date.now() });
+      store.recordGatewayTransfer({ gatewayToken, direction: 'download', regionCode, itemCount: page.items.length, atMs: Date.now() });
       return send(res, 200, {
         items: page.items.map((item) => ({
           packetId: item.packetId,
@@ -128,7 +142,11 @@ export function createBackend(options: ServerOptions = {}) {
     if (path === '/gateway/outbound/ack') {
       if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' });
       const body = await readJson(req);
-      store.recordGatewayTransfer({ gatewayToken: String(body['gatewayToken'] ?? ''), direction: 'ack', regionCode: store.gatewayTokens.get(String(body['gatewayToken'] ?? ''))?.regionCode ?? 'UNKNOWN', itemCount: Array.isArray(body['packetIds']) ? body['packetIds'].length : 0, atMs: Date.now() });
+      const gatewayToken = String(body['gatewayToken'] ?? '');
+      const gateway = store.gatewayTokens.get(gatewayToken);
+      if (!gateway) return send(res, 401, { error: 'Register this gateway before acknowledging downloads.' });
+      if (typeof body['cursor'] !== 'string' || !Array.isArray(body['packetIds'])) return send(res, 400, { error: 'A cursor and packet ID list are required.' });
+      store.recordGatewayTransfer({ gatewayToken, direction: 'ack', regionCode: gateway.regionCode, itemCount: body['packetIds'].length, atMs: Date.now() });
       // The cursor is client-held; acking is what makes advancing it safe.
       return send(res, 200, { ok: true });
     }
@@ -215,9 +233,9 @@ export function createBackend(options: ServerOptions = {}) {
     }
 
     // District-scoped routing over the same RegionalRecord.district field the
-    // /api/region/IN-AS routes already write. No new data model: a routing
-    // change only. Auth intentionally omitted here (deferred per team decision);
-    // the IN-AS routes above are unaffected and keep their existing auth.
+    // /api/region/IN-AS routes already write. No new data model: this is only
+    // a district-scoped view over the same records. Reads remain available to
+    // the console; writes require the same operator session as IN-AS writes.
     const districtRecordsMatch = path.match(/^\/api\/districts\/([^/]+)\/records$/);
     if (districtRecordsMatch && req.method === 'GET') {
       if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
@@ -228,6 +246,7 @@ export function createBackend(options: ServerOptions = {}) {
 
     if (districtRecordsMatch && req.method === 'POST') {
       if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
+      if (!authorizeOperations(req, operationsKey)) return send(res, 401, { error: 'Operator session required.' });
       const districtId = decodeURIComponent(districtRecordsMatch[1]!);
       const body = await readJson(req);
       return send(res, 201, { record: operations.upsertRegionalCentre({ ...regionalRecordInput(body), district: districtId }) });
@@ -376,6 +395,15 @@ function regionalRecordInput(body: Record<string, unknown>) {
     lonE7: Math.round(Number(body['lonE7'])),
     state: String(body['state'] ?? 'open'),
   };
+}
+
+function isGatewayUploadItem(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Record<string, unknown>;
+  const observation = item['observation'];
+  return typeof item['packetId'] === 'string' &&
+    typeof item['bytesBase64'] === 'string' &&
+    Boolean(observation && typeof observation === 'object');
 }
 
 async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {

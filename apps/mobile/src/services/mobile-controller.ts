@@ -9,6 +9,7 @@ import {
   MessageType,
   Mobility,
   ArrivalEvidence,
+  GATEWAY,
   ResolutionOutcome,
   ReplyCapability,
   Severity,
@@ -55,6 +56,9 @@ class MobileController {
   private wavePxTimeout?: ReturnType<typeof setTimeout>;
   private removeWavePxFrameListener?: () => void;
   private removeAdapterListener?: () => void;
+  private gatewaySyncTimer?: ReturnType<typeof setInterval>;
+  private gatewaySyncInFlight?: Promise<boolean>;
+  private gatewaySyncGeneration = 0;
 
   async initialize(role: UserRole = useAppStore.getState().role) {
     if (this.runtime) return this.runtime;
@@ -74,6 +78,27 @@ class MobileController {
     if (this.runtime?.relay.isRunning) await this.runtime.stopRelay();
     this.runtime = undefined;
     return this.initialize(role);
+  }
+
+  /**
+   * Keep the optional website/backend channel opportunistic. A successful
+   * cycle uploads local mesh packets and downloads authority/map packets; an
+   * offline failure leaves SQLite custody untouched and Bluetooth operational.
+   */
+  async startGatewaySync() {
+    if (this.gatewaySyncTimer) return;
+    const generation = ++this.gatewaySyncGeneration;
+    const runtime = await this.initialize();
+    if (!runtime.gatewayConfigured || generation !== this.gatewaySyncGeneration || this.gatewaySyncTimer) return;
+    await this.syncGateway(false);
+    if (generation !== this.gatewaySyncGeneration || this.gatewaySyncTimer) return;
+    this.gatewaySyncTimer = setInterval(() => { void this.syncGateway(false); }, GATEWAY.SYNC_INTERVAL_MS);
+  }
+
+  stopGatewaySync() {
+    this.gatewaySyncGeneration += 1;
+    clearInterval(this.gatewaySyncTimer);
+    this.gatewaySyncTimer = undefined;
   }
 
   private async create(role: UserRole) {
@@ -288,14 +313,7 @@ class MobileController {
     state.setRelayActive(true);
     await runtime.relay.refreshAdvertisement();
     await this.refresh(runtime);
-    void runtime.probeGateway().then(async (proven) => {
-      if (proven) await runtime.relay.refreshAdvertisement();
-      useAppStore.getState().setInternetState(proven ? 'proven gateway' : 'unavailable');
-      await this.refresh(runtime);
-    }).catch((reason: unknown) => {
-      useAppStore.getState().setInternetState('unavailable');
-      useAppStore.getState().setRuntimeError(reason instanceof Error ? reason.message : String(reason));
-    });
+    void this.syncGateway(false);
     return result;
   }
 
@@ -376,16 +394,34 @@ class MobileController {
   }
 
   async probeGateway() {
-    const state = useAppStore.getState();
-    state.setInternetState('probing');
-    const runtime = await this.initialize();
-    const proven = await runtime.probeGateway();
-    if (proven) {
-      await runtime.relay.refreshAdvertisement();
-      await this.refresh(runtime);
-    }
-    state.setInternetState(proven ? 'proven gateway' : 'unavailable');
-    return proven;
+    return this.syncGateway(true);
+  }
+
+  private async syncGateway(showProbing: boolean): Promise<boolean> {
+    if (this.gatewaySyncInFlight) return this.gatewaySyncInFlight;
+    const task = (async () => {
+      const state = useAppStore.getState();
+      const runtime = await this.initialize();
+      if (!runtime.gatewayConfigured) {
+        state.setInternetState('untested');
+        return false;
+      }
+      if (showProbing) state.setInternetState('probing');
+      try {
+        const proven = await runtime.probeGateway();
+        state.setInternetState(proven ? 'proven gateway' : 'unavailable');
+        if (proven && runtime.relay.isRunning) await runtime.relay.refreshAdvertisement();
+        await this.refresh(runtime);
+        return proven;
+      } catch (reason) {
+        state.setInternetState('unavailable');
+        state.setRuntimeError(reason instanceof Error ? reason.message : String(reason));
+        return false;
+      }
+    })();
+    this.gatewaySyncInFlight = task;
+    try { return await task; }
+    finally { this.gatewaySyncInFlight = undefined; }
   }
 
   async refresh(runtime?: AppRuntime) {
@@ -442,6 +478,7 @@ function jsonSafePayload(value: unknown): unknown {
 function packetMessage(payload: Record<string, unknown>, typeName?: string): string {
   return stringValue(payload['fallbackText'])
     ?? stringValue(payload['fallbackLabel'])
+    ?? stringValue(payload['fallbackPrompt'])
     ?? stringValue(payload['name'])
     ?? `${typeName ?? 'Packet'} received and validated.`;
 }

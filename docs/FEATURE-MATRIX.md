@@ -25,7 +25,7 @@ No row claims 🟥: no compatible Android handset or two-device acoustic setup w
 | Foreground relay service | ✅ implemented, unmeasured | 🟩 | Ongoing Android notification includes a stop action. Manufacturer-specific screen-off behaviour still needs device evidence. |
 | Inventory, dedup and bidirectional sessions | ✅ | 🟦 | Repeat contacts suppress already-held packets; forwarding remains bounded by hop, expiry, copy and cooldown rules. |
 | Store-carry-forward | ✅ | 🟦 | Multi-node movement/loss scenarios pass. |
-| Mesh → network → mesh | ✅ | 🟦 | The phone attaches `GatewaySynchronizer` when `EXPO_PUBLIC_DSM_BACKEND_URL` is configured. A live identity probe gates upload; downloads re-enter the same validator and become relayable. |
+| Mesh → network → mesh | ✅ | 🟦 | The phone attaches `GatewaySynchronizer` when `EXPO_PUBLIC_DSM_BACKEND_URL` is configured. A live identity probe gates upload; foreground startup/resume and 30-second cycles download website packets into the same validator, SQLite/map projection and relay path. |
 | Literal `PACKET_REQUEST` exchange | deferred deviation | 🟦 | Filtered inventory push provides the required missing-only behaviour. The literal request packet remains the documented HD-001 deviation. |
 
 ## Canonical packets and WavePX

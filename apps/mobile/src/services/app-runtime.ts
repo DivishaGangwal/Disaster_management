@@ -116,6 +116,10 @@ export class AppRuntime {
     this.gatewaySync = sync;
   }
 
+  get gatewayConfigured(): boolean {
+    return this.gatewaySync !== undefined;
+  }
+
   /** GTW-001: nothing else in the app may declare a gateway. */
   async probeGateway(): Promise<boolean> {
     if (!this.gatewaySync) return false;

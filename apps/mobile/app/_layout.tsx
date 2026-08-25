@@ -2,7 +2,7 @@ import '../metro-shims/crypto-polyfill';
 import '../global.css';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { View } from 'react-native';
+import { AppState, View } from 'react-native';
 import { useEffect } from 'react';
 import { mobileController } from '@/src/services/mobile-controller';
 import { useAppStore } from '@/store/useAppStore';
@@ -21,6 +21,17 @@ export default function RootLayout() {
   useEffect(() => {
     void mobileController.initialize(role).catch((reason: unknown) => setRuntimeError(reason instanceof Error ? reason.message : String(reason)));
   }, [role, setRuntimeError]);
+  useEffect(() => {
+    void mobileController.startGatewaySync();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void mobileController.startGatewaySync();
+      else mobileController.stopGatewaySync();
+    });
+    return () => {
+      subscription.remove();
+      mobileController.stopGatewaySync();
+    };
+  }, []);
   return (
     <View style={{ flex: 1, backgroundColor: '#000000' }}>
       <StatusBar style="light" backgroundColor="#000000" />

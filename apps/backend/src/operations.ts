@@ -17,7 +17,7 @@ import {
   type MapOperation,
   type PacketId,
 } from '@dsm/contracts';
-import { toMapOperations } from '@dsm/mapkit';
+import { ASSAM_CONTENT_PACK, toMapOperations } from '@dsm/mapkit';
 import {
   buildHazard,
   buildOfficialAlert,
@@ -637,8 +637,8 @@ export class OperationsService {
       regionCode: REGION_CODE,
       validFromS: toEpochS(now),
       validUntilS: toEpochS(now + 6 * 60 * 60 * 1000),
-      requiredPackId: 'PACK-AS-OPS',
-      requiredPackVersion: 1,
+      requiredPackId: ASSAM_CONTENT_PACK.manifest.packId,
+      requiredPackVersion: ASSAM_CONTENT_PACK.manifest.packVersion,
       profile: input.profile,
       packets: [{
         packetId: packet.packetId,

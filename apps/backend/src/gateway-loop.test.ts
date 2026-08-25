@@ -190,6 +190,47 @@ test('a retried batch does not duplicate observations', async () => {
   assert.equal(store.observations.length, 1, 'a retry must not create a second observation');
 });
 
+test('batch idempotency is scoped to the registered gateway', async () => {
+  const store = new BackendStore();
+  const ingest = new IngestService(store);
+  const outbound = new OutboundService(store);
+  const gatewayA = inProcessClient(store, ingest, outbound, 'GW-A', { proven: true });
+  const gatewayB = inProcessClient(store, ingest, outbound, 'GW-B', { proven: true });
+  await gatewayA.register('aaaa0001', REGION);
+  await gatewayB.register('bbbb0002', REGION);
+
+  const sos = sampleSos('1111111111111111', 'INC-BATCH-SCOPE');
+  const item = {
+    bytes: sos.bytes,
+    packetId: sos.packetId,
+    observation: { receivedAtMs: NOW, transport: 'tier1-ble', hopCountOnArrival: 1 },
+  };
+  await gatewayA.upload({ gatewayToken: 'GW-A', batchId: 'batch-1', items: [item] });
+  await gatewayB.upload({ gatewayToken: 'GW-B', batchId: 'batch-1', items: [item] });
+
+  assert.equal(store.observations.length, 2, 'the same local batch id from two phones records two gateway observations');
+});
+
+test('the backend rejects a claimed packet id that disagrees with canonical bytes', () => {
+  const store = new BackendStore();
+  const ingest = new IngestService(store);
+  const sos = sampleSos('1111111111111111', 'INC-ID-MISMATCH');
+  const response = ingest.ingest({
+    gatewayToken: 'GW-1',
+    batchId: 'mismatch-1',
+    items: [{
+      bytes: sos.bytes,
+      packetId: '00000000000000000000000000000000',
+      observation: { receivedAtMs: NOW, transport: 'tier1-ble', hopCountOnArrival: 1 },
+    }],
+  }, NOW);
+
+  assert.equal(response.results[0]?.outcome, 'invalid');
+  assert.match(response.results[0]?.reason ?? '', /packet id/i);
+  assert.equal(store.packets.size, 0);
+  assert.equal(store.incidents.list().length, 0);
+});
+
 test('the backend refuses a corrupted upload with a reason', async () => {
   const store = new BackendStore();
   const ingest = new IngestService(store);
