@@ -7,7 +7,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, DimensionValue, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { Camera, MapView, MarkerView, type CameraRef } from '@maplibre/maplibre-react-native';
@@ -23,10 +23,10 @@ const REGION_ZOOM = 10.2;
 const DETAIL_ZOOM = 15;
 
 const COLORS = {
-  background: '#08100D', surface: '#111A16', surfaceStrong: '#18231E', border: '#2D3B34',
-  text: '#F4F7F5', muted: '#A8B4AE', green: '#4ADE80', resource: '#16A34A',
-  hazard: '#F59E0B', incident: '#EF4444', responder: '#2563EB', peer: '#8B5CF6',
-  route: '#0D9488', content: '#64748B', gps: '#168BFF',
+  background: '#050811', surface: '#0D1424', surfaceStrong: '#141E33', border: 'rgba(0, 242, 254, 0.15)',
+  text: '#F8FAFC', muted: '#94A3B8', green: '#00E676', resource: '#10B981',
+  hazard: '#FFB300', incident: '#FF0055', responder: '#00F2FE', peer: '#A855F7',
+  route: '#00C6FF', content: '#64748B', gps: '#00F2FE',
 };
 
 const MAP_KINDS = ['resource', 'hazard', 'incident', 'responder', 'peer', 'route', 'content'] as const;
@@ -69,23 +69,25 @@ export default function MapScreen() {
     const next = { lat: fix.coords.latitude, lon: fix.coords.longitude, accuracyM: Math.max(1, Math.round(fix.coords.accuracy ?? 100)), updatedAt: fix.timestamp };
     setDeviceLocation(next);
     setGpsStatus('tracking');
-    setLocationEnabled(true);
+    if (!useAppStore.getState().locationEnabled) {
+      useAppStore.getState().setLocationEnabled(true);
+    }
     if (centerNextFixRef.current) {
       centerNextFixRef.current = false;
       cameraRef.current?.setCamera({ centerCoordinate: [next.lon, next.lat], zoomLevel: DETAIL_ZOOM, animationDuration: 650 });
     }
-  }, [setLocationEnabled]);
+  }, []);
 
   const startLocationWatch = useCallback(async (centerOnFirstFix: boolean) => {
     if (!await Location.hasServicesEnabledAsync()) {
       setGpsStatus('services-off');
-      setLocationEnabled(false);
+      if (useAppStore.getState().locationEnabled) setLocationEnabled(false);
       return;
     }
     const permission = await Location.getForegroundPermissionsAsync();
     if (!permission.granted) {
       setGpsStatus('permission-needed');
-      setLocationEnabled(false);
+      if (useAppStore.getState().locationEnabled) setLocationEnabled(false);
       return;
     }
     if (centerOnFirstFix) centerNextFixRef.current = true;
@@ -179,27 +181,47 @@ export default function MapScreen() {
 
       {viewMode === 'map' ? (
         <View style={styles.mapContainer}>
-          <MapView
-            style={StyleSheet.absoluteFill}
-            mapStyle={MUMBAI_MAP_STYLE_URL}
-            logoEnabled={false}
-            attributionEnabled
-            onDidFinishLoadingStyle={() => { setMapReady(true); setMapError(false); }}
-            onDidFailLoadingMap={() => { setMapReady(false); setMapError(true); }}
-          >
-            <Camera ref={cameraRef} defaultSettings={{ centerCoordinate: MUMBAI_CENTRE, zoomLevel: REGION_ZOOM }} />
-            {visibleObjects.map((item) => <OperationalMarker key={item.objectId} item={item} onPress={() => openObject(item)} />)}
-            {deviceLocation && (
-              <MarkerView coordinate={[deviceLocation.lon, deviceLocation.lat]} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
-                <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Your current location, accurate to approximately ${deviceLocation.accuracyM} metres`} onPress={() => void requestAndLocate()} style={styles.gpsMarkerTouch}>
-                  <View style={styles.gpsPulse}><View style={styles.gpsDot} /></View>
-                </TouchableOpacity>
-              </MarkerView>
-            )}
-          </MapView>
+          {!mapError ? (
+            <MapView
+              style={StyleSheet.absoluteFill}
+              mapStyle={typeof MUMBAI_MAP_STYLE_URL === 'string' ? MUMBAI_MAP_STYLE_URL : JSON.stringify(MUMBAI_MAP_STYLE_URL)}
+              logoEnabled={false}
+              attributionEnabled={false}
+              onDidFinishLoadingStyle={() => { setMapReady(true); setMapError(false); }}
+              onDidFailLoadingMap={() => {
+                setMapReady(false);
+                setMapError(true);
+              }}
+            >
+              <Camera ref={cameraRef} defaultSettings={{ centerCoordinate: MUMBAI_CENTRE, zoomLevel: REGION_ZOOM }} />
+              {visibleObjects.map((item) => <OperationalMarker key={item.objectId} item={item} onPress={() => openObject(item)} />)}
+              {deviceLocation && (
+                <MarkerView coordinate={[deviceLocation.lon, deviceLocation.lat]} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
+                  <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Your current location, accurate to approximately ${deviceLocation.accuracyM} metres`} onPress={() => void requestAndLocate()} style={styles.gpsMarkerTouch}>
+                    <View style={styles.gpsPulse}><View style={styles.gpsDot} /></View>
+                  </TouchableOpacity>
+                </MarkerView>
+              )}
+            </MapView>
+          ) : (
+            <TacticalGridMap
+              visibleObjects={visibleObjects}
+              deviceLocation={deviceLocation}
+              openObject={openObject}
+              requestAndLocate={() => void requestAndLocate()}
+            />
+          )}
 
           {!mapReady && !mapError && <View style={styles.mapLoading} pointerEvents="none"><ActivityIndicator color={COLORS.green} /><Text style={styles.mapLoadingText}>Loading map</Text></View>}
-          {mapError && <View style={styles.mapErrorCard}><icons.alertCircle size={18} color={COLORS.hazard} /><Text style={styles.mapErrorText}>Basemap unavailable. Your local operational markers are still retained.</Text></View>}
+          {mapError && (
+            <View style={styles.mapErrorCard}>
+              <icons.alertCircle size={18} color={COLORS.hazard} />
+              <Text style={styles.mapErrorText}>Basemap tiles unavailable. Operational markers are shown on tactical grid.</Text>
+              <TouchableOpacity onPress={() => { setMapError(false); setMapReady(false); }} style={{ backgroundColor: 'rgba(0, 242, 254, 0.2)', borderWidth: 1, borderColor: '#00F2FE', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                <Text style={{ color: '#00F2FE', fontSize: 10, fontWeight: '800' }}>RETRY</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           <View style={styles.mapStatusCard} pointerEvents="none">
             <View style={[styles.statusDot, { backgroundColor: gpsStatus === 'tracking' ? COLORS.green : gpsStatus === 'error' ? COLORS.incident : COLORS.hazard }]} />
@@ -245,6 +267,83 @@ function FilterBar({ filters, counts, onToggle }: { filters: FilterState; counts
       }}
     />
   );
+}function TacticalGridMap({
+  visibleObjects,
+  deviceLocation,
+  openObject,
+  requestAndLocate,
+}: {
+  visibleObjects: (RuntimeMapObject & { latE7: number; lonE7: number })[];
+  deviceLocation?: DeviceLocation;
+  openObject: (item: RuntimeMapObject) => void;
+  requestAndLocate: () => void;
+}) {
+  const minLon = 72.72;
+  const maxLon = 73.08;
+  const minLat = 18.88;
+  const maxLat = 19.32;
+
+  const getPos = (lat: number, lon: number): { left: DimensionValue; top: DimensionValue } => {
+    const left = Math.max(6, Math.min(90, ((lon - minLon) / (maxLon - minLon)) * 100));
+    const top = Math.max(6, Math.min(90, (1 - (lat - minLat) / (maxLat - minLat)) * 100));
+    return { left: `${left.toFixed(2)}%` as unknown as DimensionValue, top: `${top.toFixed(2)}%` as unknown as DimensionValue };
+  };
+
+  return (
+    <View style={styles.tacticalContainer}>
+      <View style={StyleSheet.absoluteFill}>
+        <View style={styles.gridLineH1} />
+        <View style={styles.gridLineH2} />
+        <View style={styles.gridLineV1} />
+        <View style={styles.gridLineV2} />
+        <Text style={styles.gridCoordTL}>19.30° N, 72.75° E</Text>
+        <Text style={styles.gridCoordTR}>19.30° N, 73.05° E</Text>
+        <Text style={styles.gridCoordBL}>18.90° N, 72.75° E</Text>
+        <Text style={styles.gridCoordBR}>18.90° N, 73.05° E</Text>
+        <Text style={styles.gridWatermark}>MUMBAI OPERATIONAL GRID</Text>
+      </View>
+
+      {visibleObjects.map((item) => {
+        const lat = e7ToFloat(item.latE7);
+        const lon = e7ToFloat(item.lonE7);
+        const pos = getPos(lat, lon);
+        const kind = normaliseKind(item.kind);
+        const Icon = iconForObject(item);
+        const color = colorForKind(kind);
+
+        return (
+          <TouchableOpacity
+            key={item.objectId}
+            accessibilityRole="button"
+            accessibilityLabel={`${kindLabel(kind)}: ${item.label}`}
+            onPress={() => openObject(item)}
+            style={[styles.tacticalMarkerTouch, pos]}
+          >
+            <View style={[styles.tacticalMarkerCircle, { backgroundColor: color }]}>
+              <Icon size={16} color="#FFFFFF" strokeWidth={2.4} />
+            </View>
+            <View style={styles.tacticalMarkerTag}>
+              <Text style={styles.tacticalMarkerText} numberOfLines={1}>
+                {item.label}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        );
+      })}
+
+      {deviceLocation && (
+        <TouchableOpacity
+          accessibilityRole="button"
+          onPress={requestAndLocate}
+          style={[styles.tacticalGpsTouch, getPos(deviceLocation.lat, deviceLocation.lon)]}
+        >
+          <View style={styles.gpsPulse}>
+            <View style={styles.gpsDot} />
+          </View>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
 }
 
 function OperationalMarker({ item, onPress }: { item: RuntimeMapObject & { latE7: number; lonE7: number }; onPress: () => void }) {
@@ -288,16 +387,31 @@ function coordinateLabel(item: RuntimeMapObject & { latE7: number; lonE7: number
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: COLORS.background },
-  header: { minHeight: 70, paddingHorizontal: 18, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  headerCopy: { flex: 1, marginRight: 12 }, eyebrow: { color: COLORS.green, fontSize: 10, lineHeight: 14, fontWeight: '800', letterSpacing: 1.5 }, title: { color: COLORS.text, fontSize: 20, lineHeight: 26, fontWeight: '800' },
-  viewSwitch: { flexDirection: 'row', padding: 3, borderRadius: 12, backgroundColor: COLORS.surface }, modeButton: { minWidth: 64, minHeight: 40, paddingHorizontal: 10, borderRadius: 9, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center' }, modeButtonActive: { backgroundColor: COLORS.green }, modeLabel: { color: COLORS.muted, fontSize: 12, fontWeight: '700' }, modeLabelActive: { color: COLORS.background },
-  filterBar: { maxHeight: 58, flexGrow: 0, backgroundColor: COLORS.background, borderBottomWidth: 1, borderBottomColor: COLORS.border }, filterContent: { paddingHorizontal: 14, paddingVertical: 9, gap: 8 }, filterChip: { minHeight: 38, paddingHorizontal: 11, borderRadius: 19, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, flexDirection: 'row', alignItems: 'center', gap: 6 }, filterLabel: { color: COLORS.muted, fontSize: 12, fontWeight: '700' }, countBadge: { minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, backgroundColor: COLORS.surfaceStrong, alignItems: 'center', justifyContent: 'center' }, countText: { color: COLORS.muted, fontSize: 10, fontWeight: '900' },
-  mapContainer: { flex: 1, overflow: 'hidden' }, mapLoading: { position: 'absolute', top: '42%', alignSelf: 'center', flexDirection: 'row', gap: 10, alignItems: 'center', backgroundColor: COLORS.surface, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border }, mapLoadingText: { color: COLORS.text, fontSize: 13, fontWeight: '700' }, mapErrorCard: { position: 'absolute', top: 14, left: 14, right: 14, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14, backgroundColor: 'rgba(17,26,22,0.96)', borderWidth: 1, borderColor: COLORS.hazard }, mapErrorText: { flex: 1, color: COLORS.text, fontSize: 12, lineHeight: 17, fontWeight: '600' },
-  mapStatusCard: { position: 'absolute', top: 14, left: 14, maxWidth: 245, minHeight: 54, paddingHorizontal: 13, paddingVertical: 9, borderRadius: 15, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(8,16,13,0.94)', borderWidth: 1, borderColor: COLORS.border }, statusDot: { width: 9, height: 9, borderRadius: 5, marginRight: 10 }, statusCopy: { flexShrink: 1 }, statusTitle: { color: COLORS.text, fontSize: 12, lineHeight: 16, fontWeight: '800' }, statusDetail: { color: COLORS.muted, fontSize: 10, lineHeight: 14, marginTop: 1 },
-  mapActions: { position: 'absolute', right: 14, bottom: 74, gap: 10 }, mapActionButton: { width: 50, height: 50, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(8,16,13,0.96)', borderWidth: 1, borderColor: COLORS.border, elevation: 5, shadowColor: '#000000', shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 3 } }, locationButton: { backgroundColor: COLORS.gps, borderColor: '#FFFFFF' },
-  mapSummary: { position: 'absolute', left: 14, bottom: 16, minHeight: 42, flexDirection: 'row', alignItems: 'baseline', paddingHorizontal: 14, borderRadius: 14, backgroundColor: 'rgba(8,16,13,0.94)', borderWidth: 1, borderColor: COLORS.border }, mapSummaryStrong: { color: COLORS.text, fontSize: 17, fontWeight: '900' }, mapSummaryText: { color: COLORS.text, fontSize: 11, fontWeight: '700' }, mapSummaryMuted: { color: COLORS.muted, fontSize: 10, fontWeight: '600' },
+  header: { minHeight: 68, paddingHorizontal: 18, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  headerCopy: { flex: 1, marginRight: 12 }, eyebrow: { color: COLORS.responder, fontSize: 10, lineHeight: 14, fontWeight: '900', letterSpacing: 1.5 }, title: { color: COLORS.text, fontSize: 20, lineHeight: 26, fontWeight: '800' },
+  viewSwitch: { flexDirection: 'row', padding: 4, borderRadius: 14, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border }, modeButton: { minWidth: 64, minHeight: 38, paddingHorizontal: 12, borderRadius: 10, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center' }, modeButtonActive: { backgroundColor: COLORS.responder }, modeLabel: { color: COLORS.muted, fontSize: 12, fontWeight: '700' }, modeLabelActive: { color: '#050811' },
+  filterBar: { maxHeight: 58, flexGrow: 0, backgroundColor: COLORS.background, borderBottomWidth: 1, borderBottomColor: COLORS.border }, filterContent: { paddingHorizontal: 14, paddingVertical: 9, gap: 8 }, filterChip: { minHeight: 38, paddingHorizontal: 12, borderRadius: 19, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, flexDirection: 'row', alignItems: 'center', gap: 6 }, filterLabel: { color: COLORS.muted, fontSize: 12, fontWeight: '700' }, countBadge: { minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, backgroundColor: COLORS.surfaceStrong, alignItems: 'center', justifyContent: 'center' }, countText: { color: COLORS.muted, fontSize: 10, fontWeight: '900' },
+  mapContainer: { flex: 1, overflow: 'hidden' }, mapLoading: { position: 'absolute', top: '42%', alignSelf: 'center', flexDirection: 'row', gap: 10, alignItems: 'center', backgroundColor: COLORS.surface, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border }, mapLoadingText: { color: COLORS.text, fontSize: 13, fontWeight: '700' }, mapErrorCard: { position: 'absolute', top: 14, left: 14, right: 14, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14, backgroundColor: 'rgba(13,20,36,0.96)', borderWidth: 1, borderColor: COLORS.hazard }, mapErrorText: { flex: 1, color: COLORS.text, fontSize: 12, lineHeight: 17, fontWeight: '600' },
+  mapStatusCard: { position: 'absolute', top: 14, left: 14, maxWidth: 245, minHeight: 54, paddingHorizontal: 13, paddingVertical: 9, borderRadius: 16, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(13,20,36,0.92)', borderWidth: 1, borderColor: COLORS.border }, statusDot: { width: 9, height: 9, borderRadius: 5, marginRight: 10 }, statusCopy: { flexShrink: 1 }, statusTitle: { color: COLORS.text, fontSize: 12, lineHeight: 16, fontWeight: '800' }, statusDetail: { color: COLORS.muted, fontSize: 10, lineHeight: 14, marginTop: 1 },
+  mapActions: { position: 'absolute', right: 14, bottom: 74, gap: 10 }, mapActionButton: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(13,20,36,0.94)', borderWidth: 1, borderColor: COLORS.border, elevation: 5, shadowColor: '#000000', shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 3 } }, locationButton: { backgroundColor: COLORS.gps, borderColor: '#FFFFFF' },
+  mapSummary: { position: 'absolute', left: 14, bottom: 16, minHeight: 42, flexDirection: 'row', alignItems: 'baseline', paddingHorizontal: 14, borderRadius: 14, backgroundColor: 'rgba(13,20,36,0.94)', borderWidth: 1, borderColor: COLORS.border }, mapSummaryStrong: { color: COLORS.text, fontSize: 17, fontWeight: '900' }, mapSummaryText: { color: COLORS.text, fontSize: 11, fontWeight: '700' }, mapSummaryMuted: { color: COLORS.muted, fontSize: 10, fontWeight: '600' },
   markerTouch: { width: 48, height: 58, alignItems: 'center', justifyContent: 'flex-end' }, marker: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#FFFFFF', elevation: 7, shadowColor: '#000000', shadowOpacity: 0.35, shadowRadius: 5, shadowOffset: { width: 0, height: 3 } }, markerPointer: { width: 0, height: 0, marginTop: -1, borderLeftWidth: 7, borderRightWidth: 7, borderTopWidth: 9, borderLeftColor: 'transparent', borderRightColor: 'transparent' },
-  gpsMarkerTouch: { width: 58, height: 58, alignItems: 'center', justifyContent: 'center' }, gpsPulse: { width: 46, height: 46, borderRadius: 23, backgroundColor: 'rgba(22,139,255,0.22)', borderWidth: 2, borderColor: 'rgba(22,139,255,0.5)', alignItems: 'center', justifyContent: 'center' }, gpsDot: { width: 20, height: 20, borderRadius: 10, backgroundColor: COLORS.gps, borderWidth: 4, borderColor: '#FFFFFF', elevation: 5 },
-  listContent: { padding: 14, paddingBottom: 100, gap: 10 }, listRow: { minHeight: 86, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13, paddingVertical: 12, borderRadius: 16, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border }, listIcon: { width: 48, height: 48, borderRadius: 15, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, marginRight: 12 }, listCopy: { flex: 1, marginRight: 8 }, listKind: { color: COLORS.green, fontSize: 9, lineHeight: 13, fontWeight: '900', letterSpacing: 0.8 }, listTitle: { color: COLORS.text, fontSize: 15, lineHeight: 21, fontWeight: '800' }, listMeta: { color: COLORS.muted, fontSize: 10, lineHeight: 15, marginTop: 2 },
+  gpsMarkerTouch: { width: 58, height: 58, alignItems: 'center', justifyContent: 'center' }, gpsPulse: { width: 46, height: 46, borderRadius: 23, backgroundColor: 'rgba(0,242,254,0.22)', borderWidth: 2, borderColor: 'rgba(0,242,254,0.5)', alignItems: 'center', justifyContent: 'center' }, gpsDot: { width: 20, height: 20, borderRadius: 10, backgroundColor: COLORS.gps, borderWidth: 4, borderColor: '#FFFFFF', elevation: 5 },
+  listContent: { padding: 14, paddingBottom: 100, gap: 10 }, listRow: { minHeight: 86, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, borderRadius: 18, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border }, listIcon: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, marginRight: 12 }, listCopy: { flex: 1, marginRight: 8 }, listKind: { color: COLORS.responder, fontSize: 9, lineHeight: 13, fontWeight: '900', letterSpacing: 0.8 }, listTitle: { color: COLORS.text, fontSize: 15, lineHeight: 21, fontWeight: '800' }, listMeta: { color: COLORS.muted, fontSize: 10, lineHeight: 15, marginTop: 2 },
   emptyState: { paddingHorizontal: 32, paddingVertical: 70, alignItems: 'center' }, emptyTitle: { color: COLORS.text, fontSize: 18, fontWeight: '800', marginTop: 14 }, emptyCopy: { color: COLORS.muted, fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: 7 },
+  tacticalContainer: { flex: 1, backgroundColor: '#050811', position: 'relative', overflow: 'hidden' },
+  gridLineH1: { position: 'absolute', top: '33%', left: 0, right: 0, height: 1, backgroundColor: 'rgba(0,242,254,0.1)' },
+  gridLineH2: { position: 'absolute', top: '66%', left: 0, right: 0, height: 1, backgroundColor: 'rgba(0,242,254,0.1)' },
+  gridLineV1: { position: 'absolute', left: '33%', top: 0, bottom: 0, width: 1, backgroundColor: 'rgba(0,242,254,0.1)' },
+  gridLineV2: { position: 'absolute', left: '66%', top: 0, bottom: 0, width: 1, backgroundColor: 'rgba(0,242,254,0.1)' },
+  gridCoordTL: { position: 'absolute', top: 12, left: 12, color: COLORS.muted, fontSize: 10, fontFamily: 'monospace' },
+  gridCoordTR: { position: 'absolute', top: 12, right: 12, color: COLORS.muted, fontSize: 10, fontFamily: 'monospace' },
+  gridCoordBL: { position: 'absolute', bottom: 12, left: 12, color: COLORS.muted, fontSize: 10, fontFamily: 'monospace' },
+  gridCoordBR: { position: 'absolute', bottom: 12, right: 12, color: COLORS.muted, fontSize: 10, fontFamily: 'monospace' },
+  gridWatermark: { position: 'absolute', bottom: '45%', alignSelf: 'center', color: 'rgba(0,242,254,0.06)', fontSize: 16, fontWeight: '900', letterSpacing: 4 },
+  tacticalMarkerTouch: { position: 'absolute', alignItems: 'center', marginLeft: -18, marginTop: -18 },
+  tacticalMarkerCircle: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#FFFFFF', elevation: 4 },
+  tacticalMarkerTag: { marginTop: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, backgroundColor: 'rgba(13,20,36,0.92)', borderWidth: 1, borderColor: COLORS.border, maxWidth: 100 },
+  tacticalMarkerText: { color: '#F8FAFC', fontSize: 9, fontWeight: '700' },
+  tacticalGpsTouch: { position: 'absolute', marginLeft: -29, marginTop: -29 },
 });

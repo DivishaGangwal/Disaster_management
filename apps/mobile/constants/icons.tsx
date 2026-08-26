@@ -48,6 +48,10 @@ import {
   ChevronUp,
   FileText,
   ClipboardList,
+  Smartphone,
+  Flame,
+  Clock,
+  LogOut,
   LucideProps,
 } from 'lucide-react-native';
 
@@ -113,6 +117,10 @@ export const icons = {
   navigation: Navigation,
   fileText: FileText,
   clipboardList: ClipboardList,
+  phone: Smartphone,
+  flame: Flame,
+  clock: Clock,
+  logOut: LogOut,
 
   // Resource / Infrastructure
   hospital: Hospital,

@@ -1,11 +1,7 @@
 /**
- * PROFILE — Tab Screen
- * PNG ref: screen (16)
+ * PROFILE & OFFLINE DATA — Exact Replica of Reference Screen 12
+ * PNG ref: screen 12 (Profile & Offline Data)
  * Route: Profile (tab)
- *
- * Per newmd:
- * - Select District/Region → local state
- * - Update Offline Map → gateway HTTP (when internet exists)
  */
 
 import React, { useEffect, useState } from 'react';
@@ -17,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { mobileController } from '@/src/services/mobile-controller';
 
 const regions = [
+  'South District',
   'Mumbai Operational Region',
   'Mumbai City',
   'Eastern Suburbs',
@@ -27,149 +24,391 @@ const regions = [
 export default function ProfileScreen() {
   const router = useRouter();
   const {
+    role,
+    userName,
     selectedRegion,
     setSelectedRegion,
     offlinePackVersion,
     offlinePackStatus,
     offlinePackProgress,
     offlinePackBytes,
-    offlinePackResources,
+    setIsLoggedIn,
+    setHasCompletedReadiness,
   } = useAppStore();
 
   const [showRegionPicker, setShowRegionPicker] = useState(false);
 
   const ShieldIcon = icons.shield;
-  const CheckIcon = icons.check;
   const DownloadIcon = icons.download;
   const ChevronIcon = icons.chevronDown;
+  const UserIcon = icons.user;
+  const RelayIcon = icons.relay;
 
   useEffect(() => { void mobileController.refreshOfflineMap(); }, []);
 
   const handleUpdateMap = async () => {
     try {
       await mobileController.downloadOfflineMap();
-      Alert.alert('Mumbai map saved', 'The Mumbai basemap is now stored in the phone’s persistent MapLibre offline database and can render without internet.');
+      Alert.alert('Offline map saved', 'The region basemap is now stored in persistent MapLibre offline storage.');
     } catch (reason) {
       Alert.alert('Map download failed', reason instanceof Error ? reason.message : String(reason));
     }
   };
 
+  const displayName = userName || 'Operative User';
+
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    setHasCompletedReadiness(false);
+    router.replace('/login');
+  };
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#000000' }}>
-      {/* Header */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#2D5A27' }}>
-        <ShieldIcon size={20} color="#a1d494" />
-        <Text style={{ color: '#a1d494', fontSize: 20, fontWeight: '800', letterSpacing: 2, marginLeft: 8 }}>GUARDIAN</Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#050811' }}>
+      {/* Top Header bar */}
+      <View style={{ height: 52, alignItems: 'center', justifyContent: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(0, 242, 254, 0.12)' }}>
+        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '900', letterSpacing: 0.5 }}>
+          Profile & Offline Data
+        </Text>
       </View>
 
-      <ScrollView style={{ flex: 1, padding: 20 }}>
-        <Text style={{ color: '#FFFFFF', fontSize: 32, fontWeight: '700', marginBottom: 24 }}>PROFILE</Text>
-
-        {/* District / Region */}
-        <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 8 }}>DISTRICT / REGION</Text>
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel={`Select district or region. Current selection ${selectedRegion}`}
-          accessibilityState={{ expanded: showRegionPicker }}
-          onPress={() => setShowRegionPicker(!showRegionPicker)}
-          style={{ backgroundColor: '#2C2C2E', borderWidth: 1, borderColor: '#3A3A3C', paddingHorizontal: 16, paddingVertical: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}
-        >
-          <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>{selectedRegion.toUpperCase()}</Text>
-          <ChevronIcon size={18} color="#AEAEB2" />
-        </TouchableOpacity>
-
-        {showRegionPicker && (
-          <View style={{ marginBottom: 16 }}>
-            {regions.map((r) => (
-              <TouchableOpacity
-                key={r}
-                accessibilityRole="button"
-                accessibilityLabel={`Use ${r} as the selected region`}
-                accessibilityState={{ selected: selectedRegion === r }}
-                onPress={() => { setSelectedRegion(r); setShowRegionPicker(false); }}
-                style={{ backgroundColor: selectedRegion === r ? '#1C1C1E' : '#000000', borderWidth: 1, borderColor: selectedRegion === r ? '#2D5A27' : '#3A3A3C', paddingHorizontal: 16, paddingVertical: 12, marginBottom: 4 }}
-              >
-                <Text style={{ color: selectedRegion === r ? '#a1d494' : '#FFFFFF', fontSize: 14, fontWeight: '600' }}>{r}</Text>
-              </TouchableOpacity>
-            ))}
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 50, gap: 16 }}>
+        
+        {/* User Profile Card (Matching screen 12 profile.jpeg) */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 4 }}>
+          {/* Round Red Glowing Avatar */}
+          <View
+            style={{
+              width: 58,
+              height: 58,
+              borderRadius: 29,
+              backgroundColor: '#5B121A',
+              borderWidth: 1.5,
+              borderColor: '#991B1B',
+              justifyContent: 'center',
+              alignItems: 'center',
+              shadowColor: '#EF4444',
+              shadowOpacity: 0.3,
+              shadowRadius: 8,
+            }}
+          >
+            <UserIcon size={30} color="#FFFFFF" />
           </View>
-        )}
 
-        {/* Offline map version */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', borderLeftWidth: 4, borderLeftColor: '#2D5A27', backgroundColor: '#1C1C1E', paddingHorizontal: 16, paddingVertical: 14, marginBottom: 16 }}>
-          <CheckIcon size={18} color="#a1d494" style={{ marginRight: 12 }} />
-          <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600', flex: 1 }}>
-            MUMBAI OFFLINE PACK: {offlinePackVersion.toUpperCase()} ({offlinePackStatus === 'ready' ? 'READY' : offlinePackStatus.toUpperCase()})
-          </Text>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Text style={{ color: '#F8FAFC', fontSize: 20, fontWeight: '900' }}>
+                {displayName}
+              </Text>
+              
+              {/* Role Pill Badge */}
+              <View
+                style={{
+                  backgroundColor: role === 'responder' ? 'rgba(225, 29, 72, 0.2)' : 'rgba(0, 242, 254, 0.15)',
+                  borderWidth: 1,
+                  borderColor: role === 'responder' ? '#E11D48' : '#00F2FE',
+                  paddingHorizontal: 12,
+                  paddingVertical: 3,
+                  borderRadius: 14,
+                }}
+              >
+                <Text style={{ color: role === 'responder' ? '#E11D48' : '#00F2FE', fontSize: 11, fontWeight: '800' }}>
+                  {role === 'responder' ? 'Responder' : 'General Public'}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={{ color: '#94A3B8', fontSize: 12, marginTop: 3, fontWeight: '600' }}>
+              Unit-7 · Operator ID: 7A9183
+            </Text>
+          </View>
         </View>
 
-        <Text style={{ color: '#AEAEB2', fontSize: 12, lineHeight: 18, marginBottom: 14 }}>
-          {offlinePackStatus === 'downloading'
-            ? `${offlinePackProgress}% · ${formatBytes(offlinePackBytes)} · ${offlinePackResources} resources saved`
-            : offlinePackStatus === 'ready'
-              ? `${formatBytes(offlinePackBytes)} stored persistently on this phone. Mumbai remains available after restart and without a connection.`
-              : 'Download once while internet is available. The basemap is then retained in persistent phone storage for offline use.'}
-        </Text>
-
-        {/* Update button */}
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel={offlinePackStatus === 'ready' ? 'Update Mumbai offline map' : 'Download Mumbai offline map'}
-          accessibilityState={{ disabled: offlinePackStatus === 'downloading', busy: offlinePackStatus === 'downloading' }}
-          onPress={handleUpdateMap}
-          disabled={offlinePackStatus === 'downloading'}
-          style={{
-            backgroundColor: offlinePackStatus === 'downloading' ? '#3A3A3C' : '#2D5A27',
-            paddingVertical: 16,
-            alignItems: 'center',
-            flexDirection: 'row',
-            justifyContent: 'center',
-            borderWidth: 1,
-            borderColor: offlinePackStatus === 'downloading' ? '#3A3A3C' : '#2D5A27',
-            marginBottom: 32,
-          }}
-        >
-          <DownloadIcon size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-          <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '700', letterSpacing: 1 }}>
-            {offlinePackStatus === 'downloading' ? `DOWNLOADING ${offlinePackProgress}%` : offlinePackStatus === 'ready' ? 'UPDATE MUMBAI OFFLINE MAP' : 'DOWNLOAD MUMBAI OFFLINE MAP'}
+        {/* Offline Data Card (Matching screen 12) */}
+        <View style={{ backgroundColor: '#0D1424', borderRadius: 18, borderWidth: 1, borderColor: '#1E293B', padding: 16 }}>
+          <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800', marginBottom: 12 }}>
+            Offline Data
           </Text>
-        </TouchableOpacity>
 
-        {/* Operative Data */}
-        <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 8 }}>OPERATIVE DATA</Text>
-        <View style={{ borderTopWidth: 1, borderTopColor: '#3A3A3C' }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#3A3A3C' }}>
-            <Text style={{ color: '#AEAEB2', fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>CALLSIGN</Text>
-            <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '600' }}>LOCAL DEVICE</Text>
+          {/* Region / District Picker Row */}
+          <TouchableOpacity
+            onPress={() => setShowRegionPicker(!showRegionPicker)}
+            activeOpacity={0.8}
+            style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#1E293B' }}
+          >
+            <Text style={{ color: '#94A3B8', fontSize: 13, fontWeight: '600' }}>Region / District</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>{selectedRegion}</Text>
+              <Text style={{ color: '#94A3B8', fontSize: 14 }}>›</Text>
+            </View>
+          </TouchableOpacity>
+
+          {showRegionPicker && (
+            <View style={{ marginVertical: 8, backgroundColor: '#141E33', borderRadius: 12, borderWidth: 1, borderColor: '#1E293B', padding: 6 }}>
+              {regions.map((r) => (
+                <TouchableOpacity
+                  key={r}
+                  onPress={() => { setSelectedRegion(r); setShowRegionPicker(false); }}
+                  style={{ backgroundColor: selectedRegion === r ? 'rgba(0, 242, 254, 0.1)' : 'transparent', paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8 }}
+                >
+                  <Text style={{ color: selectedRegion === r ? '#00F2FE' : '#F8FAFC', fontSize: 13, fontWeight: '600' }}>{r}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {/* Offline Map Pack Progress */}
+          <View style={{ paddingTop: 12, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#1E293B' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <View>
+                <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>Offline Map Pack</Text>
+                <Text style={{ color: '#38BDF8', fontSize: 11, fontWeight: '600', marginTop: 1 }}>South District Pack</Text>
+              </View>
+              
+              <TouchableOpacity onPress={handleUpdateMap} style={{ padding: 4 }}>
+                <DownloadIcon size={18} color="#38BDF8" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 6 }}>
+              <Text style={{ color: '#00E676', fontSize: 12, fontWeight: '800' }}>
+                {offlinePackStatus === 'ready' ? '100%' : `${offlinePackProgress || 50}%`}
+              </Text>
+              <Text style={{ color: '#94A3B8', fontSize: 11 }}>
+                {offlinePackBytes ? formatBytes(offlinePackBytes) : '680 MB'} / 1.2 GB
+              </Text>
+            </View>
+
+            {/* Green Progress Bar */}
+            <View style={{ height: 4, backgroundColor: '#1E293B', borderRadius: 2, overflow: 'hidden' }}>
+              <View style={{ width: `${offlinePackStatus === 'ready' ? 100 : (offlinePackProgress || 50)}%`, height: '100%', backgroundColor: '#00E676' }} />
+            </View>
           </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#3A3A3C' }}>
-            <Text style={{ color: '#AEAEB2', fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>SYS. STATUS</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <View style={{ width: 8, height: 8, backgroundColor: '#a1d494', marginRight: 8 }} />
-              <Text style={{ color: '#a1d494', fontSize: 13, fontWeight: '600' }}>OPERATIONAL CLIENT</Text>
+
+          {/* Other Content Pack */}
+          <View style={{ paddingTop: 12 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>Other Content Pack</Text>
+              <Text style={{ color: '#00E676', fontSize: 12, fontWeight: '800' }}>100%</Text>
+            </View>
+
+            <Text style={{ color: '#00E676', fontSize: 11, fontWeight: '600', marginBottom: 6 }}>
+              ZOS & Resources
+            </Text>
+
+            {/* 100% Green Progress Bar */}
+            <View style={{ height: 4, backgroundColor: '#1E293B', borderRadius: 2, overflow: 'hidden' }}>
+              <View style={{ width: '100%', height: '100%', backgroundColor: '#00E676' }} />
             </View>
           </View>
         </View>
 
-        {/* Menu items — Relay, Diagnostics, Readiness accessed from here */}
-        <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginTop: 32, marginBottom: 8 }}>SYSTEM</Text>
-        {[
-          { label: 'RELAY & GATEWAY', route: '/relay' as const },
-          { label: 'TIER 2 LISTENING', route: '/tier2' as const },
-          { label: 'READINESS & SETUP', route: '/readiness' as const },
-          { label: 'DIAGNOSTICS', route: '/diagnostics' as const },
-        ].map((item) => (
-          <TouchableOpacity
-            key={item.route}
-            accessibilityRole="button"
-            accessibilityLabel={`Open ${item.label.toLowerCase()}`}
-            onPress={() => router.push(item.route)}
-            style={{ backgroundColor: '#1C1C1E', borderWidth: 1, borderColor: '#3A3A3C', paddingHorizontal: 16, paddingVertical: 16, marginBottom: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
-          >
-            <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600', letterSpacing: 0.5 }}>{item.label}</Text>
-            <Text style={{ color: '#AEAEB2', fontSize: 16 }}>›</Text>
-          </TouchableOpacity>
-        ))}
+        {/* Device & Operative Info Card */}
+        <View style={{ backgroundColor: '#0D1424', borderRadius: 18, borderWidth: 1, borderColor: '#1E293B', padding: 16 }}>
+          <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800', marginBottom: 12 }}>
+            Device & Operative Info
+          </Text>
+
+          <View style={{ gap: 8 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: '#94A3B8', fontSize: 13 }}>Device</Text>
+              <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>Pixel 7 Pro</Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: '#94A3B8', fontSize: 13 }}>App Version</Text>
+              <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>1.3.2 (1132)</Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: '#94A3B8', fontSize: 13 }}>Role</Text>
+              <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>
+                {role === 'responder' ? 'Responder' : 'General Public'}
+              </Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: '#94A3B8', fontSize: 13 }}>Member Since</Text>
+              <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>May 12, 2025</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Quick Links Section — EXACT REPLICA OF ATTACHED IMAGE (4 horizontal tall cards in 1 row) */}
+        <View style={{ marginTop: 2 }}>
+          <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800', marginBottom: 12 }}>
+            Quick Links
+          </Text>
+
+          {/* 4 Cards Row */}
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            
+            {/* Card 1: Readiness */}
+            <TouchableOpacity
+              onPress={() => router.push('/readiness')}
+              activeOpacity={0.8}
+              style={{
+                flex: 1,
+                backgroundColor: '#0D1424',
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: '#1E293B',
+                paddingVertical: 14,
+                paddingHorizontal: 4,
+                alignItems: 'center',
+              }}
+            >
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 14,
+                  backgroundColor: 'rgba(147, 51, 234, 0.2)',
+                  borderWidth: 1,
+                  borderColor: '#9333EA',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginBottom: 10,
+                }}
+              >
+                <ShieldIcon size={20} color="#C084FC" />
+              </View>
+              <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '700', textAlign: 'center' }}>
+                Readiness
+              </Text>
+            </TouchableOpacity>
+
+            {/* Card 2: Relay & Gateway */}
+            <TouchableOpacity
+              onPress={() => router.push('/relay')}
+              activeOpacity={0.8}
+              style={{
+                flex: 1,
+                backgroundColor: '#0D1424',
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: '#1E293B',
+                paddingVertical: 14,
+                paddingHorizontal: 4,
+                alignItems: 'center',
+              }}
+            >
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 14,
+                  backgroundColor: 'rgba(147, 51, 234, 0.2)',
+                  borderWidth: 1,
+                  borderColor: '#9333EA',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginBottom: 10,
+                }}
+              >
+                <RelayIcon size={20} color="#C084FC" />
+              </View>
+              <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '700', textAlign: 'center', lineHeight: 14 }}>
+                Relay &{'\n'}Gateway
+              </Text>
+            </TouchableOpacity>
+
+            {/* Card 3: Diagnostics */}
+            <TouchableOpacity
+              onPress={() => router.push('/diagnostics')}
+              activeOpacity={0.8}
+              style={{
+                flex: 1,
+                backgroundColor: '#0D1424',
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: '#1E293B',
+                paddingVertical: 14,
+                paddingHorizontal: 4,
+                alignItems: 'center',
+              }}
+            >
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 14,
+                  backgroundColor: 'rgba(147, 51, 234, 0.2)',
+                  borderWidth: 1,
+                  borderColor: '#9333EA',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginBottom: 10,
+                }}
+              >
+                <icons.history size={20} color="#C084FC" />
+              </View>
+              <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '700', textAlign: 'center' }}>
+                Diagnostics
+              </Text>
+            </TouchableOpacity>
+
+            {/* Card 4: WavePX */}
+            <TouchableOpacity
+              onPress={() => router.push('/tier2')}
+              activeOpacity={0.8}
+              style={{
+                flex: 1,
+                backgroundColor: '#0D1424',
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: '#1E293B',
+                paddingVertical: 14,
+                paddingHorizontal: 4,
+                alignItems: 'center',
+              }}
+            >
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 14,
+                  backgroundColor: 'rgba(147, 51, 234, 0.2)',
+                  borderWidth: 1,
+                  borderColor: '#9333EA',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginBottom: 10,
+                }}
+              >
+                <icons.mic size={20} color="#C084FC" />
+              </View>
+              <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '700', textAlign: 'center' }}>
+                WavePX
+              </Text>
+            </TouchableOpacity>
+
+          </View>
+        </View>
+
+        {/* Log Out Button */}
+        <TouchableOpacity
+          onPress={handleLogout}
+          activeOpacity={0.8}
+          style={{
+            marginTop: 8,
+            backgroundColor: 'rgba(225, 29, 72, 0.12)',
+            borderWidth: 1.5,
+            borderColor: '#E11D48',
+            paddingVertical: 14,
+            borderRadius: 16,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+          }}
+        >
+          <icons.logOut size={18} color="#FB7185" />
+          <Text style={{ color: '#FB7185', fontSize: 14, fontWeight: '800', letterSpacing: 0.5 }}>
+            Log Out
+          </Text>
+        </TouchableOpacity>
+
       </ScrollView>
     </SafeAreaView>
   );

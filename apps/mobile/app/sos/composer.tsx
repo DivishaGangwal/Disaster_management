@@ -1,10 +1,7 @@
 /**
  * SOS COMPOSER
- * PNG ref: screen (19)
+ * PNG ref: screen 3 (Create SOS)
  * Route: SosComposer
- *
- * Per newmd: All local state. Creates packet via buildSosCreate()/buildSosUpdate() → engine.createLocal()
- * Must work with NO location and NO internet.
  */
 
 import React, { useState } from 'react';
@@ -15,15 +12,15 @@ import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { mobileController } from '@/src/services/mobile-controller';
 
-const categories = ['Medical Emergency', 'Fire', 'Flood', 'Earthquake', 'Landslide', 'Cyclone', 'Building Collapse', 'Chemical/Gas', 'Violence', 'Other'];
+const categories = ['Building Fire', 'Gas Leak', 'Road Accident', 'Medical Emergency', 'Flooding', 'Building Collapse', 'Chemical Leak', 'Violence', 'Other'];
 const mobilityOptions = ['Mobile (Can walk)', 'Limited mobility', 'Immobile', 'Trapped', 'Unknown'];
 const languages = ['English', 'Hindi', 'Marathi'];
 
 const sevLevels = [
-  { label: 'INFO', bg: '#3A3A3C', textColor: '#FFFFFF' },
-  { label: 'MODERATE', bg: '#FFD60A', textColor: '#000000' },
-  { label: 'URGENT', bg: '#C55A11', textColor: '#FFFFFF' },
-  { label: 'CRITICAL', bg: '#8B2500', textColor: '#FFFFFF' },
+  { label: 'Low', num: '1', bg: 'rgba(100, 116, 139, 0.2)', color: '#64748B' },
+  { label: 'Moderate', num: '2', bg: 'rgba(0, 242, 254, 0.2)', color: '#00F2FE' },
+  { label: 'High', num: '3', bg: 'rgba(255, 179, 0, 0.2)', color: '#FFB300' },
+  { label: 'Critical', num: '4', bg: 'rgba(255, 0, 85, 0.25)', color: '#FF0055' },
 ];
 
 export default function SosComposerScreen() {
@@ -31,10 +28,10 @@ export default function SosComposerScreen() {
   const { setHasActiveSos } = useAppStore();
 
   const [selectedCategory, setSelectedCategory] = useState(0);
-  const [severity, setSeverity] = useState(0);
+  const [severity, setSeverity] = useState(2);
   const [peopleCount, setPeopleCount] = useState(2);
   const [injuredCount, setInjuredCount] = useState(1);
-  const [mobilityIdx, setMobilityIdx] = useState(0);
+  const [mobilityIdx, setMobilityIdx] = useState(1);
   const [note, setNote] = useState('');
   const [langIdx, setLangIdx] = useState(0);
   const [showCatPicker, setShowCatPicker] = useState(false);
@@ -46,7 +43,7 @@ export default function SosComposerScreen() {
   const ChevronIcon = icons.chevronDown;
 
   const handleConfirm = async () => {
-    const categoryWire = [0, 2, 3, 7, 7, 7, 5, 7, 4, 7];
+    const categoryWire = [2, 7, 7, 0, 3, 5, 7, 4, 7];
     const mobilityWire = [1, 2, 3, 4, 0];
     const languageTags = ['en', 'hi', 'mr', 'as'];
     try {
@@ -60,8 +57,8 @@ export default function SosComposerScreen() {
         language: languageTags[langIdx] ?? 'en',
       });
       setHasActiveSos(true);
-      Alert.alert('SOS saved', 'Saved on this phone and eligible for nearby relay.', [
-        { text: 'VIEW TIMELINE', onPress: () => router.replace('/sos/active') },
+      Alert.alert('SOS Broadcasted', 'Saved on this phone and eligible for nearby relay.', [
+        { text: 'OK', onPress: () => router.replace('/(tabs)') },
       ]);
     } catch (reason) {
       Alert.alert('SOS not saved', reason instanceof Error ? reason.message : String(reason));
@@ -69,121 +66,124 @@ export default function SosComposerScreen() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#000000' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#050811' }}>
       {/* Header */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#3A3A3C' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(0, 242, 254, 0.15)' }}>
         <TouchableOpacity onPress={() => router.back()}>
-          <CloseIcon size={24} color="#AEAEB2" />
+          <CloseIcon size={22} color="#94A3B8" />
         </TouchableOpacity>
-        <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '800', letterSpacing: 2 }}>SOS COMPOSER</Text>
-        <BroadcastIcon size={22} color="#AEAEB2" />
+        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '900', letterSpacing: 2 }}>CREATE SOS</Text>
+        <BroadcastIcon size={20} color="#FF0055" />
       </View>
 
       <ScrollView style={{ flex: 1, padding: 20 }} contentContainerStyle={{ paddingBottom: 100 }}>
         {/* Category dropdown */}
-        <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 8 }}>CATEGORY</Text>
+        <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '800', letterSpacing: 1, marginBottom: 8 }}>CATEGORY</Text>
         <TouchableOpacity
           onPress={() => setShowCatPicker(!showCatPicker)}
-          style={{ backgroundColor: '#2C2C2E', borderWidth: 1, borderColor: '#3A3A3C', paddingHorizontal: 16, paddingVertical: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: showCatPicker ? 4 : 24 }}
+          style={{ backgroundColor: '#0D1424', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', paddingHorizontal: 16, paddingVertical: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: showCatPicker ? 4 : 20 }}
         >
-          <Text style={{ color: '#FFFFFF', fontSize: 16 }}>{categories[selectedCategory]}</Text>
-          <ChevronIcon size={18} color="#AEAEB2" />
+          <Text style={{ color: '#F8FAFC', fontSize: 15, fontWeight: '700' }}>{categories[selectedCategory]}</Text>
+          <ChevronIcon size={18} color="#00F2FE" />
         </TouchableOpacity>
         {showCatPicker && (
-          <View style={{ marginBottom: 24 }}>
+          <View style={{ marginBottom: 20, backgroundColor: '#0D1424', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', padding: 6 }}>
             {categories.map((cat, i) => (
               <TouchableOpacity
                 key={cat}
                 onPress={() => { setSelectedCategory(i); setShowCatPicker(false); }}
-                style={{ backgroundColor: i === selectedCategory ? '#1C1C1E' : '#000000', borderWidth: 1, borderColor: i === selectedCategory ? '#2D5A27' : '#3A3A3C', paddingHorizontal: 16, paddingVertical: 12, marginBottom: 2 }}
+                style={{ backgroundColor: i === selectedCategory ? 'rgba(0, 242, 254, 0.1)' : 'transparent', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 10 }}
               >
-                <Text style={{ color: i === selectedCategory ? '#a1d494' : '#FFFFFF', fontSize: 14 }}>{cat}</Text>
+                <Text style={{ color: i === selectedCategory ? '#00F2FE' : '#F8FAFC', fontSize: 14 }}>{cat}</Text>
               </TouchableOpacity>
             ))}
           </View>
         )}
 
-        {/* Severity — 4 colored blocks in a row */}
-        <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 8 }}>SEVERITY</Text>
-        <View style={{ flexDirection: 'row', marginBottom: 24 }}>
+        {/* Severity — 4 colored blocks */}
+        <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '800', letterSpacing: 1, marginBottom: 8 }}>SEVERITY</Text>
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
           {sevLevels.map((sev, i) => (
             <TouchableOpacity
               key={sev.label}
               onPress={() => setSeverity(i)}
+              activeOpacity={0.8}
               style={{
                 flex: 1,
-                backgroundColor: sev.bg,
-                paddingVertical: 14,
+                backgroundColor: severity === i ? sev.bg : '#0D1424',
+                paddingVertical: 12,
+                borderRadius: 14,
                 alignItems: 'center',
-                borderWidth: severity === i ? 2 : 0,
-                borderColor: '#FFFFFF',
+                borderWidth: 1.5,
+                borderColor: severity === i ? sev.color : '#1E293B',
               }}
             >
-              <Text style={{ color: sev.textColor, fontSize: 12, fontWeight: '700', letterSpacing: 0.5 }}>{sev.label}</Text>
+              <Text style={{ color: severity === i ? sev.color : '#F8FAFC', fontSize: 16, fontWeight: '900' }}>{sev.num}</Text>
+              <Text style={{ color: severity === i ? sev.color : '#64748B', fontSize: 10, fontWeight: '700', marginTop: 2 }}>{sev.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* People Count — tactical stepper */}
-        <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 8 }}>PEOPLE COUNT</Text>
-        <TacticalStepper value={peopleCount} onDecrement={() => setPeopleCount(Math.max(0, peopleCount - 1))} onIncrement={() => setPeopleCount(peopleCount + 1)} color="#FFFFFF" />
+        {/* People Involved Stepper */}
+        <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '800', letterSpacing: 1, marginBottom: 8 }}>PEOPLE INVOLVED</Text>
+        <TacticalStepper value={peopleCount} onDecrement={() => setPeopleCount(Math.max(0, peopleCount - 1))} onIncrement={() => setPeopleCount(peopleCount + 1)} color="#F8FAFC" />
 
-        {/* Injured Count — tactical stepper */}
-        <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 8, marginTop: 24 }}>INJURED COUNT</Text>
-        <TacticalStepper value={injuredCount} onDecrement={() => setInjuredCount(Math.max(0, injuredCount - 1))} onIncrement={() => setInjuredCount(injuredCount + 1)} color="#FF453A" />
+        {/* Injured Stepper */}
+        <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '800', letterSpacing: 1, marginBottom: 8, marginTop: 20 }}>INJURED</Text>
+        <TacticalStepper value={injuredCount} onDecrement={() => setInjuredCount(Math.max(0, injuredCount - 1))} onIncrement={() => setInjuredCount(injuredCount + 1)} color="#FF0055" />
 
         {/* Mobility dropdown */}
-        <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 8, marginTop: 24 }}>MOBILITY</Text>
+        <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '800', letterSpacing: 1, marginBottom: 8, marginTop: 20 }}>MOBILITY CONDITION</Text>
         <TouchableOpacity
           onPress={() => setShowMobilityPicker(!showMobilityPicker)}
-          style={{ backgroundColor: '#2C2C2E', borderWidth: 1, borderColor: '#3A3A3C', paddingHorizontal: 16, paddingVertical: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: showMobilityPicker ? 4 : 24 }}
+          style={{ backgroundColor: '#0D1424', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', paddingHorizontal: 16, paddingVertical: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: showMobilityPicker ? 4 : 20 }}
         >
-          <Text style={{ color: '#FFFFFF', fontSize: 16 }}>{mobilityOptions[mobilityIdx]}</Text>
-          <ChevronIcon size={18} color="#AEAEB2" />
+          <Text style={{ color: '#F8FAFC', fontSize: 15, fontWeight: '700' }}>{mobilityOptions[mobilityIdx]}</Text>
+          <ChevronIcon size={18} color="#00F2FE" />
         </TouchableOpacity>
         {showMobilityPicker && (
-          <View style={{ marginBottom: 24 }}>
+          <View style={{ marginBottom: 20, backgroundColor: '#0D1424', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', padding: 6 }}>
             {mobilityOptions.map((opt, i) => (
               <TouchableOpacity
                 key={opt}
                 onPress={() => { setMobilityIdx(i); setShowMobilityPicker(false); }}
-                style={{ backgroundColor: '#000000', borderWidth: 1, borderColor: i === mobilityIdx ? '#2D5A27' : '#3A3A3C', paddingHorizontal: 16, paddingVertical: 12, marginBottom: 2 }}
+                style={{ backgroundColor: i === mobilityIdx ? 'rgba(0, 242, 254, 0.1)' : 'transparent', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 10 }}
               >
-                <Text style={{ color: i === mobilityIdx ? '#a1d494' : '#FFFFFF', fontSize: 14 }}>{opt}</Text>
+                <Text style={{ color: i === mobilityIdx ? '#00F2FE' : '#F8FAFC', fontSize: 14 }}>{opt}</Text>
               </TouchableOpacity>
             ))}
           </View>
         )}
 
         {/* Short Note */}
-        <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 8 }}>SHORT NOTE (OPTIONAL)</Text>
+        <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '800', letterSpacing: 1, marginBottom: 8 }}>SHORT NOTE (OPTIONAL)</Text>
         <TextInput
           value={note}
           onChangeText={setNote}
           maxLength={64}
-          placeholder="E.g., Need oxygen, access via north gate"
-          placeholderTextColor="#6B7280"
-          style={{ backgroundColor: '#2C2C2E', borderWidth: 1, borderColor: '#3A3A3C', paddingHorizontal: 16, paddingVertical: 14, color: '#FFFFFF', fontSize: 16, marginBottom: 24, borderRadius: 0 }}
+          placeholder="Building fire spread to 2nd floor."
+          placeholderTextColor="#64748B"
+          style={{ backgroundColor: '#0D1424', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', paddingHorizontal: 16, paddingVertical: 14, color: '#F8FAFC', fontSize: 15, marginBottom: 20 }}
         />
 
         {/* Language dropdown */}
-        <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 8 }}>PRIMARY LANGUAGE</Text>
+        <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '800', letterSpacing: 1, marginBottom: 8 }}>LANGUAGE</Text>
         <TouchableOpacity
           onPress={() => setShowLangPicker(!showLangPicker)}
-          style={{ backgroundColor: '#2C2C2E', borderWidth: 1, borderColor: '#3A3A3C', paddingHorizontal: 16, paddingVertical: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: showLangPicker ? 4 : 24 }}
+          style={{ backgroundColor: '#0D1424', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', paddingHorizontal: 16, paddingVertical: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: showLangPicker ? 4 : 20 }}
         >
-          <Text style={{ color: '#FFFFFF', fontSize: 16 }}>{languages[langIdx]}</Text>
-          <ChevronIcon size={18} color="#AEAEB2" />
+          <Text style={{ color: '#F8FAFC', fontSize: 15, fontWeight: '700' }}>{languages[langIdx]}</Text>
+          <ChevronIcon size={18} color="#00F2FE" />
         </TouchableOpacity>
         {showLangPicker && (
-          <View style={{ marginBottom: 24 }}>
+          <View style={{ marginBottom: 20, backgroundColor: '#0D1424', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', padding: 6 }}>
             {languages.map((lang, i) => (
               <TouchableOpacity
                 key={lang}
                 onPress={() => { setLangIdx(i); setShowLangPicker(false); }}
-                style={{ backgroundColor: '#000000', borderWidth: 1, borderColor: i === langIdx ? '#2D5A27' : '#3A3A3C', paddingHorizontal: 16, paddingVertical: 12, marginBottom: 2 }}
+                style={{ backgroundColor: i === langIdx ? 'rgba(0, 242, 254, 0.1)' : 'transparent', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 10 }}
               >
-                <Text style={{ color: i === langIdx ? '#a1d494' : '#FFFFFF', fontSize: 14 }}>{lang}</Text>
+                <Text style={{ color: i === langIdx ? '#00F2FE' : '#F8FAFC', fontSize: 14 }}>{lang}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -191,12 +191,13 @@ export default function SosComposerScreen() {
       </ScrollView>
 
       {/* Fixed bottom button */}
-      <View style={{ padding: 20, backgroundColor: '#000000', borderTopWidth: 1, borderTopColor: '#3A3A3C' }}>
+      <View style={{ padding: 20, backgroundColor: '#050811', borderTopWidth: 1, borderTopColor: 'rgba(0, 242, 254, 0.15)' }}>
         <TouchableOpacity
           onPress={handleConfirm}
-          style={{ backgroundColor: '#2D5A27', paddingVertical: 18, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
+          activeOpacity={0.8}
+          style={{ backgroundColor: '#FF0055', paddingVertical: 16, borderRadius: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', shadowColor: '#FF0055', shadowOpacity: 0.4, shadowRadius: 10 }}
         >
-          <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700', letterSpacing: 1 }}>▷ CONFIRM & UPDATE</Text>
+          <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '900', letterSpacing: 1 }}>CREATE SOS</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -205,15 +206,15 @@ export default function SosComposerScreen() {
 
 function TacticalStepper({ value, onDecrement, onIncrement, color }: { value: number; onDecrement: () => void; onIncrement: () => void; color: string }) {
   return (
-    <View style={{ flexDirection: 'row', borderWidth: 1, borderColor: '#3A3A3C' }}>
-      <TouchableOpacity onPress={onDecrement} style={{ width: 56, height: 56, backgroundColor: '#2C2C2E', justifyContent: 'center', alignItems: 'center', borderRightWidth: 1, borderRightColor: '#3A3A3C' }}>
-        <Text style={{ color: '#FFFFFF', fontSize: 24, fontWeight: '300' }}>−</Text>
+    <View style={{ flexDirection: 'row', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', backgroundColor: '#0D1424', overflow: 'hidden' }}>
+      <TouchableOpacity onPress={onDecrement} style={{ width: 56, height: 50, backgroundColor: '#141E33', justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: '#F8FAFC', fontSize: 22, fontWeight: '400' }}>−</Text>
       </TouchableOpacity>
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1C1C1E' }}>
-        <Text style={{ color, fontSize: 24, fontWeight: '700' }}>{value}</Text>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color, fontSize: 20, fontWeight: '900' }}>{value}</Text>
       </View>
-      <TouchableOpacity onPress={onIncrement} style={{ width: 56, height: 56, backgroundColor: '#2C2C2E', justifyContent: 'center', alignItems: 'center', borderLeftWidth: 1, borderLeftColor: '#3A3A3C' }}>
-        <Text style={{ color: '#FFFFFF', fontSize: 24, fontWeight: '300' }}>+</Text>
+      <TouchableOpacity onPress={onIncrement} style={{ width: 56, height: 50, backgroundColor: '#141E33', justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: '#F8FAFC', fontSize: 22, fontWeight: '400' }}>+</Text>
       </TouchableOpacity>
     </View>
   );

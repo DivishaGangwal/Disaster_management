@@ -2,8 +2,30 @@ import Constants from 'expo-constants';
 import { OfflineManager, OfflinePackDownloadState, type OfflinePackStatus } from '@maplibre/maplibre-react-native';
 import { DEPLOYMENT } from '@dsm/contracts';
 
+export const RASTER_MAP_STYLE = {
+  version: 8,
+  sources: {
+    carto: {
+      type: 'raster',
+      tiles: [
+        'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+        'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+        'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+        'https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+      ],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: '© OpenStreetMap contributors © CARTO',
+    },
+  },
+  layers: [
+    { id: 'background', type: 'background', paint: { 'background-color': '#050811' } },
+    { id: 'carto-tiles', type: 'raster', source: 'carto', paint: { 'raster-opacity': 0.95 } },
+  ],
+};
+
 export const MUMBAI_MAP_PACK_NAME = 'mumbai-operational-basemap-v1';
-export const MUMBAI_MAP_STYLE_URL = process.env.EXPO_PUBLIC_DSM_MAP_STYLE_URL ?? 'https://tiles.openfreemap.org/styles/liberty';
+export const MUMBAI_MAP_STYLE_URL: string = process.env.EXPO_PUBLIC_DSM_MAP_STYLE_URL ?? JSON.stringify(RASTER_MAP_STYLE);
 export const MUMBAI_MAP_BOUNDS: [[number, number], [number, number]] = [
   [DEPLOYMENT.map.maxLonE7 / 1e7, DEPLOYMENT.map.maxLatE7 / 1e7],
   [DEPLOYMENT.map.minLonE7 / 1e7, DEPLOYMENT.map.minLatE7 / 1e7],

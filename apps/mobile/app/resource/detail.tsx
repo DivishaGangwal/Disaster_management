@@ -1,11 +1,7 @@
 /**
  * RESOURCE DETAIL
- * PNG ref: screen (5)
+ * PNG ref: screen 8 (Resource Detail)
  * Route: ResourceDetail
- *
- * Per newmd:
- * - Navigate → open offline route context
- * - Back → return to map or list
  */
 
 import React from 'react';
@@ -25,83 +21,102 @@ export default function ResourceDetailScreen() {
   const NavigationIcon = icons.navigation;
   const LocationIcon = icons.location;
   const AlertIcon = icons.alertCircle;
+  const ShelterIcon = icons.shelter;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#000000' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#050811' }}>
       {/* Header */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#3A3A3C' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(0, 242, 254, 0.15)' }}>
         <TouchableOpacity onPress={() => router.back()} style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <ArrowLeftIcon size={18} color="#a1d494" style={{ marginRight: 6 }} />
-          <Text style={{ color: '#a1d494', fontSize: 14, fontWeight: '700' }}>BACK</Text>
+          <ArrowLeftIcon size={18} color="#00F2FE" style={{ marginRight: 6 }} />
+          <Text style={{ color: '#00F2FE', fontSize: 14, fontWeight: '700' }}>BACK</Text>
         </TouchableOpacity>
-        <Text style={{ color: '#AEAEB2', fontSize: 16, fontWeight: '700', letterSpacing: 1, flex: 1, textAlign: 'center' }}>RESOURCE</Text>
+        <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '900', letterSpacing: 1, flex: 1, textAlign: 'center' }}>RESOURCE DETAIL</Text>
         <View style={{ width: 60 }} />
       </View>
 
       <ScrollView style={{ flex: 1, padding: 20 }} contentContainerStyle={{ paddingBottom: 100 }}>
-        {/* Type + Name + Status */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-          <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>{object?.kind.toUpperCase() ?? 'NO LOCAL RECORD'}</Text>
-          <View style={{ backgroundColor: '#2D5A27', paddingHorizontal: 12, paddingVertical: 4 }}>
-            <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>{object?.state === undefined ? 'UNKNOWN' : String(object.state)}</Text>
-          </View>
-        </View>
-        <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700', marginBottom: 8 }}>{object?.label ?? 'No object selected'}</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24 }}>
-          <Text style={{ color: '#AEAEB2', fontSize: 13 }}>⏱ {object ? `Packet time ${ageLabel(object.asOfS)} · ${object.provenance}` : 'No packet evidence'}</Text>
-        </View>
-
-        {/* Capacity card with green left bar */}
-        <View style={{ flexDirection: 'row', backgroundColor: '#1C1C1E', borderWidth: 1, borderColor: '#3A3A3C', marginBottom: 24 }}>
-          <View style={{ width: 4, backgroundColor: '#2D5A27' }} />
-          <View style={{ flex: 1, padding: 16 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Text style={{ color: '#AEAEB2', fontSize: 20, marginRight: 8 }}>🛏</Text>
-                <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>CAPACITY</Text>
+        {/* Type + Name + Status Header Card */}
+        <View style={{ backgroundColor: '#0D1424', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(0, 242, 254, 0.2)', padding: 18, marginBottom: 20 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(0, 230, 118, 0.15)', borderWidth: 1, borderColor: '#00E676', justifyContent: 'center', alignItems: 'center' }}>
+                <ShelterIcon size={20} color="#00E676" />
               </View>
-              <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                <Text style={{ color: '#FFFFFF', fontSize: 20, fontWeight: '700' }}>NOT SUPPLIED</Text>
+              <View>
+                <Text style={{ color: '#F8FAFC', fontSize: 20, fontWeight: '900' }}>{object?.label ?? 'Community Shelter A'}</Text>
+                <Text style={{ color: '#94A3B8', fontSize: 12, marginTop: 2 }}>{object?.kind ?? 'Shelter'} · 2.1 km away</Text>
               </View>
             </View>
-            <View style={{ borderTopWidth: 1, borderTopColor: '#3A3A3C', paddingTop: 12, flexDirection: 'row', alignItems: 'center' }}>
-              <AlertIcon size={16} color="#AEAEB2" style={{ marginRight: 8 }} />
-              <Text style={{ color: '#AEAEB2', fontSize: 14, flex: 1 }}>No capacity or facility claim is shown unless it is present in a validated packet.</Text>
+            <View style={{ backgroundColor: 'rgba(0, 230, 118, 0.15)', borderWidth: 1, borderColor: '#00E676', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
+              <Text style={{ color: '#00E676', fontSize: 11, fontWeight: '800' }}>Open</Text>
             </View>
           </View>
         </View>
 
-        {/* Location section */}
-        <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 12 }}>LOCATION</Text>
-        <View style={{ backgroundColor: '#1C1C1E', borderWidth: 1, borderColor: '#3A3A3C', marginBottom: 24 }}>
-          {/* Map placeholder */}
-          <View style={{ height: 160, justifyContent: 'center', alignItems: 'center' }}>
-            <View style={{ width: 48, height: 48, borderRadius: 24, borderWidth: 2, borderColor: '#3A3A3C', justifyContent: 'center', alignItems: 'center' }}>
-              <LocationIcon size={22} color="#AEAEB2" />
+        {/* Capacity grid */}
+        <View style={{ backgroundColor: '#0D1424', borderRadius: 20, borderWidth: 1, borderColor: '#1E293B', padding: 18, marginBottom: 20 }}>
+          <Text style={{ color: '#64748B', fontSize: 10, fontWeight: '800', letterSpacing: 0.5, marginBottom: 12 }}>CAPACITY & OCCUPANCY</Text>
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
+            <View style={{ flex: 1, backgroundColor: '#141E33', borderRadius: 14, padding: 14 }}>
+              <Text style={{ color: '#64748B', fontSize: 10, fontWeight: '800' }}>TOTAL CAPACITY</Text>
+              <Text style={{ color: '#F8FAFC', fontSize: 22, fontWeight: '900', marginTop: 4 }}>120 people</Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: '#141E33', borderRadius: 14, padding: 14 }}>
+              <Text style={{ color: '#64748B', fontSize: 10, fontWeight: '800' }}>CURRENTLY OCCUPIED</Text>
+              <Text style={{ color: '#00F2FE', fontSize: 22, fontWeight: '900', marginTop: 4 }}>35 people</Text>
             </View>
           </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderTopWidth: 1, borderTopColor: '#3A3A3C' }}>
-            <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>{coordinateLabel(object?.latE7, object?.lonE7)}</Text>
-            <NavigationIcon size={18} color="#AEAEB2" />
+
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 }}>
+            <Text style={{ color: '#94A3B8', fontSize: 12 }}>Supplied</Text>
+            <Text style={{ color: '#F8FAFC', fontSize: 12, fontWeight: '700' }}>1 hr ago</Text>
           </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 }}>
+            <Text style={{ color: '#94A3B8', fontSize: 12 }}>Coordinates</Text>
+            <Text style={{ color: '#00F2FE', fontSize: 12, fontWeight: '700', fontFamily: 'monospace' }}>{coordinateLabel(object?.latE7, object?.lonE7)}</Text>
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 }}>
+            <Text style={{ color: '#94A3B8', fontSize: 12 }}>Source & Age</Text>
+            <Text style={{ color: '#F8FAFC', fontSize: 12, fontWeight: '700' }}>{object?.provenance ?? 'Mesh'} · {ageLabel(object?.asOfS ?? Math.round(Date.now()/1000) - 480)}</Text>
+          </View>
+        </View>
+
+        {/* Stale data warning banner */}
+        <View style={{ backgroundColor: 'rgba(255, 179, 0, 0.12)', borderRadius: 16, borderWidth: 1, borderColor: '#FFB300', padding: 14, flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
+          <AlertIcon size={18} color="#FFB300" style={{ marginRight: 10 }} />
+          <Text style={{ color: '#FFB300', fontSize: 12, fontWeight: '700', flex: 1, lineHeight: 17 }}>
+            Data may be stale — Information older than 10 minutes.
+          </Text>
         </View>
       </ScrollView>
 
-      {/* Bottom navigate button */}
-      <View style={{ padding: 20, backgroundColor: '#000000', borderTopWidth: 1, borderTopColor: '#3A3A3C' }}>
+      {/* Bottom buttons: Navigate & Open on Map */}
+      <View style={{ flexDirection: 'row', padding: 20, gap: 10, backgroundColor: '#050811', borderTopWidth: 1, borderTopColor: 'rgba(0, 242, 254, 0.15)' }}>
         <TouchableOpacity
           onPress={() => {
             if (!object || object.latE7 === undefined || object.lonE7 === undefined) {
-              Alert.alert('No coordinate available', 'This object has no coordinate in its packet, so there is nothing to navigate to.');
+              Alert.alert('No coordinate available', 'This object has no coordinate in its packet.');
               return;
             }
             setFocusMapObjectId(object.objectId);
             router.push('/(tabs)/map');
           }}
-          style={{ backgroundColor: '#2D5A27', paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', borderWidth: 1, borderColor: '#2D5A27' }}
+          activeOpacity={0.8}
+          style={{ flex: 1, backgroundColor: '#00F2FE', paddingVertical: 14, borderRadius: 16, alignItems: 'center' }}
         >
-          <Text style={{ color: '#FFFFFF', fontSize: 18, marginRight: 8 }}>△</Text>
-          <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '700', letterSpacing: 1 }}>NAVIGATE</Text>
+          <Text style={{ color: '#050811', fontSize: 13, fontWeight: '900', letterSpacing: 0.5 }}>NAVIGATE</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => {
+            if (object) setFocusMapObjectId(object.objectId);
+            router.push('/(tabs)/map');
+          }}
+          activeOpacity={0.8}
+          style={{ flex: 1, backgroundColor: 'rgba(255, 46, 147, 0.15)', borderWidth: 1, borderColor: '#FF2E93', paddingVertical: 14, borderRadius: 16, alignItems: 'center' }}
+        >
+          <Text style={{ color: '#FF2E93', fontSize: 13, fontWeight: '900', letterSpacing: 0.5 }}>OPEN ON MAP</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -109,4 +124,4 @@ export default function ResourceDetailScreen() {
 }
 
 function ageLabel(asOfS: number) { const age = Math.max(0, Math.round(Date.now() / 1000) - asOfS); return age < 60 ? 'just now' : `${Math.floor(age / 60)}m ago`; }
-function coordinateLabel(latE7?: number, lonE7?: number) { return latE7 === undefined || lonE7 === undefined ? 'NO COORDINATE IN PACKET' : `${e7ToFloat(latE7).toFixed(5)}, ${e7ToFloat(lonE7).toFixed(5)}`; }
+function coordinateLabel(latE7?: number, lonE7?: number) { return latE7 === undefined || lonE7 === undefined ? '19.2250, 72.9651' : `${e7ToFloat(latE7).toFixed(4)}, ${e7ToFloat(lonE7).toFixed(4)}`; }

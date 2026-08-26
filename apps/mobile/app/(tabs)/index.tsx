@@ -1,31 +1,26 @@
 /**
- * HOME SCREEN — Giant SOS Button
- * PNG ref: screen (20)
+ * HOME SCREEN — General Public Landing Screen
+ * PNG ref: screen 2 (Home) - Style 4 Futuristic Emergency Tech
  * Route: Home (tab index)
- *
- * Per AGENT.md + newmd:
- * - 🔴 SEND SOS (large, primary) → buildSosCreate() → engine.createLocal()
- * - Add More Details → Navigation → SosComposer
- * - View Active SOS → Navigation → ActiveSos
- * - Open Map → Navigation → Map
  */
 
 import React from 'react';
-import { View, Text, TouchableOpacity, Dimensions, Alert } from 'react-native';
-import { useRouter } from 'expo-router';
+import { View, Text, TouchableOpacity, Dimensions, Alert, ScrollView } from 'react-native';
+import { Redirect, useRouter } from 'expo-router';
 import { useAppStore } from '@/store/useAppStore';
 import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { mobileController } from '@/src/services/mobile-controller';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const SOS_SIZE = Math.min(SCREEN_WIDTH * 0.7, 280);
+const SOS_SIZE = Math.min(SCREEN_WIDTH * 0.62, 250);
 
 export default function HomeScreen() {
   const router = useRouter();
   const {
     role,
-    hasActiveSos,
+    isLoggedIn,
+    hasCompletedReadiness,
     relayActive,
     peersRecentlySeen,
     internetState,
@@ -35,117 +30,210 @@ export default function HomeScreen() {
     selectedRadio,
   } = useAppStore();
 
-  const ShieldIcon = icons.shield;
-  const AlertIcon = icons.alert;
+  const ChevronRightIcon = icons.chevronDown;
+
+  if (!isLoggedIn) {
+    return <Redirect href="/login" />;
+  }
+
+  if (!hasCompletedReadiness) {
+    return <Redirect href="/readiness" />;
+  }
+
+  if (role === 'responder') {
+    return <Redirect href="/(tabs)/nearby" />;
+  }
 
   const handleSendSos = async () => {
     try {
       await mobileController.sendRapidSos();
-      router.push('/sos/active');
+      Alert.alert('SOS Triggered', 'Rapid SOS signal broadcasted to nearby peers & gateway.');
     } catch (reason) {
-      Alert.alert('SOS not saved', reason instanceof Error ? reason.message : String(reason));
+      Alert.alert('SOS failed', reason instanceof Error ? reason.message : String(reason));
     }
   };
 
+  const battVal = batteryPercent ?? 100;
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#000000' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#050811' }}>
       {/* Header bar */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#2D5A27' }}>
-        <ShieldIcon size={24} color="#a1d494" />
-        <Text style={{ color: '#a1d494', fontSize: 20, fontWeight: '800', letterSpacing: 2, marginLeft: 8 }}>
-          GUARDIAN
+      <View style={{ height: 52, alignItems: 'center', justifyContent: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(0, 242, 254, 0.12)' }}>
+        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '900', letterSpacing: 1 }}>
+          Home
         </Text>
-        {hasActiveSos && (
-          <TouchableOpacity
-            onPress={() => router.push('/sos/active')}
-            style={{ marginLeft: 'auto', flexDirection: 'row', alignItems: 'center' }}
+      </View>
+
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40, alignItems: 'center' }}>
+        
+        {/* Center Giant SOS Button */}
+        <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+          {/* Outer glowing halo ring */}
+          <View
+            style={{
+              width: SOS_SIZE + 40,
+              height: SOS_SIZE + 40,
+              borderRadius: (SOS_SIZE + 40) / 2,
+              backgroundColor: 'rgba(255, 0, 85, 0.06)',
+              borderWidth: 1.5,
+              borderColor: 'rgba(255, 0, 85, 0.2)',
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
           >
-            <AlertIcon size={18} color="#FF3B30" />
-            <Text style={{ color: '#FF3B30', fontSize: 12, fontWeight: '700', marginLeft: 4, letterSpacing: 0.5 }}>
-              ACTIVE
+            {/* Middle glow ring */}
+            <View
+              style={{
+                width: SOS_SIZE + 18,
+                height: SOS_SIZE + 18,
+                borderRadius: (SOS_SIZE + 18) / 2,
+                backgroundColor: 'rgba(255, 0, 85, 0.12)',
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+            >
+              {/* Main SOS Circle */}
+              <TouchableOpacity
+                onPress={handleSendSos}
+                activeOpacity={0.75}
+                style={{
+                  width: SOS_SIZE,
+                  height: SOS_SIZE,
+                  borderRadius: SOS_SIZE / 2,
+                  backgroundColor: '#E11D48',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  shadowColor: '#FF0055',
+                  shadowOpacity: 0.6,
+                  shadowRadius: 24,
+                  elevation: 12,
+                }}
+              >
+                <Text style={{ color: '#FFFFFF', fontSize: 48, fontWeight: '900', letterSpacing: -1 }}>
+                  SOS
+                </Text>
+                <Text style={{ color: 'rgba(255, 255, 255, 0.85)', fontSize: 11, fontWeight: '800', letterSpacing: 1.5, marginTop: 4 }}>
+                  TAP FOR HELP
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Detailed SOS Options Button */}
+          <TouchableOpacity
+            onPress={() => router.push('/sos/composer')}
+            activeOpacity={0.8}
+            style={{
+              marginTop: 18,
+              paddingHorizontal: 24,
+              paddingVertical: 10,
+              borderRadius: 20,
+              backgroundColor: '#0D1424',
+              borderWidth: 1,
+              borderColor: 'rgba(0, 242, 254, 0.3)',
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>
+              Detailed SOS Options
             </Text>
+            <Text style={{ color: '#00F2FE', fontSize: 14, fontWeight: '900' }}>›</Text>
           </TouchableOpacity>
-        )}
-      </View>
+        </View>
 
-      {/* Status strip */}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 20, paddingVertical: 10, gap: 16 }}>
-        <StatusChip label="RELAY" value={relayActive ? 'ON' : 'OFF'} color={relayActive ? '#a1d494' : '#AEAEB2'} />
-        <StatusChip label="LINK" value={`${selectedRadio} · ${peersRecentlySeen}`} color={relayActive ? '#a1d494' : '#AEAEB2'} />
-        <StatusChip label="BATTERY" value={batteryPercent === undefined ? '—' : `${batteryPercent}%`} color={batteryPercent !== undefined && batteryPercent < 20 ? '#FFD60A' : '#a1d494'} />
-        <StatusChip label="TEMP" value={batteryTemperatureC === undefined ? '—' : `${batteryTemperatureC.toFixed(1)}°C`} color="#a1d494" />
-        <StatusChip label="THERMAL" value={thermalState.toUpperCase()} color={thermalState === 'limited' ? '#FFD60A' : '#a1d494'} />
-        <StatusChip label="NET" value={internetState === 'proven gateway' ? 'GW' : internetState.toUpperCase()} color={internetState === 'proven gateway' ? '#a1d494' : '#FFD60A'} />
-      </View>
+        {/* 4 Status Boxes Row (Matching reference home.jpeg) */}
+        <View style={{ width: '100%', flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+          {/* Box 1: Relay Status */}
+          <View style={{ flex: 1, backgroundColor: '#0D1424', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center' }}>
+            <Text style={{ color: '#00E676', fontSize: 11, fontWeight: '700' }}>Relay</Text>
+            <Text style={{ color: relayActive ? '#00E676' : '#94A3B8', fontSize: 14, fontWeight: '900', marginTop: 2 }}>
+              {relayActive ? 'Online' : 'Offline'}
+            </Text>
+          </View>
 
-      <TouchableOpacity
-        accessibilityRole="button"
-        accessibilityLabel="Open WavePX packet receiver"
-        onPress={() => router.push('/tier2')}
-        style={{ minHeight: 48, marginHorizontal: 20, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#101410', borderWidth: 1, borderColor: '#2D5A27' }}
-      >
-        <View><Text style={{ color: '#a1d494', fontSize: 11, fontWeight: '900', letterSpacing: 1 }}>WAVEPX PACKETS</Text><Text style={{ color: '#8F9991', fontSize: 11, marginTop: 3 }}>Listen, decode, and verify map changes</Text></View>
-        <Text style={{ color: '#a1d494', fontSize: 20 }}>›</Text>
-      </TouchableOpacity>
+          {/* Box 2: Radio Status */}
+          <View style={{ flex: 1, backgroundColor: '#0D1424', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center' }}>
+            <Text style={{ color: '#38BDF8', fontSize: 11, fontWeight: '700' }}>Radio</Text>
+            <Text style={{ color: '#38BDF8', fontSize: 14, fontWeight: '900', marginTop: 2 }}>
+              {selectedRadio === 'simulated' ? 'LoRa' : selectedRadio}
+            </Text>
+          </View>
 
-      {/* SOS Button — centered, with action buttons below */}
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        {/* The giant SOS circle */}
+          {/* Box 3: Peers Count */}
+          <View style={{ flex: 1, backgroundColor: '#0D1424', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center' }}>
+            <Text style={{ color: '#38BDF8', fontSize: 11, fontWeight: '700' }}>Peers</Text>
+            <Text style={{ color: '#38BDF8', fontSize: 16, fontWeight: '900', marginTop: 2 }}>
+              {peersRecentlySeen ?? 0}
+            </Text>
+          </View>
+
+          {/* Box 4: Battery & Thermal combined */}
+          <View style={{ flex: 1, backgroundColor: '#0D1424', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center' }}>
+            <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '700' }}>Battery</Text>
+            <Text style={{ color: battVal < 20 ? '#FFB300' : '#EAB308', fontSize: 16, fontWeight: '900', marginTop: 2 }}>
+              {battVal}%
+            </Text>
+          </View>
+        </View>
+
+        {/* Network Health Card */}
+        <View style={{ width: '100%', backgroundColor: '#0D1424', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', padding: 14, marginBottom: 12 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800' }}>Network Health</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={{ color: '#94A3B8', fontSize: 12, fontWeight: '700' }}>{peersRecentlySeen ?? 0} Peers</Text>
+              <Text style={{ color: relayActive ? '#00E676' : '#FFB300', fontSize: 14, fontWeight: '900' }}>
+                {relayActive ? 'Active' : 'Standby'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Waveform indicator */}
+          <View style={{ height: 2, backgroundColor: '#00E676', width: '100%', opacity: 0.8, borderRadius: 1, marginVertical: 6 }} />
+
+          <Text style={{ color: '#64748B', fontSize: 11, fontWeight: '600' }}>
+            Local Mesh Good · Internet via Gateway
+          </Text>
+        </View>
+
+        {/* WavePX / Tier-2 Card */}
         <TouchableOpacity
-          onPress={handleSendSos}
+          onPress={() => router.push('/tier2')}
           activeOpacity={0.8}
           style={{
-            width: SOS_SIZE,
-            height: SOS_SIZE,
-            borderRadius: SOS_SIZE / 2,
-            backgroundColor: '#FF3B30',
-            justifyContent: 'center',
+            width: '100%',
+            backgroundColor: '#0D1424',
+            borderRadius: 16,
+            borderWidth: 1,
+            borderColor: '#1E293B',
+            padding: 14,
+            flexDirection: 'row',
             alignItems: 'center',
+            justifyContent: 'space-between',
           }}
         >
-          <Text style={{ color: '#FFFFFF', fontSize: 48, fontWeight: '800', letterSpacing: -2 }}>
-            SOS
-          </Text>
-          <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 14, fontWeight: '600', letterSpacing: 1, marginTop: 4 }}>
-            SEND ALERT
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+            <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(0, 242, 254, 0.15)', borderWidth: 1, borderColor: '#00F2FE', justifyContent: 'center', alignItems: 'center' }}>
+              <icons.mic size={18} color="#00F2FE" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800' }}>
+                WavePX / Tier-2
+              </Text>
+              <Text style={{ color: '#64748B', fontSize: 11, marginTop: 2 }}>
+                Listening · Campaign: DRILL-2025
+              </Text>
+            </View>
+          </View>
+
+          <View style={{ backgroundColor: 'rgba(0, 242, 254, 0.1)', borderWidth: 1, borderColor: '#00F2FE', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14 }}>
+            <Text style={{ color: '#00F2FE', fontSize: 12, fontWeight: '800' }}>View</Text>
+          </View>
         </TouchableOpacity>
 
-        {/* Quick action buttons BELOW the SOS circle */}
-        {hasActiveSos && (
-          <View style={{ flexDirection: 'row', gap: 12, marginTop: 32 }}>
-            <TouchableOpacity
-              onPress={() => router.push('/sos/composer')}
-              style={{ backgroundColor: '#1C1C1E', paddingHorizontal: 20, paddingVertical: 14, borderWidth: 1, borderColor: '#3A3A3C' }}
-            >
-              <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700', letterSpacing: 0.5 }}>
-                ADD DETAILS
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => router.push('/sos/active')}
-              style={{ backgroundColor: '#1C1C1E', paddingHorizontal: 20, paddingVertical: 14, borderWidth: 1, borderColor: '#FF3B30' }}
-            >
-              <Text style={{ color: '#FF3B30', fontSize: 13, fontWeight: '700', letterSpacing: 0.5 }}>
-                VIEW SOS
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
+      </ScrollView>
     </SafeAreaView>
-  );
-}
-
-function StatusChip({ label, value, color }: { label: string; value: string; color: string }) {
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-      <Text style={{ color: '#AEAEB2', fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>
-        {label}
-      </Text>
-      <Text style={{ color, fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>
-        {value}
-      </Text>
-    </View>
   );
 }

@@ -60,15 +60,19 @@ export function OperationsMap({ incidents, records, gateways, selected, onSelect
         sources: {
           osm: {
             type: 'raster',
-            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+            tiles: [
+              'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+              'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+              'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+            ],
             tileSize: 256,
             maxzoom: 19,
-            attribution: '© OpenStreetMap contributors',
+            attribution: '© OpenStreetMap contributors © CARTO',
           },
         },
         layers: [
           { id: 'basemap-background', type: 'background', paint: { 'background-color': '#e7edf0' } },
-          { id: 'osm-basemap', type: 'raster', source: 'osm', paint: { 'raster-saturation': -0.45, 'raster-contrast': 0.06, 'raster-opacity': 0.86 } },
+          { id: 'osm-basemap', type: 'raster', source: 'osm', paint: { 'raster-saturation': -0.2, 'raster-contrast': 0.04, 'raster-opacity': 0.95 } },
         ],
       },
       center: [DEPLOYMENT.map.centerLon, DEPLOYMENT.map.centerLat],

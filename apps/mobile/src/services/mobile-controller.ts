@@ -146,7 +146,7 @@ class MobileController {
     }, new PackResolver(MUMBAI_CONTENT_PACK));
     const report = await runtime.getCapabilities();
     if (report.batteryPercent !== undefined) runtime.engine.setBatteryBand(batteryBand(report.batteryPercent));
-    const backendBaseUrl = process.env.EXPO_PUBLIC_DSM_BACKEND_URL?.replace(/\/$/, '');
+    const backendBaseUrl = (process.env.EXPO_PUBLIC_DSM_BACKEND_URL || 'http://127.0.0.1:8787').replace(/\/$/, '');
     if (backendBaseUrl) {
       runtime.attachGateway(new GatewaySynchronizer({
         engine: runtime.engine,
@@ -172,6 +172,7 @@ class MobileController {
     await runtime.engine.maintain(Date.now());
     await this.refresh(runtime);
     void this.refreshOfflineMap();
+    void this.startGatewaySync();
     await configureNotificationChannels();
     // Handle retained so reconfigureRole() can detach it. Without this the
     // listener leaked on every role change: create() registers a new one,
@@ -467,20 +468,66 @@ class MobileController {
     const forwardedPackets = new Set(events
       .filter((event) => event.category === EventCategory.TRANSFER && event.name === 'record-sent' && event.packetId)
       .map((event) => event.packetId!)).size;
-    state.setQueueSnapshot({
-      stored: storedPackets,
-      queued: relayable.length,
-      forwarded: forwardedPackets,
-      queueEpoch: runtime.engine.currentQueueEpoch,
-      highestPriority: runtime.engine.currentHighestWaitingPriority,
-      ...(runtime.engine.hasMeasuredBatteryBand ? { batteryBand: runtime.engine.batteryBandValue } : {}),
-    });
-    state.setPeersRecentlySeen((await runtime.engine.peers.list(Date.now())).length);
+
+    const batteryBand = runtime.engine.hasMeasuredBatteryBand ? runtime.engine.batteryBandValue : undefined;
+    if (
+      state.storedPackets !== storedPackets ||
+      state.relayQueueDepth !== relayable.length ||
+      state.forwardedPackets !== forwardedPackets ||
+      state.queueEpoch !== runtime.engine.currentQueueEpoch ||
+      state.highestWaitingPriority !== runtime.engine.currentHighestWaitingPriority ||
+      state.batteryBand !== batteryBand
+    ) {
+      state.setQueueSnapshot({
+        stored: storedPackets,
+        queued: relayable.length,
+        forwarded: forwardedPackets,
+        queueEpoch: runtime.engine.currentQueueEpoch,
+        highestPriority: runtime.engine.currentHighestWaitingPriority,
+        ...(batteryBand !== undefined ? { batteryBand } : {}),
+      });
+    }
+
+    const peersCount = (await runtime.engine.peers.list(Date.now())).length;
+    if (state.peersRecentlySeen !== peersCount) {
+      state.setPeersRecentlySeen(peersCount);
+    }
+
     const incidentId = state.activeIncidentId;
-    if (incidentId) state.setDistinctPeerReceipts(runtime.engine.incidents.view(incidentId)?.delivery.distinctPeerReceipts ?? 0);
-    state.setRuntimeIncidents(runtime.engine.incidents.list().map((incident) => ({ id: incident.incidentId, category: incident.category, severity: incident.severity, ...(incident.peopleTotal !== undefined ? { peopleTotal: incident.peopleTotal } : {}), ...(incident.injured !== undefined ? { injured: incident.injured } : {}), updatedAtS: incident.updatedAtS })));
-    state.setMapObjects(runtime.engine.projection.visible(toEpochS(Date.now())).map((object) => ({ objectId: object.objectId, kind: object.kind, label: object.label, ...(object.state !== undefined ? { state: object.state } : {}), ...(object.latE7 !== undefined ? { latE7: object.latE7 } : {}), ...(object.lonE7 !== undefined ? { lonE7: object.lonE7 } : {}), asOfS: object.asOfS, provenance: object.provenance })));
-    state.setDiagnosticEvents(events.map((event) => ({
+    if (incidentId) {
+      const receipts = runtime.engine.incidents.view(incidentId)?.delivery.distinctPeerReceipts ?? 0;
+      if (state.distinctPeerReceipts !== receipts) {
+        state.setDistinctPeerReceipts(receipts);
+      }
+    }
+
+    const newIncidents = runtime.engine.incidents.list().map((incident) => ({
+      id: incident.incidentId,
+      category: incident.category,
+      severity: incident.severity,
+      ...(incident.peopleTotal !== undefined ? { peopleTotal: incident.peopleTotal } : {}),
+      ...(incident.injured !== undefined ? { injured: incident.injured } : {}),
+      updatedAtS: incident.updatedAtS,
+    }));
+    if (JSON.stringify(state.runtimeIncidents) !== JSON.stringify(newIncidents)) {
+      state.setRuntimeIncidents(newIncidents);
+    }
+
+    const newMapObjects = runtime.engine.projection.visible(toEpochS(Date.now())).map((object) => ({
+      objectId: object.objectId,
+      kind: object.kind,
+      label: object.label,
+      ...(object.state !== undefined ? { state: object.state } : {}),
+      ...(object.latE7 !== undefined ? { latE7: object.latE7 } : {}),
+      ...(object.lonE7 !== undefined ? { lonE7: object.lonE7 } : {}),
+      asOfS: object.asOfS,
+      provenance: object.provenance,
+    }));
+    if (JSON.stringify(state.mapObjects) !== JSON.stringify(newMapObjects)) {
+      state.setMapObjects(newMapObjects);
+    }
+
+    const newDiagnosticEvents = events.map((event) => ({
       category: event.category,
       name: event.name,
       severity: event.severity,
@@ -493,7 +540,10 @@ class MobileController {
       ...(event.reason ? { reason: event.reason } : {}),
       ...(event.bytes !== undefined ? { bytes: event.bytes } : {}),
       ...(event.metrics ? { metrics: event.metrics } : {}),
-    })));
+    }));
+    if (JSON.stringify(state.diagnosticEvents) !== JSON.stringify(newDiagnosticEvents)) {
+      state.setDiagnosticEvents(newDiagnosticEvents);
+    }
   }
 
   private scheduleRefresh() {
@@ -501,7 +551,7 @@ class MobileController {
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = undefined;
       if (this.runtime) void this.refresh(this.runtime);
-    }, 75);
+    }, 250);
   }
 }
 

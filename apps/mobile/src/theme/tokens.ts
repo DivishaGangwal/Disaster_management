@@ -9,38 +9,45 @@
 
 export const colors = {
   bg: {
-    primary: '#000000',
-    card: '#0D0D0D',
-    elevated: '#1A1A1A',
-    input: '#111111',
+    primary: '#050811',
+    card: '#0D1424',
+    elevated: '#141E33',
+    input: '#090E1A',
+    glass: 'rgba(13, 20, 36, 0.85)',
   },
   border: {
-    default: '#262626',
-    active: '#404040',
+    default: 'rgba(0, 242, 254, 0.15)',
+    active: '#00F2FE',
+    neonPink: '#FF007A',
+    subtle: '#1E293B',
   },
   text: {
-    primary: '#E8E8E8',
-    secondary: '#808080',
-    muted: '#555555',
+    primary: '#F8FAFC',
+    secondary: '#94A3B8',
+    muted: '#64748B',
     inverse: '#000000',
+    cyan: '#00F2FE',
+    pink: '#FF2E93',
   },
   accent: {
-    emergency: '#FF4D4D',
-    warning: '#E8A317',
-    success: '#22C55E',
-    info: '#3B82F6',
-    neutral: '#6B7280',
+    emergency: '#FF0055',
+    pink: '#FF007A',
+    cyan: '#00F2FE',
+    warning: '#FFB300',
+    success: '#00E676',
+    info: '#00C6FF',
+    neutral: '#64748B',
   },
   severity: {
-    critical: '#FF4D4D',   // Level 3
-    urgent: '#E8A317',     // Level 2
-    moderate: '#3B82F6',   // Level 1
-    info: '#6B7280',       // Level 0
+    critical: '#FF0055',   // Level 3
+    urgent: '#FF9500',     // Level 2
+    moderate: '#00F2FE',   // Level 1
+    info: '#64748B',       // Level 0
   },
   status: {
-    online: '#22C55E',
-    offline: '#555555',
-    stale: '#E8A317',
+    online: '#00E676',
+    offline: '#64748B',
+    stale: '#FFB300',
   },
 } as const;
 

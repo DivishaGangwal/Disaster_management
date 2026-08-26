@@ -1,6 +1,6 @@
 import '../metro-shims/crypto-polyfill';
 import '../global.css';
-import { Stack } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { AppState, View } from 'react-native';
 import { useEffect } from 'react';
@@ -10,17 +10,19 @@ import { useAppStore } from '@/store/useAppStore';
 /**
  * Root layout. Pure black background, light status bar.
  * All screens inherit this layout.
- *
- * Tab screens: Home, Map, Nearby, Profile (consistent nav bar)
- * Stack screens: Readiness, SOS Composer, Active SOS, Responder Detail,
- *                Resource Detail, Relay, Tier 2, Diagnostics
  */
 export default function RootLayout() {
+  const router = useRouter();
+  const segments = useSegments();
   const role = useAppStore((state) => state.role);
+  const isLoggedIn = useAppStore((state) => state.isLoggedIn);
+  const hasCompletedReadiness = useAppStore((state) => state.hasCompletedReadiness);
   const setRuntimeError = useAppStore((state) => state.setRuntimeError);
+
   useEffect(() => {
     void mobileController.initialize(role).catch((reason: unknown) => setRuntimeError(reason instanceof Error ? reason.message : String(reason)));
   }, [role, setRuntimeError]);
+
   useEffect(() => {
     void mobileController.startGatewaySync();
     const subscription = AppState.addEventListener('change', (state) => {
@@ -32,6 +34,20 @@ export default function RootLayout() {
       mobileController.stopGatewaySync();
     };
   }, []);
+
+  // Entry flow navigation guard
+  useEffect(() => {
+    const currentSegment = segments[0] as string | undefined;
+    const timeout = setTimeout(() => {
+      if (!isLoggedIn && currentSegment !== 'login') {
+        router.replace('/login');
+      } else if (isLoggedIn && !hasCompletedReadiness && currentSegment !== 'readiness') {
+        router.replace('/readiness');
+      }
+    }, 50);
+    return () => clearTimeout(timeout);
+  }, [isLoggedIn, hasCompletedReadiness, segments, router]);
+
   return (
     <View style={{ flex: 1, backgroundColor: '#000000' }}>
       <StatusBar style="light" backgroundColor="#000000" />
@@ -43,9 +59,9 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="login" options={{ animation: 'fade' }} />
         <Stack.Screen name="readiness" options={{ animation: 'fade' }} />
         <Stack.Screen name="sos/composer" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="sos/active" />
         <Stack.Screen name="responder/detail" />
         <Stack.Screen name="resource/detail" />
         <Stack.Screen name="relay" />

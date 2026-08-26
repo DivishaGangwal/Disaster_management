@@ -43,6 +43,12 @@ interface AppState {
   // Profile & role
   role: UserRole;
   setRole: (role: UserRole) => void;
+  userName?: string;
+  setUserName: (name?: string) => void;
+  mobileNumber?: string;
+  setMobileNumber: (num?: string) => void;
+  isLoggedIn: boolean;
+  setIsLoggedIn: (v: boolean) => void;
 
   // Permissions
   bluetoothEnabled: boolean;
@@ -137,6 +143,12 @@ export const useAppStore = create<AppState>()(
       // Profile
       role: 'general-public',
       setRole: (role) => set({ role }),
+      userName: undefined,
+      setUserName: (userName) => set({ userName }),
+      mobileNumber: undefined,
+      setMobileNumber: (mobileNumber) => set({ mobileNumber }),
+      isLoggedIn: false,
+      setIsLoggedIn: (isLoggedIn) => set({ isLoggedIn }),
 
       // Permissions
       bluetoothEnabled: false,
@@ -241,6 +253,9 @@ export const useAppStore = create<AppState>()(
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
         role: state.role,
+        userName: state.userName,
+        mobileNumber: state.mobileNumber,
+        isLoggedIn: state.isLoggedIn,
         selectedRegion: state.selectedRegion,
         language: state.language,
         hasCompletedReadiness: state.hasCompletedReadiness,

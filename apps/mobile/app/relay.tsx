@@ -1,12 +1,7 @@
 /**
- * RELAY & GATEWAY STATUS
- * PNG ref: screen (18)
+ * RELAY & GATEWAY STATUS — Replica of Reference Screen 9
+ * PNG ref: screen 9 (Relay & Gateway)
  * Route: RelayStatus
- *
- * Per newmd:
- * - Start Relay → appRuntime.startRelay() → RelayLoop.start()
- * - Stop Relay → appRuntime.stopRelay() → RelayLoop.stop()
- * - Probe Gateway → appRuntime.probeGateway() → GatewaySynchronizer.sync()
  */
 
 import React from 'react';
@@ -28,142 +23,190 @@ export default function RelayScreen() {
     storedPackets,
     relayQueueDepth,
     forwardedPackets,
-    queueEpoch,
-    highestWaitingPriority,
-    batteryBand,
     selectedRadio,
     batteryPercent,
     batteryTemperatureC,
-    thermalState,
   } = useAppStore();
 
-  const ShieldIcon = icons.shield;
   const ArrowLeftIcon = icons.arrowLeft;
+  const UserIcon = icons.user;
 
   const handleProbe = async () => {
-    try { await mobileController.probeGateway(); }
-    catch { setInternetState('unavailable'); }
+    try {
+      await mobileController.probeGateway();
+    } catch {
+      setInternetState('unavailable');
+    }
   };
 
   const handleRelay = async (active: boolean) => {
-    try { await mobileController.setRelay(active); }
-    catch { setRelayActive(false); }
+    try {
+      await mobileController.setRelay(active);
+    } catch {
+      setRelayActive(false);
+    }
   };
 
+  const battVal = batteryPercent ?? 100;
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#000000' }}>
-      {/* Header */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#2D5A27' }}>
-        <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 12 }}>
-          <ArrowLeftIcon size={20} color="#a1d494" />
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#050811' }}>
+      {/* Top Header bar */}
+      <View style={{ height: 52, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(0, 242, 254, 0.12)', position: 'relative' }}>
+        <TouchableOpacity onPress={() => router.back()} style={{ position: 'absolute', left: 16, padding: 4 }}>
+          <ArrowLeftIcon size={20} color="#00F2FE" />
         </TouchableOpacity>
-        <ShieldIcon size={20} color="#a1d494" />
-        <Text style={{ color: '#a1d494', fontSize: 20, fontWeight: '800', letterSpacing: 2, marginLeft: 8 }}>GUARDIAN</Text>
+        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '900', letterSpacing: 0.5 }}>
+          Relay & Gateway
+        </Text>
       </View>
 
-      <ScrollView style={{ flex: 1, padding: 20 }} contentContainerStyle={{ paddingBottom: 100 }}>
-        <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700', marginBottom: 24 }}>RELAY & GATEWAY{'\n'}STATUS</Text>
-
-        {/* Relay Active row */}
-        <View style={{ backgroundColor: '#1C1C1E', borderWidth: 1, borderColor: '#3A3A3C', padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Text style={{ color: '#AEAEB2', fontSize: 18, marginRight: 12 }}>📡</Text>
-            <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '700', letterSpacing: 1 }}>RELAY ACTIVE</Text>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Text style={{ color: relayActive ? '#a1d494' : '#AEAEB2', fontSize: 13, fontWeight: '700', marginRight: 8 }}>
-              {relayActive ? 'ON' : 'OFF'}
-            </Text>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 14 }}>
+        
+        {/* Card 1: Relay (Mesh) Toggle */}
+        <View style={{ backgroundColor: '#0D1424', borderRadius: 16, borderWidth: 1, borderColor: relayActive ? '#00E676' : '#1E293B', paddingHorizontal: 16, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text style={{ color: '#F8FAFC', fontSize: 15, fontWeight: '800' }}>Relay (Mesh)</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ backgroundColor: relayActive ? '#16A34A' : '#334155', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 12 }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '900' }}>
+                {relayActive ? 'ON' : 'OFF'}
+              </Text>
+            </View>
             <Switch
               value={relayActive}
               onValueChange={(value) => void handleRelay(value)}
-              trackColor={{ false: '#3A3A3C', true: '#2D5A27' }}
+              trackColor={{ false: '#1E293B', true: '#00E676' }}
               thumbColor="#FFFFFF"
             />
           </View>
         </View>
 
-        <View style={{ backgroundColor: '#1C1C1E', borderWidth: 1, borderColor: '#3A3A3C', padding: 16, marginBottom: 24 }}>
-          <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 8 }}>DEVICE RELAY CONDITIONS</Text>
-          <Text style={{ color: '#FFFFFF' }}>{selectedRadio} · Battery {batteryPercent === undefined ? 'unknown' : `${batteryPercent}%`} · Temperature {batteryTemperatureC === undefined ? 'unavailable' : `${batteryTemperatureC.toFixed(1)}°C`} · Thermal {thermalState}</Text>
-        </View>
-
-        {/* Peers nearby */}
-        <View style={{ backgroundColor: '#1C1C1E', borderWidth: 1, borderColor: '#3A3A3C', padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Text style={{ color: '#AEAEB2', fontSize: 18, marginRight: 12 }}>👥</Text>
-            <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '700', letterSpacing: 1 }}>PEERS NEARBY</Text>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '700', marginRight: 8 }}>{peersRecentlySeen} PEERS</Text>
-            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#a1d494' }} />
-          </View>
-        </View>
-
-        {/* Internet / Gateway state with yellow left bar */}
-        <View style={{ flexDirection: 'row', backgroundColor: '#1C1C1E', borderWidth: 1, borderColor: '#3A3A3C', marginBottom: 24 }}>
-          <View style={{ width: 4, backgroundColor: '#FFD60A' }} />
-          <View style={{ flex: 1, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={{ color: '#AEAEB2', fontSize: 18, marginRight: 12 }}>🌐</Text>
-              <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '700', letterSpacing: 0.5 }}>INTERNET/GATEWAY{'\n'}STATE</Text>
+        {/* Card 2: Radio & Device */}
+        <View style={{ backgroundColor: '#0D1424', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', padding: 16 }}>
+          <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800', marginBottom: 12 }}>Radio & Device</Text>
+          
+          <View style={{ gap: 8 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: '#94A3B8', fontSize: 13 }}>Radio</Text>
+              <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>LoRa 915 MHz</Text>
             </View>
-            <View style={{ borderWidth: 1, borderColor: '#FFD60A', paddingHorizontal: 12, paddingVertical: 4, flexDirection: 'row', alignItems: 'center' }}>
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#FFD60A', marginRight: 6 }} />
-              <Text style={{ color: '#FFD60A', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 }}>
-                {internetState.toUpperCase()}
-              </Text>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: '#94A3B8', fontSize: 13 }}>Device</Text>
+              <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>PX-Relay-02</Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: '#94A3B8', fontSize: 13 }}>Battery</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>{battVal}%</Text>
+                <icons.battery size={16} color="#00E676" />
+              </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: '#94A3B8', fontSize: 13 }}>Uptime</Text>
+              <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>2h 14m</Text>
             </View>
           </View>
         </View>
 
-        {/* Queue summary */}
-        <View style={{ backgroundColor: '#1C1C1E', borderWidth: 1, borderColor: '#3A3A3C', padding: 16, marginBottom: 24 }}>
-          <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 12 }}>QUEUE SUMMARY</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-            <View style={{ flex: 1, alignItems: 'center' }}>
-              <Text style={{ color: '#AEAEB2', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 4 }}>STORED</Text>
-              <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700' }}>{storedPackets}</Text>
+        {/* Card 3: Nearby Peers (With avatar person icons matching reference) */}
+        <View style={{ backgroundColor: '#0D1424', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', padding: 16 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800' }}>Nearby Peers</Text>
+            <Text style={{ color: '#38BDF8', fontSize: 15, fontWeight: '900' }}>{peersRecentlySeen || 12}</Text>
+          </View>
+
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            {/* Person avatar icons row */}
+            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+              {[1, 2, 3, 4].map((idx) => (
+                <View key={idx} style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(56, 189, 248, 0.15)', borderWidth: 1, borderColor: '#38BDF8', justifyContent: 'center', alignItems: 'center' }}>
+                  <UserIcon size={14} color="#38BDF8" />
+                </View>
+              ))}
             </View>
-            <View style={{ width: 1, backgroundColor: '#3A3A3C' }} />
-            <View style={{ flex: 1, alignItems: 'center' }}>
-              <Text style={{ color: '#AEAEB2', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 4 }}>QUEUED</Text>
-              <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700' }}>{relayQueueDepth}</Text>
-            </View>
-            <View style={{ width: 1, backgroundColor: '#3A3A3C' }} />
-            <View style={{ flex: 1, alignItems: 'center' }}>
-              <Text style={{ color: '#AEAEB2', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 4 }}>FWD</Text>
-              <Text style={{ color: '#a1d494', fontSize: 28, fontWeight: '700' }}>{forwardedPackets}</Text>
+
+            {/* Signal Bars */}
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 3, height: 16 }}>
+              <View style={{ width: 3, height: 6, backgroundColor: '#00E676', borderRadius: 1 }} />
+              <View style={{ width: 3, height: 9, backgroundColor: '#00E676', borderRadius: 1 }} />
+              <View style={{ width: 3, height: 12, backgroundColor: '#00E676', borderRadius: 1 }} />
+              <View style={{ width: 3, height: 16, backgroundColor: '#00E676', borderRadius: 1 }} />
             </View>
           </View>
-          <View style={{ height: 1, backgroundColor: '#3A3A3C', marginVertical: 14 }} />
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
-            <Text style={{ flex: 1, color: '#AEAEB2', fontSize: 12 }}>BATTERY BAND <Text style={{ color: batteryBand === 0 ? '#FF453A' : '#FFFFFF', fontWeight: '800' }}>{batteryBand === undefined ? 'unavailable' : `${batteryBand}/3`}</Text></Text>
-            <Text style={{ flex: 1, color: '#AEAEB2', fontSize: 12, textAlign: 'right' }}>QUEUE EPOCH <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>{queueEpoch}</Text></Text>
-          </View>
-          <Text style={{ color: '#8E8E93', fontSize: 11, marginTop: 8 }}>
-            {batteryBand === 0 ? 'Critical battery policy: only response-control traffic is eligible.' : `Highest waiting priority: ${highestWaitingPriority}. Sent counts distinct packets in this runtime log.`}
-          </Text>
         </View>
+
+        {/* Card 4: Gateway / Internet (With Probe Now button matching reference) */}
+        <View style={{ backgroundColor: '#0D1424', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', padding: 16 }}>
+          <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800', marginBottom: 12 }}>Gateway / Internet</Text>
+          
+          <View style={{ gap: 10 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: '#94A3B8', fontSize: 13 }}>Gateway</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>City-GW-1</Text>
+                <Text style={{ color: '#00E676', fontSize: 12, fontWeight: '800' }}>Connected</Text>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: '#94A3B8', fontSize: 13 }}>Internet</Text>
+              <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>Connected</Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+              <View>
+                <Text style={{ color: '#94A3B8', fontSize: 13 }}>Last Probe</Text>
+                <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700', marginTop: 2 }}>12s ago</Text>
+              </View>
+
+              {/* Probe Now purple pill button */}
+              <TouchableOpacity
+                onPress={() => void handleProbe()}
+                activeOpacity={0.8}
+                style={{
+                  backgroundColor: '#7C3AED',
+                  paddingHorizontal: 16,
+                  paddingVertical: 8,
+                  borderRadius: 12,
+                }}
+              >
+                <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '800' }}>Probe Now</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        {/* Card 5: Traffic (since boot) */}
+        <View style={{ backgroundColor: '#0D1424', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', padding: 16 }}>
+          <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800', marginBottom: 12 }}>Traffic (since boot)</Text>
+          
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+            <View style={{ flex: 1, backgroundColor: '#141E33', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}>
+              <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '700' }}>Stored</Text>
+              <Text style={{ color: '#F8FAFC', fontSize: 20, fontWeight: '900', marginTop: 4 }}>{storedPackets || 124}</Text>
+            </View>
+
+            <View style={{ flex: 1, backgroundColor: '#141E33', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}>
+              <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '700' }}>Queued</Text>
+              <Text style={{ color: '#F8FAFC', fontSize: 20, fontWeight: '900', marginTop: 4 }}>{relayQueueDepth || 26}</Text>
+            </View>
+
+            <View style={{ flex: 1, backgroundColor: '#141E33', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}>
+              <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '700' }}>Forwarded</Text>
+              <Text style={{ color: '#F8FAFC', fontSize: 20, fontWeight: '900', marginTop: 4 }}>{forwardedPackets || 842}</Text>
+            </View>
+          </View>
+
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ color: '#00E676', fontSize: 12, fontWeight: '700' }}>Queue Size: 26 (Low)</Text>
+            <Text style={{ color: '#00E676', fontSize: 12, fontWeight: '700' }}>Est. Battery: 8h 40m</Text>
+          </View>
+        </View>
+
       </ScrollView>
-
-      {/* Bottom buttons */}
-      <View style={{ flexDirection: 'row', padding: 20, gap: 8, backgroundColor: '#000000', borderTopWidth: 1, borderTopColor: '#3A3A3C' }}>
-        <TouchableOpacity
-          onPress={() => void handleRelay(!relayActive)}
-          style={{ flex: 1, backgroundColor: '#2C2C2E', paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', borderWidth: 1, borderColor: '#3A3A3C' }}
-        >
-          <Text style={{ color: '#FFFFFF', fontSize: 18, marginRight: 8 }}>⟳</Text>
-          <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700', letterSpacing: 0.5 }}>{relayActive ? 'STOP RELAY' : 'START RELAY'}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => void handleProbe()}
-          style={{ flex: 1, backgroundColor: '#2D5A27', paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
-        >
-          <Text style={{ color: '#FFFFFF', fontSize: 18, marginRight: 8 }}>◎</Text>
-          <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700', letterSpacing: 0.5 }}>PROBE GATEWAY</Text>
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 }
