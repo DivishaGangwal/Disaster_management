@@ -32,15 +32,15 @@ test('Mumbai development seed supplies a populated, idempotent realtime command 
       assert.equal(record.lonE7, route.fromLonE7);
       assert.equal(record.state, 'open');
     }
-    assert.equal(backend.store.gatewayTokens.size, 4);
-    assert.ok(backend.store.observations.length >= 10);
+    assert.equal(backend.store.gatewayTokens.size, 0, 'baseline content must not fabricate connected phones');
+    assert.equal(backend.store.observations.length, 0, 'baseline incidents are not gateway observations');
     await backend.close();
 
     const restored = createBackend({ databasePath });
     assert.equal(restored.incidents.list().filter((item) => item.incidentId.startsWith('INC-MUM-V1-')).length, 10);
     assert.equal(restored.operations!.listResponders().length, 8);
     assert.equal(restored.operations!.listRegionalRecords().length, 22);
-    assert.equal(restored.store.gatewayTokens.size, 4);
+    assert.equal(restored.store.gatewayTokens.size, 0);
     await restored.close();
   } finally {
     rmSync(directory, { recursive: true, force: true });
@@ -95,7 +95,7 @@ test('approved campaign becomes an exact, persisted WavePX frame program', async
     const stream = operations.packetStream();
     assert.ok(stream.length >= 3);
     assert.ok(stream.every((packet) => packet.bytesHex.length === packet.totalBytes * 2));
-    assert.ok(stream.some((packet) => packet.direction === 'mesh-to-internet'));
+    assert.ok(!stream.some((packet) => packet.direction === 'mesh-to-internet'), 'no phone upload is shown until a phone actually uploads');
     await backend.close();
 
     const restored = createBackend({ databasePath, seed: false });

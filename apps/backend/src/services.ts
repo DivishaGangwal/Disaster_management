@@ -20,6 +20,7 @@ import {
   type UploadBatchRequest,
   type UploadBatchResponse,
   type UploadItemResult,
+  type GatewayTelemetry,
 } from '@dsm/contracts';
 import { buildBackendAck, decodePacket, toEpochS } from '@dsm/codec';
 import { validate } from '@dsm/validator';
@@ -61,7 +62,7 @@ export class BackendStore {
   /** Packets queued for delivery back into the mesh, per region. */
   readonly outbound = new Map<string, { packetId: PacketId; bytes: Uint8Array; seq: number }[]>();
   protected outboundSeq = 0;
-  readonly gatewayTokens = new Map<string, { nodeToken: string; regionCode: string }>();
+  readonly gatewayTokens = new Map<string, { nodeToken: string; regionCode: string; lastSeenAtMs?: number; telemetry?: GatewayTelemetry }>();
   readonly gatewayTransfers: GatewayTransfer[] = [];
 
   isDuplicateBatch(batchId: string): boolean {
@@ -73,9 +74,25 @@ export class BackendStore {
     this.changed();
   }
 
-  registerGateway(gatewayToken: string, nodeToken: string, regionCode: string): void {
-    this.gatewayTokens.set(gatewayToken, { nodeToken, regionCode });
+  registerGateway(gatewayToken: string, nodeToken: string, regionCode: string, lastSeenAtMs?: number, telemetry?: GatewayTelemetry): void {
+    this.gatewayTokens.set(gatewayToken, { nodeToken, regionCode, ...(lastSeenAtMs !== undefined ? { lastSeenAtMs } : {}), ...(telemetry ? { telemetry } : {}) });
     this.changed();
+  }
+
+  removeGatewayEvidence(gatewayTokens: ReadonlySet<string>): void {
+    let changed = false;
+    for (const token of gatewayTokens) changed = this.gatewayTokens.delete(token) || changed;
+    const observations = this.observations.filter((item) => !gatewayTokens.has(item.gatewayToken));
+    const transfers = this.gatewayTransfers.filter((item) => !gatewayTokens.has(item.gatewayToken));
+    if (observations.length !== this.observations.length) {
+      this.observations.splice(0, this.observations.length, ...observations);
+      changed = true;
+    }
+    if (transfers.length !== this.gatewayTransfers.length) {
+      this.gatewayTransfers.splice(0, this.gatewayTransfers.length, ...transfers);
+      changed = true;
+    }
+    if (changed) this.changed();
   }
 
   addObservation(observation: GatewayObservation): void {

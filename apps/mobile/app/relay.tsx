@@ -26,6 +26,11 @@ export default function RelayScreen() {
     setInternetState,
     peersRecentlySeen,
     storedPackets,
+    relayQueueDepth,
+    forwardedPackets,
+    queueEpoch,
+    highestWaitingPriority,
+    batteryBand,
     selectedRadio,
     batteryPercent,
     batteryTemperatureC,
@@ -115,7 +120,7 @@ export default function RelayScreen() {
         {/* Queue summary */}
         <View style={{ backgroundColor: '#1C1C1E', borderWidth: 1, borderColor: '#3A3A3C', padding: 16, marginBottom: 24 }}>
           <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 12 }}>QUEUE SUMMARY</Text>
-          <View style={{ flexDirection: 'row' }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
             <View style={{ flex: 1, alignItems: 'center' }}>
               <Text style={{ color: '#AEAEB2', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 4 }}>STORED</Text>
               <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700' }}>{storedPackets}</Text>
@@ -123,14 +128,22 @@ export default function RelayScreen() {
             <View style={{ width: 1, backgroundColor: '#3A3A3C' }} />
             <View style={{ flex: 1, alignItems: 'center' }}>
               <Text style={{ color: '#AEAEB2', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 4 }}>QUEUED</Text>
-              <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700' }}>—</Text>
+              <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700' }}>{relayQueueDepth}</Text>
             </View>
             <View style={{ width: 1, backgroundColor: '#3A3A3C' }} />
             <View style={{ flex: 1, alignItems: 'center' }}>
               <Text style={{ color: '#AEAEB2', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 4 }}>FWD</Text>
-              <Text style={{ color: '#a1d494', fontSize: 28, fontWeight: '700' }}>—</Text>
+              <Text style={{ color: '#a1d494', fontSize: 28, fontWeight: '700' }}>{forwardedPackets}</Text>
             </View>
           </View>
+          <View style={{ height: 1, backgroundColor: '#3A3A3C', marginVertical: 14 }} />
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+            <Text style={{ flex: 1, color: '#AEAEB2', fontSize: 12 }}>BATTERY BAND <Text style={{ color: batteryBand === 0 ? '#FF453A' : '#FFFFFF', fontWeight: '800' }}>{batteryBand === undefined ? 'unavailable' : `${batteryBand}/3`}</Text></Text>
+            <Text style={{ flex: 1, color: '#AEAEB2', fontSize: 12, textAlign: 'right' }}>QUEUE EPOCH <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>{queueEpoch}</Text></Text>
+          </View>
+          <Text style={{ color: '#8E8E93', fontSize: 11, marginTop: 8 }}>
+            {batteryBand === 0 ? 'Critical battery policy: only response-control traffic is eligible.' : `Highest waiting priority: ${highestWaitingPriority}. Sent counts distinct packets in this runtime log.`}
+          </Text>
         </View>
       </ScrollView>
 

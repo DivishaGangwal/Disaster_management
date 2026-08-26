@@ -5,13 +5,15 @@ import {
   ReplyCapability,
   Severity,
   SourceClass,
+  STORAGE,
 } from '@dsm/contracts';
 import { buildSosCreate, toEpochS } from '@dsm/codec';
+import { validate } from '@dsm/validator';
 import { IngestService } from './services.js';
 import { REGION_CODE } from './operations.js';
 import { SqliteBackendStore, type RegionalRecord, type ResponderRecord } from './sqlite-store.js';
 
-export const MUMBAI_SEED_VERSION = 'mumbai-development-v2';
+export const MUMBAI_SEED_VERSION = 'mumbai-development-v3';
 
 const RESPONDERS: readonly ResponderRecord[] = [
   responder('RSP-MUM-01', 'Mumbai Fire Brigade Rescue 01', 'Mumbai City', ['rescue', 'flood', 'first-aid']),
@@ -58,13 +60,13 @@ const GATEWAYS = [
   ['GW-MUMBAI-WEST', 'mumbai-west'],
 ] as const;
 
-export function seedMumbaiOperations(store: SqliteBackendStore, ingest: IngestService): void {
-  for (const [token, node] of GATEWAYS) store.registerGateway(token, node, REGION_CODE);
+export function seedMumbaiOperations(store: SqliteBackendStore, _ingest: IngestService): void {
+  removeLegacySeededConnectionEvidence(store);
   for (const item of RESPONDERS) store.responders.set(item.responderRef, item);
   for (const item of REGIONAL) store.regionalRecords.set(item.objectId, item);
   store.saveOperations();
 
-  seedActiveScenario(store, ingest);
+  seedActiveScenario(store);
   store.recordAudit({
     id: `AUDIT-${Date.now()}`,
     atMs: Date.now(),
@@ -74,8 +76,8 @@ export function seedMumbaiOperations(store: SqliteBackendStore, ingest: IngestSe
   });
 }
 
-export function ensureMumbaiPopulation(store: SqliteBackendStore, ingest: IngestService): void {
-  for (const [token, node] of GATEWAYS) if (!store.gatewayTokens.has(token)) store.registerGateway(token, node, REGION_CODE);
+export function ensureMumbaiPopulation(store: SqliteBackendStore, _ingest: IngestService): void {
+  removeLegacySeededConnectionEvidence(store);
   for (const item of RESPONDERS) if (!store.responders.has(item.responderRef)) store.responders.set(item.responderRef, item);
   for (const item of REGIONAL) {
     const current = store.regionalRecords.get(item.objectId);
@@ -84,11 +86,11 @@ export function ensureMumbaiPopulation(store: SqliteBackendStore, ingest: Ingest
     if (!current || current.version === 1) store.regionalRecords.set(item.objectId, item);
   }
   const hasCurrentScenario = store.incidents.list().some((incident) => incident.incidentId.startsWith('INC-MUM-V1-'));
-  if (!hasCurrentScenario) seedActiveScenario(store, ingest);
+  if (!hasCurrentScenario) seedActiveScenario(store);
   store.saveOperations();
 }
 
-function seedActiveScenario(store: SqliteBackendStore, ingest: IngestService): void {
+function seedActiveScenario(store: SqliteBackendStore): void {
 
   const nowMs = Date.now();
   const incidents = [
@@ -163,27 +165,31 @@ function seedActiveScenario(store: SqliteBackendStore, ingest: IngestService): v
     ),
   ];
 
-  for (const [gatewayIndex, [gatewayToken]] of GATEWAYS.entries()) {
-    const selected = incidents.filter((_, index) => index % GATEWAYS.length === gatewayIndex || (index === 0 && gatewayIndex === 1));
-    ingest.ingest(
-      {
-        gatewayToken,
-        batchId: `SEED-${MUMBAI_SEED_VERSION}-${gatewayIndex}`,
-        items: selected.map((packet, index) => ({
-        packetId: packet.packetId,
-        bytes: packet.bytes,
-        observation: {
-          receivedAtMs: nowMs - (index + gatewayIndex + 1) * 22_000,
-          transport: 'gateway' as const,
-          hopCountOnArrival: index + 1,
-        },
-      })),
-      },
-      nowMs - gatewayIndex * 7_000,
-    );
-    store.recordGatewayTransfer({ gatewayToken, direction: 'upload', regionCode: REGION_CODE, itemCount: selected.length, atMs: nowMs - gatewayIndex * 7_000 });
-    store.recordGatewayTransfer({ gatewayToken, direction: 'download', regionCode: REGION_CODE, itemCount: Math.max(1, gatewayIndex), atMs: nowMs - gatewayIndex * 11_000 });
+  // Baseline incidents are useful operational content, but they are not proof
+  // that a phone connected. Store them canonically without manufacturing a
+  // gateway registration, observation, heartbeat, or transfer.
+  for (const packet of incidents) {
+    if (store.packets.has(packet.packetId)) continue;
+    const validation = validate(packet.bytes, {
+      nowS: toEpochS(nowMs),
+      transport: 'local',
+      hopCountOnArrival: 0,
+      isKnownDuplicate: false,
+      streamTerminated: false,
+      storagePressure: 'ok',
+      queueDepth: store.packets.size,
+      maxQueueDepth: STORAGE.MAX_STORED_PACKETS,
+      regionCode: REGION_CODE,
+    });
+    if (!validation.ok) throw new Error(`Invalid Mumbai baseline packet ${packet.packetId}: ${validation.reason}`);
+    store.putPacket({ packetId: packet.packetId, bytes: packet.bytes, digest: validation.digest, firstSeenAtMs: nowMs });
+    store.incidents.apply(validation.packet, { localSourceId: 'backend-baseline' });
   }
+}
+
+export function removeLegacySeededConnectionEvidence(store: SqliteBackendStore): void {
+  const tokens = new Set<string>([...GATEWAYS.map(([token]) => token), 'GW-MUMBAI-OPS']);
+  store.removeGatewayEvidence(tokens);
 }
 
 function responder(

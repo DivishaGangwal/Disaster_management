@@ -15,6 +15,7 @@ import {
   GATEWAY,
   type GatewayClient,
   type GatewayStatus,
+  type GatewayTelemetry,
   type OutboundAckRequest,
   type OutboundPollRequest,
   type OutboundPollResponse,
@@ -80,8 +81,8 @@ export class HttpGatewayClient implements GatewayClient {
     }
   }
 
-  async register(nodeToken: string, regionCode: string): Promise<{ gatewayToken: string }> {
-    const response = await this.post('/gateway/register', { nodeToken, regionCode });
+  async register(nodeToken: string, regionCode: string, telemetry?: GatewayTelemetry): Promise<{ gatewayToken: string }> {
+    const response = await this.post('/gateway/register', { nodeToken, regionCode, ...(telemetry ? { telemetry } : {}) });
     return response as { gatewayToken: string };
   }
 

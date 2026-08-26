@@ -10,7 +10,20 @@ export type SelectedRadio = 'simulated' | 'BLE' | 'Bluetooth Classic';
 export type OfflinePackStatus = 'checking' | 'downloading' | 'ready' | 'not-downloaded' | 'error';
 export interface RuntimeIncident { id: string; category: number; severity: number; peopleTotal?: number; injured?: number; updatedAtS: number; }
 export interface RuntimeMapObject { objectId: string; kind: string; label: string; state?: number; latE7?: number; lonE7?: number; asOfS: number; provenance: string; }
-export interface RuntimeDiagnostic { category: string; name: string; severity: string; atMs: number; transport?: string; packetId?: string; result?: string; reason?: string; }
+export interface RuntimeDiagnostic {
+  category: string;
+  name: string;
+  severity: string;
+  atMs: number;
+  transport?: string;
+  packetId?: string;
+  sessionId?: string;
+  peerToken?: string;
+  result?: string;
+  reason?: string;
+  bytes?: number;
+  metrics?: Readonly<Record<string, number>>;
+}
 export interface ReceivedPacketImpact { kind: string; label: string; detail: string; objectId?: string; applied: boolean; }
 export interface ReceivedPacketSummary {
   packetId: string;
@@ -62,6 +75,12 @@ interface AppState {
   setRuntimeError: (value?: string) => void;
   storedPackets: number;
   setStoredPackets: (value: number) => void;
+  relayQueueDepth: number;
+  forwardedPackets: number;
+  queueEpoch: number;
+  highestWaitingPriority: number;
+  batteryBand?: number;
+  setQueueSnapshot: (value: { stored: number; queued: number; forwarded: number; queueEpoch: number; highestPriority: number; batteryBand?: number }) => void;
   activeIncidentId?: string;
   setActiveIncidentId: (value?: string) => void;
   distinctPeerReceipts: number;
@@ -150,6 +169,19 @@ export const useAppStore = create<AppState>()(
       setRuntimeError: (runtimeError) => set({ runtimeError }),
       storedPackets: 0,
       setStoredPackets: (storedPackets) => set({ storedPackets }),
+      relayQueueDepth: 0,
+      forwardedPackets: 0,
+      queueEpoch: 0,
+      highestWaitingPriority: 7,
+      batteryBand: undefined,
+      setQueueSnapshot: (value) => set({
+        storedPackets: value.stored,
+        relayQueueDepth: value.queued,
+        forwardedPackets: value.forwarded,
+        queueEpoch: value.queueEpoch,
+        highestWaitingPriority: value.highestPriority,
+        batteryBand: value.batteryBand,
+      }),
       activeIncidentId: undefined,
       setActiveIncidentId: (activeIncidentId) => set({ activeIncidentId }),
       distinctPeerReceipts: 0,

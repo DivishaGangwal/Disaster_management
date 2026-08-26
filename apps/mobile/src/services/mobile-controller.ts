@@ -21,6 +21,7 @@ import {
   type AudioInputAdapter,
   type LocalProfile,
   type Tier2RawFrame,
+  type DiagnosticEvent,
 } from '@dsm/contracts';
 import { buildCheckinResponse, buildResponderState, buildSosCancel, buildSosCreate, buildSosUpdate, decodePacket, floatToE7, newNodeToken, newSourceId, toEpochS } from '@dsm/codec';
 import { MemoryEventSink } from '@dsm/store';
@@ -61,6 +62,7 @@ class MobileController {
   private gatewaySyncTimer?: ReturnType<typeof setInterval>;
   private gatewaySyncInFlight?: Promise<boolean>;
   private gatewaySyncGeneration = 0;
+  private refreshTimer?: ReturnType<typeof setTimeout>;
 
   async initialize(role: UserRole = useAppStore.getState().role) {
     if (this.runtime) return this.runtime;
@@ -77,6 +79,8 @@ class MobileController {
     this.wavePxInput = undefined;
     this.removeAdapterListener?.();
     this.removeAdapterListener = undefined;
+    clearTimeout(this.refreshTimer);
+    this.refreshTimer = undefined;
     if (this.runtime?.relay.isRunning) await this.runtime.stopRelay();
     this.runtime = undefined;
     return this.initialize(role);
@@ -126,7 +130,7 @@ class MobileController {
       peers: repositories.peers,
       files: repositories.files,
       mapObjects: repositories.mapObjects,
-      events: new MemoryEventSink(),
+      events: new ReactiveEventSink(() => this.scheduleRefresh()),
       // 01-... "Notification policy" is the policy engine's job, so the alert
       // decision is taken there and merely rendered here. Duplicates never
       // re-notify (REL-006).
@@ -141,6 +145,7 @@ class MobileController {
       ...(!expoGo ? { adapterFactory: createNativeTransport } : {}),
     }, new PackResolver(MUMBAI_CONTENT_PACK));
     const report = await runtime.getCapabilities();
+    if (report.batteryPercent !== undefined) runtime.engine.setBatteryBand(batteryBand(report.batteryPercent));
     const backendBaseUrl = process.env.EXPO_PUBLIC_DSM_BACKEND_URL?.replace(/\/$/, '');
     if (backendBaseUrl) {
       runtime.attachGateway(new GatewaySynchronizer({
@@ -179,7 +184,13 @@ class MobileController {
       const current = useAppStore.getState();
       if (event.kind === 'peer-observed') void runtime.engine.peers.list(Date.now()).then((peers) => current.setPeersRecentlySeen(peers.length));
       if (event.kind === 'relay-state-changed') current.setRelayActive(!['stopped', 'permission-required', 'error-user-action-required'].includes(event.state));
-      if (event.kind === 'capability-changed') { current.setBatteryPercent(event.report.batteryPercent); current.setBatteryTemperatureC(event.report.batteryTemperatureC); current.setThermalState(event.report.thermalThrottled ? 'limited' : 'normal'); }
+      if (event.kind === 'capability-changed') {
+        if (event.report.batteryPercent !== undefined) runtime.engine.setBatteryBand(batteryBand(event.report.batteryPercent));
+        current.setBatteryPercent(event.report.batteryPercent);
+        current.setBatteryTemperatureC(event.report.batteryTemperatureC);
+        current.setThermalState(event.report.thermalThrottled ? 'limited' : 'normal');
+        this.scheduleRefresh();
+      }
       // Notifications are NOT raised here any more. This event fires for every
       // record off the radio -- including INVENTORY -- so notifying from it
       // meant an emergency-channel alert per inventory exchange. The engine's
@@ -448,14 +459,66 @@ class MobileController {
   async refresh(runtime?: AppRuntime) {
     runtime ??= await this.initialize();
     const state = useAppStore.getState();
-    state.setStoredPackets(await runtime.engine.packets.count());
+    const [storedPackets, relayable] = await Promise.all([
+      runtime.engine.packets.count(),
+      runtime.engine.packets.listRelayable(64),
+    ]);
+    const events = runtime.engine.events.recent(100);
+    const forwardedPackets = new Set(events
+      .filter((event) => event.category === EventCategory.TRANSFER && event.name === 'record-sent' && event.packetId)
+      .map((event) => event.packetId!)).size;
+    state.setQueueSnapshot({
+      stored: storedPackets,
+      queued: relayable.length,
+      forwarded: forwardedPackets,
+      queueEpoch: runtime.engine.currentQueueEpoch,
+      highestPriority: runtime.engine.currentHighestWaitingPriority,
+      ...(runtime.engine.hasMeasuredBatteryBand ? { batteryBand: runtime.engine.batteryBandValue } : {}),
+    });
     state.setPeersRecentlySeen((await runtime.engine.peers.list(Date.now())).length);
     const incidentId = state.activeIncidentId;
     if (incidentId) state.setDistinctPeerReceipts(runtime.engine.incidents.view(incidentId)?.delivery.distinctPeerReceipts ?? 0);
     state.setRuntimeIncidents(runtime.engine.incidents.list().map((incident) => ({ id: incident.incidentId, category: incident.category, severity: incident.severity, ...(incident.peopleTotal !== undefined ? { peopleTotal: incident.peopleTotal } : {}), ...(incident.injured !== undefined ? { injured: incident.injured } : {}), updatedAtS: incident.updatedAtS })));
     state.setMapObjects(runtime.engine.projection.visible(toEpochS(Date.now())).map((object) => ({ objectId: object.objectId, kind: object.kind, label: object.label, ...(object.state !== undefined ? { state: object.state } : {}), ...(object.latE7 !== undefined ? { latE7: object.latE7 } : {}), ...(object.lonE7 !== undefined ? { lonE7: object.lonE7 } : {}), asOfS: object.asOfS, provenance: object.provenance })));
-    state.setDiagnosticEvents(runtime.engine.events.recent(100).map((event) => ({ category: event.category, name: event.name, severity: event.severity, atMs: event.atMs, ...(event.transport ? { transport: event.transport } : {}), ...(event.packetId ? { packetId: event.packetId } : {}), ...(event.result ? { result: event.result } : {}), ...(event.reason ? { reason: event.reason } : {}) })));
+    state.setDiagnosticEvents(events.map((event) => ({
+      category: event.category,
+      name: event.name,
+      severity: event.severity,
+      atMs: event.atMs,
+      ...(event.transport ? { transport: event.transport } : {}),
+      ...(event.packetId ? { packetId: event.packetId } : {}),
+      ...(event.sessionId ? { sessionId: event.sessionId } : {}),
+      ...(event.peerToken ? { peerToken: event.peerToken } : {}),
+      ...(event.result ? { result: event.result } : {}),
+      ...(event.reason ? { reason: event.reason } : {}),
+      ...(event.bytes !== undefined ? { bytes: event.bytes } : {}),
+      ...(event.metrics ? { metrics: event.metrics } : {}),
+    })));
   }
+
+  private scheduleRefresh() {
+    if (this.refreshTimer) return;
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = undefined;
+      if (this.runtime) void this.refresh(this.runtime);
+    }, 75);
+  }
+}
+
+class ReactiveEventSink extends MemoryEventSink {
+  constructor(private readonly onEvent: () => void) { super(); }
+  override emit(event: DiagnosticEvent): void {
+    super.emit(event);
+    this.onEvent();
+  }
+}
+
+function batteryBand(percent?: number): number {
+  if (percent === undefined) return 3;
+  if (percent <= 10) return 0;
+  if (percent <= 25) return 1;
+  if (percent <= 50) return 2;
+  return 3;
 }
 
 function context(runtime: AppRuntime) { return { sourceId: runtime.engine.localSourceId, sourceClass: runtime.sourceClass, nowS: toEpochS(Date.now()) }; }

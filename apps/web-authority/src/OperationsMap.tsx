@@ -198,7 +198,7 @@ function featureCollection(incidents: Incident[], records: RegionalRecord[], gat
     const point = gatewayPoint(gateway.gatewayToken);
     if (!point) continue;
     const activity = gatewayActivity(gateways, gateway.gatewayToken);
-    features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [point.lon, point.lat] }, properties: { id: gateway.gatewayToken, featureType: 'gateway', glyph: 'G', label: gateway.nodeToken.replaceAll('-', ' '), subtitle: `Configured development placement · ${activity.uploads} uploaded · ${activity.downloads} downloaded · ${activity.observations} observations`, status: activity.ageMs < GATEWAY_ACTIVE_WINDOW_MS ? 'online' : 'stale', state: activity.ageMs < GATEWAY_ACTIVE_WINDOW_MS ? 'online' : 'stale', kind: 'gateway' } });
+    features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [point.lon, point.lat] }, properties: { id: gateway.gatewayToken, featureType: 'gateway', glyph: 'G', label: gateway.nodeToken.replaceAll('-', ' '), subtitle: `Registered gateway · ${activity.uploads} uploaded · ${activity.downloads} downloaded · ${activity.observations} observations`, status: activity.ageMs < GATEWAY_ACTIVE_WINDOW_MS ? 'online' : 'stale', state: activity.ageMs < GATEWAY_ACTIVE_WINDOW_MS ? 'online' : 'stale', kind: 'gateway' } });
   }
   return { type: 'FeatureCollection', features };
 }
@@ -222,4 +222,10 @@ function markerGlyph(kind: string): string { return kind === 'medical' ? '+' : k
 function locationAge(item: Incident): string { const nowS = Math.floor((Date.now() - TIME.DEMO_EPOCH_MS) / 1000); const seconds = Math.max(0, nowS - (item.locationReportedAtS ?? item.updatedAtS) + (item.locationAgeS ?? 0)); return seconds < 60 ? `${seconds}s` : seconds < 3600 ? `${Math.floor(seconds / 60)}m` : `${Math.floor(seconds / 3600)}h`; }
 const GATEWAY_ACTIVE_WINDOW_MS = 10 * 60_000;
 function gatewayActivity(audit: GatewayAudit, token: string) { const transfers = audit.transfers.filter((item) => item.gatewayToken === token); const observations = audit.observations.filter((item) => item.gatewayToken === token); const lastAtMs = Math.max(0, ...transfers.map((item) => item.atMs), ...observations.map((item) => item.uploadedAtMs)); return { ageMs: lastAtMs ? Date.now() - lastAtMs : Number.POSITIVE_INFINITY, uploads: transfers.filter((item) => item.direction === 'upload').reduce((sum, item) => sum + item.itemCount, 0), downloads: transfers.filter((item) => item.direction === 'download').reduce((sum, item) => sum + item.itemCount, 0), observations: observations.length }; }
-function gatewayPoint(token: string): { lat: number; lon: number } | undefined { const known: Record<string, { lat: number; lon: number }> = { 'GW-MUMBAI-OPS': { lat: 19.076, lon: 72.8777 }, 'GW-MUMBAI-SOUTH': { lat: 18.9388, lon: 72.8354 }, 'GW-MUMBAI-CENTRAL': { lat: 18.969, lon: 72.8194 }, 'GW-MUMBAI-EAST': { lat: 19.0658, lon: 72.8782 }, 'GW-MUMBAI-WEST': { lat: 19.1196, lon: 72.8458 } }; return known[token]; }
+function gatewayPoint(token: string): { lat: number; lon: number } | undefined {
+  // A gateway appears on the map only when its token has an explicitly
+  // provisioned operational coordinate. Registration/heartbeat alone does
+  // not justify inventing a phone location.
+  const provisioned: Record<string, { lat: number; lon: number }> = {};
+  return provisioned[token];
+}

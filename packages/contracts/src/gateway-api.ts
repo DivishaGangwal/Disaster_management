@@ -75,10 +75,17 @@ export interface OutboundAckRequest {
   readonly packetIds: readonly PacketId[];
 }
 
+/** Bounded, non-personal runtime telemetry attached to a proven gateway heartbeat. */
+export interface GatewayTelemetry {
+  readonly batteryBand?: number;
+  readonly queueDepth: number;
+  readonly storedPackets: number;
+}
+
 /** What the mobile app needs from any gateway implementation. */
 export interface GatewayClient {
   probe(): Promise<ProbeResult>;
-  register(nodeToken: string, regionCode: string): Promise<{ readonly gatewayToken: string }>;
+  register(nodeToken: string, regionCode: string, telemetry?: GatewayTelemetry): Promise<{ readonly gatewayToken: string }>;
   upload(request: UploadBatchRequest): Promise<UploadBatchResponse>;
   pollOutbound(request: OutboundPollRequest): Promise<OutboundPollResponse>;
   ackOutbound(request: OutboundAckRequest): Promise<void>;

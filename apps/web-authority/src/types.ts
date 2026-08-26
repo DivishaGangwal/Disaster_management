@@ -228,7 +228,13 @@ export interface AuditRecord {
 }
 
 export interface GatewayAudit {
-  readonly gateways: readonly { readonly gatewayToken: string; readonly nodeToken: string; readonly regionCode: string }[];
+  readonly gateways: readonly {
+    readonly gatewayToken: string;
+    readonly nodeToken: string;
+    readonly regionCode: string;
+    readonly lastSeenAtMs?: number;
+    readonly telemetry?: { readonly batteryBand?: number; readonly queueDepth: number; readonly storedPackets: number };
+  }[];
   readonly observations: readonly {
     readonly packetId: string;
     readonly gatewayToken: string;

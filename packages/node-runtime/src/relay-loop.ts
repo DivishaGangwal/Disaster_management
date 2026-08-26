@@ -268,9 +268,17 @@ export class RelayLoop {
                 new SessionStateMachine(sessionId, event.nodeToken, true, now()),
               );
               await this.runSession(sessionId, event.nodeToken);
-            } catch {
+            } catch (error) {
               // Out of range or refused. Record it: repeatedly unreachable
               // peers must lose reliability weight in the routing score.
+              engine.events.emit({
+                category: EventCategory.SESSION,
+                name: 'open-failed',
+                severity: 'warn',
+                atMs: now(),
+                peerToken: event.nodeToken,
+                reason: error instanceof Error ? error.message : String(error),
+              });
               await this.recordPeerOutcome(event.nodeToken, false, now());
             } finally {
               // Cleared only once the attempt has fully settled, so the next
@@ -339,8 +347,18 @@ export class RelayLoop {
             );
             try {
               await adapter.sendRecord(event.sessionId, receipt);
-            } catch {
+            } catch (error) {
               // The peer may already have closed; the receipt is best-effort.
+              engine.events.emit({
+                category: EventCategory.TRANSFER,
+                name: 'receipt-send-failed',
+                severity: 'warn',
+                atMs: event.atMs,
+                sessionId: event.sessionId,
+                peerToken: event.peerToken,
+                packetId: result.packetId,
+                reason: error instanceof Error ? error.message : String(error),
+              });
             }
           }
         }
@@ -625,7 +643,17 @@ export class RelayLoop {
       const relayed = { ...stored.encoded, bytes: incrementHopInPlace(stored.encoded.bytes) };
       try {
         await adapter.sendRecord(sessionId, relayed);
-      } catch {
+      } catch (error) {
+        engine.events.emit({
+          category: EventCategory.TRANSFER,
+          name: 'record-send-failed',
+          severity: 'warn',
+          atMs: now(),
+          sessionId,
+          peerToken,
+          packetId: offer.candidate.packetId,
+          reason: error instanceof Error ? error.message : String(error),
+        });
         break; // peer closed or moved out of range; custody is unchanged
       }
       machine.recordSent(stored.encoded.totalBytes, now());

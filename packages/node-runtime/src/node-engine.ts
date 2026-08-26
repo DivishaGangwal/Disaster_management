@@ -111,6 +111,7 @@ export class NodeEngine {
   private readonly now: () => number;
 
   private batteryBand = 3;
+  private batteryBandMeasured = false;
   private storagePressure: 'ok' | 'high' | 'critical' = 'ok';
   private coarseLocation?: { latE7: number; lonE7: number };
   private queueEpoch = 0;
@@ -187,6 +188,10 @@ export class NodeEngine {
     return this.batteryBand;
   }
 
+  get hasMeasuredBatteryBand(): boolean {
+    return this.batteryBandMeasured;
+  }
+
   /** 0..3 derived from storage pressure, for the same reason. */
   get storageBandValue(): number {
     if (this.storagePressure === 'critical') return 0;
@@ -201,6 +206,7 @@ export class NodeEngine {
 
   setBatteryBand(band: number): void {
     this.batteryBand = band;
+    this.batteryBandMeasured = true;
   }
 
   setStoragePressure(pressure: 'ok' | 'high' | 'critical'): void {

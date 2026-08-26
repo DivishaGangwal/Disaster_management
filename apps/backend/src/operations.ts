@@ -13,11 +13,13 @@ import {
   ResolutionOutcome,
   Severity,
   SourceClass,
+  STORAGE,
   messageTypeName,
   type CampaignState,
   type MapOperation,
   type PacketId,
 } from '@dsm/contracts';
+import { validate } from '@dsm/validator';
 import { MUMBAI_CONTENT_PACK, toMapOperations } from '@dsm/mapkit';
 import {
   buildHazard,
@@ -105,7 +107,7 @@ function campaignLocation(input: {
 export class OperationsService {
   constructor(
     private readonly store: SqliteBackendStore,
-    private readonly ingest: IngestService,
+    _ingest: IngestService,
     private readonly outbound: OutboundService,
   ) {
     let migratedCampaign = false;
@@ -710,17 +712,26 @@ export class OperationsService {
   }
 
   private publishOperationalPacket(packetId: string, bytes: Uint8Array): void {
-    const batchId = `OPS-${randomUUID()}`;
-    const response = this.ingest.ingest(
-      {
-        gatewayToken: 'GW-MUMBAI-OPS',
-        batchId,
-        items: [{ packetId, bytes, observation: { receivedAtMs: Date.now(), transport: 'gateway', hopCountOnArrival: 0 } }],
-      },
-      Date.now(),
-    );
-    if (!response.results.some((result) => result.outcome === 'accepted' || result.outcome === 'duplicate')) {
-      throw new Error(response.results[0]?.reason ?? 'packet rejected');
+    const nowMs = Date.now();
+    const existing = this.store.packets.get(packetId);
+    const validation = validate(bytes, {
+      nowS: toEpochS(nowMs),
+      transport: 'local',
+      hopCountOnArrival: 0,
+      isKnownDuplicate: Boolean(existing),
+      ...(existing?.digest ? { conflictingDigest: existing.digest } : {}),
+      streamTerminated: false,
+      storagePressure: 'ok',
+      queueDepth: this.store.packets.size,
+      maxQueueDepth: STORAGE.MAX_STORED_PACKETS,
+      regionCode: REGION_CODE,
+    });
+    if (!validation.ok) throw new Error(validation.reason);
+    if (validation.packet.header.packetId !== packetId) throw new Error('packet id does not match canonical bytes');
+    if (existing && existing.digest !== validation.digest) throw new Error('packet digest conflict');
+    if (!existing) {
+      this.store.putPacket({ packetId, bytes, digest: validation.digest, firstSeenAtMs: nowMs });
+      this.store.incidents.apply(validation.packet, { localSourceId: 'backend-authority' });
     }
     this.outbound.publish(REGION_CODE, packetId, bytes);
   }

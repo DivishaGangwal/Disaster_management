@@ -33,10 +33,14 @@ test('live HTTP contract carries mobile SOS up and website map updates down', as
 
     const registration = await fixture.request('/gateway/register', {
       method: 'POST',
-      body: JSON.stringify({ nodeToken: 'phone-a', regionCode: 'IN-MH' }),
+      body: JSON.stringify({ nodeToken: 'phone-a', regionCode: 'IN-MH', telemetry: { batteryBand: 2, queueDepth: 4, storedPackets: 9 } }),
     });
     assert.equal(registration.status, 200);
     const gatewayToken = String(registration.body['gatewayToken']);
+    const gatewayAudit = await fixture.request('/api/gateway-audit');
+    const registered = (gatewayAudit.body['gateways'] as { gatewayToken: string; lastSeenAtMs?: number; telemetry?: { batteryBand: number; queueDepth: number; storedPackets: number } }[]).find((item) => item.gatewayToken === gatewayToken);
+    assert.ok(registered?.lastSeenAtMs);
+    assert.deepEqual(registered?.telemetry, { batteryBand: 2, queueDepth: 4, storedPackets: 9 });
 
     const now = Date.now();
     const sos = buildSosCreate(

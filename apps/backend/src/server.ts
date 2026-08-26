@@ -19,7 +19,7 @@ import { extname, resolve } from 'node:path';
 import { CAMPAIGN_TRANSITIONS, DEPLOYMENT, GATEWAY, type CampaignState } from '@dsm/contracts';
 import { BackendStore, IngestService, IncidentQueryService, OutboundService } from './services.js';
 import { OperationsService, type CampaignCreateInput } from './operations.js';
-import { MUMBAI_SEED_VERSION, ensureMumbaiPopulation, seedMumbaiOperations } from './demo-seed.js';
+import { MUMBAI_SEED_VERSION, ensureMumbaiPopulation, removeLegacySeededConnectionEvidence, seedMumbaiOperations } from './demo-seed.js';
 import { SqliteBackendStore } from './sqlite-store.js';
 
 export const BACKEND_IDENTITY = DEPLOYMENT.backendIdentity;
@@ -42,6 +42,10 @@ export function createBackend(options: ServerOptions = {}) {
   const operations = sqliteStore ? new OperationsService(sqliteStore, ingest, outbound) : undefined;
   const demoMode = process.env['DSM_DEMO_MODE'] !== 'false';
   const operationsKey = options.operationsKey ?? process.env['DSM_OPERATIONS_KEY'] ?? (demoMode ? DEPLOYMENT.developmentOperationsKey : '');
+  // One-time cleanup for databases created before gateway status became live
+  // telemetry. It removes only the four known baseline tokens and preserves
+  // every registration, observation, and transfer produced by real phones.
+  if (sqliteStore) removeLegacySeededConnectionEvidence(sqliteStore);
   if (sqliteStore && (options.seed ?? true) && sqliteStore.responders.size === 0 && sqliteStore.packets.size === 0) {
     seedMumbaiOperations(sqliteStore, ingest);
   } else if (sqliteStore && (options.seed ?? true) && demoMode) {
@@ -82,8 +86,9 @@ export function createBackend(options: ServerOptions = {}) {
       if (!nodeToken || nodeToken.length > 64 || regionCode !== DEPLOYMENT.regionCode) {
         return send(res, 400, { error: `A bounded node token and region ${DEPLOYMENT.regionCode} are required.` });
       }
+      const telemetry = gatewayTelemetry(body['telemetry']);
       const gatewayToken = `GW-${nodeToken}`;
-      store.registerGateway(gatewayToken, nodeToken, regionCode);
+      store.registerGateway(gatewayToken, nodeToken, regionCode, Date.now(), telemetry);
       return send(res, 200, { gatewayToken });
     }
 
@@ -405,6 +410,17 @@ function isGatewayUploadItem(value: unknown): boolean {
   return typeof item['packetId'] === 'string' &&
     typeof item['bytesBase64'] === 'string' &&
     Boolean(observation && typeof observation === 'object');
+}
+
+function gatewayTelemetry(value: unknown): { batteryBand?: number; queueDepth: number; storedPackets: number } | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const telemetry = value as Record<string, unknown>;
+  const batteryBand = telemetry['batteryBand'];
+  const queueDepth = telemetry['queueDepth'];
+  const storedPackets = telemetry['storedPackets'];
+  if ((batteryBand !== undefined && !Number.isInteger(batteryBand)) || !Number.isInteger(queueDepth) || !Number.isInteger(storedPackets)) return undefined;
+  if ((typeof batteryBand === 'number' && (batteryBand < 0 || batteryBand > 3)) || (queueDepth as number) < 0 || (queueDepth as number) > 50_000 || (storedPackets as number) < 0 || (storedPackets as number) > 50_000) return undefined;
+  return { ...(typeof batteryBand === 'number' ? { batteryBand } : {}), queueDepth: queueDepth as number, storedPackets: storedPackets as number };
 }
 
 async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {

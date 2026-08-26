@@ -71,10 +71,19 @@ export class GatewaySynchronizer {
     }
     this.consecutiveFailures = 0;
 
-    if (!this.gatewayToken) {
-      const registration = await client.register(engine.nodeToken, this.options.regionCode);
-      this.gatewayToken = registration.gatewayToken;
-    }
+    // Registration doubles as a real heartbeat. Repeating it is idempotent and
+    // lets the authority console show current queue/battery data instead of a
+    // guessed connection state from a seeded row or browser network icon.
+    const [queueDepth, storedPackets] = await Promise.all([
+      engine.packets.listRelayable(64).then((items) => items.length),
+      engine.packets.count(),
+    ]);
+    const registration = await client.register(engine.nodeToken, this.options.regionCode, {
+      ...(engine.hasMeasuredBatteryBand ? { batteryBand: engine.batteryBandValue } : {}),
+      queueDepth,
+      storedPackets,
+    });
+    this.gatewayToken = registration.gatewayToken;
 
     const upload = await this.uploadBatch(atMs);
     const download = await this.downloadBatch(atMs);
