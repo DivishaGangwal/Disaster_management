@@ -250,6 +250,8 @@ const INVENTORY: FieldMap = {
   terminalIds: 3,
   queueEpoch: 4,
   truncated: 5,
+  /** Compact 8-byte ID prefixes; see inventory-ids.ts. Supersedes criticalIds. */
+  idPrefixes: 6,
 };
 
 const PACKET_REQUEST: FieldMap = { packetIds: 1, fragmentRequests: 2 };

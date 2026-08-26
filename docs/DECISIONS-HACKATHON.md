@@ -345,11 +345,16 @@ overflow and sets `truncated` honestly, and the swallowed catch became an
 `announce-failed` error event. A protocol step that cannot run must never fail
 quietly.
 
-**Known capacity limit:** only ~4 packet IDs fit per inventory. A node holding
-40 packets can only tell a peer about 4 of them per contact, so convergence
-takes several contacts. Sending 8-byte ID prefixes as raw bytes instead of
-32-character hex strings would raise this to roughly 21 — worth doing, but it
-is a wire change and has not been made.
+**Known capacity limit — RESOLVED, see HD-014.** The four-ID cap was real and
+the prescription was right: 8-byte raw prefixes now carry **21 IDs**, measured.
+
+The diagnosis in the sentence above was wrong in one respect worth recording.
+It said convergence would "take several contacts". It would not have: the
+announced list came from `listRelayable()` in a fixed order with no rotation,
+so entries 5..N were announced *never*, not eventually — and HD-013's epoch
+skip then removed the contacts that might have corrected it. Two mechanisms
+that are individually sound compounded into a permanent blind spot. Neither
+review caught it because both were reasoned about alone.
 
 ---
 
@@ -386,3 +391,101 @@ packets. Redundant sends stayed at 0 in the chain case and were low elsewhere;
 copy budgets, per-neighbour known-holder tracking, and previous-hop suppression
 already bound replication. The cost that actually scales badly is the
 **inventory tax per contact**, which is what HD-013 addresses.
+
+
+---
+
+## HD-014 — The hello phase now emits a record, and the inventory is compact
+
+Two defects with one root: **session-control records were paying 34 bytes to
+say a 16-byte thing, and one of the eight session phases was not on the wire
+at all.**
+
+### The inventory was hex-encoded
+
+A packet ID is 16 binary bytes. Every payload field carrying one was a
+**32-character hex string**, which in the value codec costs
+`TAG.TEXT(1) + uvarint(32)(1) + 32 = 34 bytes` against ~164 usable bytes in a
+180-byte session-control payload. Hence four (HD-012).
+
+IDs now travel as one concatenated blob of **8-byte prefixes** — `TAG.BYTES(1)
++ uvarint(len)(1) + 8N` — under a new `idPrefixes` field (wire key 6). One blob
+rather than an array of byte fields, because an array pays tag+length per
+element and stops at 16.
+
+**Measured: 4 → 21 IDs per record, 5.25×,** in 242 of the 244-byte write budget.
+
+`criticalIds` / `entries` / `terminalIds` are still *read* so an older peer is
+understood, and are no longer sent. The receiver folds every form into one
+prefix-keyed set.
+
+**Why 8 bytes is safe.** A 64-bit prefix over the 2,000-packet storage ceiling
+gives a birthday-collision probability near 1e-8. A collision costs one
+suppressed offer on one link for one session; the copy budget is 12 and this
+is not the only route. That is categorically unlike a Bloom filter, whose false
+positives would poison a shared structure rather than one link.
+
+**The failure mode this introduces is silence.** Announcing a prefix while
+testing membership against a full ID matches nothing, so every session would
+re-send everything with no error raised anywhere. Both sides now derive
+membership through `packetIdPrefixKey()` and a test asserts the two agree.
+
+### The hello phase sent nothing
+
+`runSession()` advanced `establish → hello → inventory` with two
+`machine.advance()` calls and no record. The proof it was never real:
+`SessionStateMachine.negotiate()` had **zero callers**, and the `'incompatible'`
+close reason could not fire.
+
+`HELLO_CAPABILITY` (102 B) is now sent at that phase, carrying what the 12-byte
+advertisement has no room for: protocol range, usable record size, and battery
+and storage bands.
+
+**What it changes:**
+
+- `negotiate()` runs. An incompatible peer closes cleanly instead of being
+  discovered one layer down as a run of validator rejections.
+- The forwarding score's battery term reads the **peer's** band. It previously
+  read `localBatteryBand` only — so the term never described the node it was
+  scoring, and a relay would push non-critical traffic into a peer at 4%. The
+  term is now `min(local, peer)` with a hard gate at band 0.
+- Record size is negotiated as `min(local, peer)`. **Both ends report 244
+  today, so this currently changes nothing** — its value is that the phase is
+  real, so plumbing the natively negotiated ATT MTU (517 was granted on both
+  handsets) through later changes one number instead of adding a protocol step.
+
+**Ordering, deliberately.** The initiator sends hello *and* inventory without
+waiting, so its own inventory is sized at the local budget. Waiting would need
+a blocking primitive inside the session — the cost HD-001 rejected — and would
+deadlock against a peer that never says hello. The accepting side answers after
+absorbing the hello, and **both** sides hold the peer's capability before
+either reaches `pushOffers`, which is where it is actually consumed.
+
+### `truncated` now means something
+
+It was written honestly and **read by nothing**, so a partial list was
+indistinguishable from a complete one. It now suppresses HD-013's session skip
+for that peer: "neither epoch moved" does not mean there is nothing to exchange
+when the peer never finished saying what it holds.
+
+### Two defects found while proving this
+
+- **`listRelayable()` ignored priority on device.** SQLite ordered by
+  `stored_at_ms` only while `memory-store` — and therefore all 69 tests —
+  ordered by priority then age (the §6.2 disagreement). Harmless while nothing
+  was cut; the moment truncation cut at 21, a fresh SOS could be dropped from
+  the announcement by older, lower-priority records. Now sorted identically to
+  `memory-store`. **Age weighting is unchanged**: priority is the primary key,
+  oldest-first remains the tiebreak, and the routing score's `age` term is
+  untouched.
+- **The peer-observed handler wiped the capability fields.** It rebuilt
+  `PeerObservationRecord` field by field, so every advertisement — one every
+  1–8 s — erased what the hello had just learned. Exactly the defect the
+  comment directly above it already warned about for the reliability counters.
+  Caught by a test asserting a non-default battery band, not by inspection.
+
+### `PACKET_REQUEST` is still not sent
+
+HD-001 stands. Its justification is stronger now, not weaker: the push filter's
+correctness rests on inventory accuracy, and the inventory is no longer capped
+at four. Fragment-level resume remains the real thing HD-001 gives up.

@@ -10,6 +10,8 @@
 
 import {
   EventCategory,
+  LINK,
+  PROTOCOL_VERSION,
   SESSION,
   MessageType,
   SourceClass,
@@ -17,7 +19,17 @@ import {
   type TransportAdapter,
   type TransportEvent,
 } from '@dsm/contracts';
-import { buildInventory, buildLinkReceipt, decodePacket, toEpochS } from '@dsm/codec';
+import {
+  buildHello,
+  buildInventory,
+  buildLinkReceipt,
+  decodePacket,
+  incrementHopInPlace,
+  packInventoryIds,
+  packetIdPrefixKey,
+  toEpochS,
+  unpackInventoryIds,
+} from '@dsm/codec';
 import { backoffMs, SessionStateMachine, shouldInitiate } from '@dsm/routing';
 import { buildDiscoverySummary, CapabilityBit } from '@dsm/transport-core';
 import type { NodeEngine } from './node-engine.js';
@@ -32,9 +44,29 @@ export interface RelayLoopOptions {
 
 export class RelayLoop {
   private readonly sessions = new Map<string, SessionStateMachine>();
+  /**
+   * What each peer announced holding, as 8-byte ID PREFIX KEYS (see
+   * inventory-ids.ts). Never full packet IDs -- membership is tested against
+   * `packetIdPrefixKey(...)` and a mismatch here fails silently rather than
+   * loudly, re-sending every packet every session.
+   */
   private readonly peerInventories = new Map<string, Set<string>>();
+  /** Peers whose last announcement did not fit one record. */
+  private readonly peerInventoryTruncated = new Set<string>();
+  /**
+   * Capability learned at the hello phase, per peer.
+   *
+   * `recordBytes` is the smaller of the two ends' usable record size, so a
+   * record we build always fits what the peer can receive. Today both ends
+   * report LINK.MAX_RECORD_BYTES and the negotiation lands on the same 180-byte
+   * payload it always used -- the value of doing it now is that the phase is
+   * real, so plumbing the natively negotiated ATT MTU through later changes one
+   * number rather than adding a protocol step.
+   */
+  private readonly peerCapabilities = new Map<string, { recordBytes: number; batteryBand: number }>();
   private readonly consecutiveFailures = new Map<string, number>();
-  /** One inventory announcement and one filtered push per session. */
+  /** One hello, one inventory announcement, and one filtered push per session. */
+  private readonly helloSent = new Set<string>();
   private readonly announced = new Set<string>();
   private readonly pushed = new Set<string>();
   /** REL-007: earliest next connection attempt per peer, from backoffMs(). */
@@ -109,6 +141,8 @@ export class RelayLoop {
     // in-flight or open across a restart.
     this.connecting.clear();
     this.sessions.clear();
+    this.helloSent.clear();
+    this.peerCapabilities.clear();
     await this.options.adapter.stopRelay();
     this.options.engine.events.emit({
       category: EventCategory.RELAY_LIFECYCLE,
@@ -160,6 +194,13 @@ export class RelayLoop {
         // why the routing score's reliability term never moved off its prior.
         const known = await engine.peers.get(event.nodeToken);
         await engine.peers.observe({
+          // Spread FIRST so this advertisement updates what it observed and
+          // nothing else. Listing fields individually here is what erased the
+          // reliability counters before; the capability fields learned at the
+          // hello phase are on the same record and an advertisement carries
+          // none of them, so rebuilding the object wiped those too -- one
+          // advertisement (every 1-8s) undid every hello.
+          ...known,
           peerToken: event.nodeToken,
           lastSeenAtMs: event.observedAtMs,
           ...(event.rssi !== undefined ? { rssi: event.rssi } : {}),
@@ -191,7 +232,14 @@ export class RelayLoop {
         const nothingChanged =
           reconciled !== undefined &&
           reconciled.theirs === event.summary.queueEpoch &&
-          reconciled.ours === engine.currentQueueEpoch;
+          reconciled.ours === engine.currentQueueEpoch &&
+          // A truncated peer never finished telling us what it holds, so
+          // "neither epoch moved" does NOT mean there is nothing to exchange --
+          // it means the rest of its queue is static and was never named. This
+          // pair of conditions used to compound into a permanent blind spot:
+          // the inventory cut at four entries and the skip then guaranteed the
+          // fifth was never mentioned again.
+          !this.peerInventoryTruncated.has(event.nodeToken);
 
         if (nothingChanged) {
           engine.events.emit({
@@ -257,6 +305,10 @@ export class RelayLoop {
         // read HERE before ingest. This is what makes REL-004 work -- without
         // it every session re-sent packets the peer already had.
         const peek = decodePacket(event.bytes);
+        if (peek.ok && peek.packet.header.type === MessageType.HELLO_CAPABILITY) {
+          await this.absorbHello(event.sessionId, event.peerToken, peek.packet, event.atMs);
+          break;
+        }
         if (peek.ok && peek.packet.header.type === MessageType.INVENTORY) {
           await this.absorbInventory(event.sessionId, event.peerToken, peek.packet, event.atMs);
           break;
@@ -300,6 +352,7 @@ export class RelayLoop {
       case 'session-closed': {
         this.sessions.delete(event.sessionId);
         this.peerInventories.delete(event.peerToken);
+        this.helloSent.delete(event.sessionId);
         this.announced.delete(event.sessionId);
         this.pushed.delete(event.sessionId);
 
@@ -347,25 +400,177 @@ export class RelayLoop {
     }
   }
 
-  /** Hello -> inventory -> request -> transfer -> receipt -> close. */
   /**
-   * Opens the exchange. The initiator announces its inventory and stops there.
+   * Opens the exchange: hello, then inventory, then stop.
    *
    * It deliberately does NOT push or close here: it has not yet seen what the
    * peer holds. Both the push and the close happen in absorbInventory() once
    * the peer answers, so every transfer is filtered (REL-003/REL-004).
    */
-  private async runSession(sessionId: string, _peerToken: string): Promise<void> {
+  private async runSession(sessionId: string, peerToken: string): Promise<void> {
     const machine = this.sessions.get(sessionId);
     if (!machine) return;
 
     const atMs = this.options.now();
     machine.advance(atMs); // hello
+    // Previously this advanced straight past `hello` without emitting anything,
+    // which is why SessionStateMachine.negotiate() had zero callers and the
+    // 'incompatible' close reason could never fire. The phase now puts a record
+    // on the wire (02-... "Session phases").
+    await this.announceHello(sessionId, peerToken);
     machine.advance(atMs); // inventory
 
-    await this.announceInventory(sessionId);
+    // Sized to what we know NOW, which for the initiator is the local budget:
+    // the peer's hello has not arrived yet. Waiting for it would need a
+    // blocking primitive inside the session -- the same cost HD-001 rejected --
+    // and buys nothing while both ends report the same record size. The
+    // ACCEPTING side answers after absorbing this hello, so its inventory is
+    // negotiated, and by the time either side reaches pushOffers it has the
+    // peer's capability for the routing score.
+    await this.announceInventory(sessionId, peerToken);
 
     machine.advance(atMs); // request
+  }
+
+  /** Build context for the session-control records this node emits. */
+  private buildContext() {
+    const { engine, now } = this.options;
+    return {
+      sourceId: engine.localSourceId,
+      sourceClass:
+        engine.profile.role === 'responder' ? SourceClass.RESPONDER_PROVISIONED : SourceClass.GENERAL_PUBLIC,
+      nowS: toEpochS(now()),
+    };
+  }
+
+  /**
+   * Announces this node's capability, once per session.
+   *
+   * Carries the four things the 12-byte advertisement has no room for:
+   * the protocol range this build accepts, the usable record size, and the
+   * battery and storage bands. The bands are what let the PEER's forwarding
+   * score refuse to push non-critical traffic into a node that is nearly flat
+   * -- before this record existed that term could only read the sender's own
+   * battery, so it never described the node it was scoring.
+   */
+  private async announceHello(sessionId: string, peerToken: string): Promise<void> {
+    if (this.helloSent.has(sessionId)) return;
+    this.helloSent.add(sessionId);
+
+    const { engine, adapter, now } = this.options;
+    const record = buildHello(this.buildContext(), {
+      nodeToken: engine.nodeToken,
+      protocolMin: PROTOCOL_VERSION,
+      protocolMax: PROTOCOL_VERSION,
+      batteryBand: engine.batteryBandValue,
+      storageBand: engine.storageBandValue,
+      maxRecordBytes: LINK.MAX_RECORD_BYTES,
+      maxFragmentBytes: LINK.MAX_PAYLOAD_BYTES,
+      queueEpoch: engine.currentQueueEpoch,
+      highestWaitingPriority: engine.highestWaitingPriority,
+    });
+
+    engine.events.emit({
+      category: EventCategory.SESSION,
+      name: 'hello-announced',
+      severity: 'debug',
+      atMs: now(),
+      sessionId,
+      peerToken,
+      bytes: record.totalBytes,
+      metrics: { maxRecordBytes: LINK.MAX_RECORD_BYTES, batteryBand: engine.batteryBandValue },
+    });
+
+    await adapter.sendRecord(sessionId, record);
+  }
+
+  /**
+   * Records the peer's capability and runs the protocol version check.
+   *
+   * This is the call site SessionStateMachine.negotiate() was written for and
+   * never had, which is why an incompatible peer used to be discovered one
+   * layer down as a run of validator rejections instead of a clean close.
+   */
+  private async absorbHello(
+    sessionId: string,
+    peerToken: string,
+    packet: Packet,
+    atMs: number,
+  ): Promise<void> {
+    const { engine, adapter } = this.options;
+    const payload = packet.payload as Record<string, unknown>;
+    const machine = this.sessions.get(sessionId);
+
+    const protocolMin = Number(payload['protocolMin'] ?? PROTOCOL_VERSION);
+    const protocolMax = Number(payload['protocolMax'] ?? PROTOCOL_VERSION);
+
+    if (machine && !machine.negotiate(protocolMin, protocolMax, PROTOCOL_VERSION)) {
+      engine.events.emit({
+        category: EventCategory.SESSION,
+        name: 'incompatible',
+        severity: 'warn',
+        atMs,
+        sessionId,
+        peerToken,
+        reason: `peer accepts ${protocolMin}..${protocolMax}, this build speaks ${PROTOCOL_VERSION}`,
+      });
+      // negotiate() has already marked the machine closed, so nothing further
+      // will be offered on it. Tear the link down rather than idling it out.
+      await adapter.closeSession(sessionId).catch(() => undefined);
+      return;
+    }
+
+    // Our records must fit what the PEER can receive, so the smaller end wins.
+    const peerRecordBytes = Number(payload['maxRecordBytes'] ?? LINK.MAX_RECORD_BYTES);
+    const batteryBand = Number(payload['batteryBand'] ?? 3);
+    const storageBand = Number(payload['storageBand'] ?? 3);
+    const recordBytes = Math.max(
+      64,
+      Math.min(LINK.MAX_RECORD_BYTES, Number.isFinite(peerRecordBytes) ? peerRecordBytes : LINK.MAX_RECORD_BYTES),
+    );
+    this.peerCapabilities.set(peerToken, { recordBytes, batteryBand });
+
+    // Persist onto the peer record so the forwarding score can read it, and so
+    // it survives the session that learned it.
+    const known = await engine.peers.get(peerToken);
+    if (known) {
+      await engine.peers.observe({
+        ...known,
+        lastSeenAtMs: Math.max(known.lastSeenAtMs, atMs),
+        batteryBand,
+        storageBand,
+        maxRecordBytes: recordBytes,
+        capabilitiesAtMs: atMs,
+      });
+    }
+
+    engine.events.emit({
+      category: EventCategory.SESSION,
+      name: 'hello-received',
+      severity: 'debug',
+      atMs,
+      sessionId,
+      peerToken,
+      metrics: { recordBytes, batteryBand, storageBand },
+    });
+
+    // The accepting side has not said hello yet; answer before the inventory
+    // arrives so its own announcement can be sized against ours.
+    if (!this.helloSent.has(sessionId)) {
+      try {
+        await this.announceHello(sessionId, peerToken);
+      } catch (error) {
+        engine.events.emit({
+          category: EventCategory.SESSION,
+          name: 'hello-failed',
+          severity: 'error',
+          atMs,
+          sessionId,
+          peerToken,
+          reason: String(error),
+        });
+      }
+    }
   }
 
   /**
@@ -381,7 +586,9 @@ export class RelayLoop {
     if (!machine) return;
 
     const peerInventory = this.peerInventories.get(peerToken) ?? new Set<string>();
-    const plan = await engine.planSessionTransfer(peerToken, peerInventory, now());
+    const plan = await engine.planSessionTransfer(peerToken, peerInventory, now(), {
+      peerInventoryTruncated: this.peerInventoryTruncated.has(peerToken),
+    });
 
     engine.events.emit({
       category: EventCategory.INVENTORY,
@@ -402,8 +609,22 @@ export class RelayLoop {
       const stored = await engine.packets.get(offer.candidate.packetId);
       if (!stored) continue;
       if (!machine.canSend(stored.encoded.totalBytes)) break;
+      // 02-...: "hop count increments at each application-level relay". This
+      // was the one loop control that never ran -- incrementHopInPlace() existed
+      // in the codec but nothing called it, so every packet travelled at
+      // hopCount 0 forever and validation gate 8 (hopCount >= hopLimit) could
+      // never fire. Replication stayed bounded by copy budgets, TTL,
+      // knownHolders and cooldown, but the hop limit itself was inert.
+      //
+      // Safe to rewrite here: the payload digest is taken over
+      // [type byte || payload] (see payloadDigest), NOT the header, so bumping
+      // hop and repairing the header CRC changes neither packet identity nor
+      // conflict detection. incrementHopInPlace copies rather than mutating, so
+      // our own stored copy keeps its own hop count (04-BLUEPRINT 7.4: a relay
+      // adds bounded observations, it does not rewrite source meaning).
+      const relayed = { ...stored.encoded, bytes: incrementHopInPlace(stored.encoded.bytes) };
       try {
-        await adapter.sendRecord(sessionId, stored.encoded);
+        await adapter.sendRecord(sessionId, relayed);
       } catch {
         break; // peer closed or moved out of range; custody is unchanged
       }
@@ -428,13 +649,30 @@ export class RelayLoop {
     const { engine, adapter } = this.options;
     const payload = packet.payload as Record<string, unknown>;
 
+    // Everything lands in ONE prefix-keyed set. The compact blob is what this
+    // build announces; the three string fields are read so a peer running an
+    // older build is still understood, and every path goes through
+    // packetIdPrefixKey so membership tests cannot silently mismatch.
     const held = new Set<string>();
-    for (const id of (payload['criticalIds'] as string[] | undefined) ?? []) held.add(id);
-    for (const id of (payload['terminalIds'] as string[] | undefined) ?? []) held.add(id);
+    const blob = payload['idPrefixes'];
+    if (blob instanceof Uint8Array) {
+      for (const key of unpackInventoryIds(blob)) held.add(key);
+    }
+    for (const id of (payload['criticalIds'] as string[] | undefined) ?? []) held.add(packetIdPrefixKey(id));
+    for (const id of (payload['terminalIds'] as string[] | undefined) ?? []) held.add(packetIdPrefixKey(id));
     for (const entry of (payload['entries'] as { packetId?: string }[] | undefined) ?? []) {
-      if (entry?.packetId) held.add(entry.packetId);
+      if (entry?.packetId) held.add(packetIdPrefixKey(entry.packetId));
     }
     this.peerInventories.set(peerToken, held);
+
+    // `truncated` was written honestly and read by nothing, so a partial list
+    // was indistinguishable from a complete one. It has to be recorded here
+    // because it is what disqualifies this contact from the HD-013 skip below:
+    // the peer's remaining packets were never named, and neither queue epoch
+    // will move on its own to prove they exist.
+    const truncated = payload['truncated'] === true;
+    if (truncated) this.peerInventoryTruncated.add(peerToken);
+    else this.peerInventoryTruncated.delete(peerToken);
 
     engine.events.emit({
       category: EventCategory.INVENTORY,
@@ -443,14 +681,14 @@ export class RelayLoop {
       atMs,
       sessionId,
       peerToken,
-      metrics: { peerHolds: held.size },
+      metrics: { peerHolds: held.size, truncated: truncated ? 1 : 0 },
     });
 
     // The accepting side has not announced yet; do it now so the initiator can
     // filter too.
     if (!this.announced.has(sessionId)) {
       try {
-        await this.announceInventory(sessionId);
+        await this.announceInventory(sessionId, peerToken);
       } catch (error) {
         // This used to be swallowed. An inventory that fails to send stops the
         // whole exchange, so it must be visible.
@@ -492,51 +730,54 @@ export class RelayLoop {
   /**
    * Sends this node's inventory once per session.
    *
-   * The list is TRUNCATED TO FIT the session-control payload budget. A packet
-   * ID is 32 hex characters, so only a handful fit in 180 bytes -- and an
-   * inventory that overflows does not merely lose entries, it throws and takes
-   * the whole exchange down with it. `truncated` tells the peer the list is
-   * partial so it does not conclude we hold nothing else.
+   * The list is TRUNCATED TO FIT, and an inventory that overflows does not
+   * merely lose entries -- it throws and takes the whole exchange down with it
+   * (HD-012), so the list is grown by MEASURING rather than by guessing a count.
+   *
+   * What changed: entries now travel as one blob of 8-byte ID prefixes rather
+   * than 32-CHARACTER hex strings, which is the same information at 8 bytes
+   * instead of 34 and raises the capacity of one record from 4 IDs to ~19.
+   * `available` arrives priority-ordered, so the entries that survive
+   * truncation are the urgent ones -- previously the cut kept whichever four
+   * happened to be oldest, which on the device meant a fresh SOS could be left
+   * out of the announcement by four stale hazard records.
    */
-  private async announceInventory(sessionId: string): Promise<void> {
+  private async announceInventory(sessionId: string, peerToken: string): Promise<void> {
     if (this.announced.has(sessionId)) return;
     this.announced.add(sessionId);
 
     const { engine, adapter, now } = this.options;
-    const buildCtx = {
-      sourceId: engine.localSourceId,
-      sourceClass:
-        engine.profile.role === 'responder' ? SourceClass.RESPONDER_PROVISIONED : SourceClass.GENERAL_PUBLIC,
-      nowS: toEpochS(now()),
-    };
+    const buildCtx = this.buildContext();
+
+    // The peer's hello, when we have it, caps the record at what it can
+    // receive; the local limit applies until then and is never exceeded.
+    const recordBudget = this.peerCapabilities.get(peerToken)?.recordBytes ?? LINK.MAX_RECORD_BYTES;
 
     const available = await engine.inventoryIds();
     const carried: string[] = [];
 
-    // Grow the list until it no longer encodes. Measuring beats guessing a
-    // count, because the budget is in bytes and IDs are fixed-width.
-    for (const id of available.slice(0, SESSION.MAX_CRITICAL_EXPLICIT_IDS)) {
+    for (const id of available.slice(0, SESSION.MAX_INVENTORY_ENTRIES)) {
       const attempt = [...carried, id];
       try {
-        buildInventory(buildCtx, {
-          criticalIds: attempt,
-          entries: [],
-          terminalIds: [],
+        const probe = buildInventory(buildCtx, {
+          idPrefixes: packInventoryIds(attempt),
           queueEpoch: engine.currentQueueEpoch,
           truncated: true,
         });
+        // Two separate ceilings: the codec's per-class payload cap (which
+        // throws) and the negotiated record size (which does not).
+        if (probe.totalBytes > recordBudget) break;
       } catch {
         break; // this ID would overflow the payload budget
       }
       carried.push(id);
     }
 
+    const truncated = carried.length < available.length;
     const record = buildInventory(buildCtx, {
-      criticalIds: carried,
-      entries: [],
-      terminalIds: [],
+      idPrefixes: packInventoryIds(carried),
       queueEpoch: engine.currentQueueEpoch,
-      truncated: carried.length < available.length,
+      truncated,
     });
 
     engine.events.emit({
@@ -545,8 +786,9 @@ export class RelayLoop {
       severity: 'debug',
       atMs: now(),
       sessionId,
+      peerToken,
       bytes: record.totalBytes,
-      metrics: { carried: carried.length, held: available.length },
+      metrics: { carried: carried.length, held: available.length, truncated: truncated ? 1 : 0 },
     });
 
     await adapter.sendRecord(sessionId, record);

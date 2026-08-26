@@ -339,7 +339,16 @@ export interface InventoryEntry {
 }
 
 export interface InventoryPayload {
-  /** Explicit IDs for critical items; a compact summary for the rest (REL-003). */
+  /**
+   * REL-003's compact summary: concatenated 8-byte packet-ID prefixes, ordered
+   * most-urgent first so truncation drops the least important entries.
+   *
+   * This is what nodes actually announce. `criticalIds` predates it and cost
+   * 34 bytes per ID against a 180-byte budget, which capped an inventory at
+   * four entries (HD-012); the prefix blob raises the same budget to ~19.
+   */
+  readonly idPrefixes?: Uint8Array;
+  /** Reserved: full-length explicit IDs. Superseded by `idPrefixes`. */
   readonly criticalIds: readonly string[];
   readonly entries: readonly InventoryEntry[];
   readonly terminalIds: readonly string[];

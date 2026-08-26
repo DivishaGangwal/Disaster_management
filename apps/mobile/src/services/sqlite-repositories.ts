@@ -121,12 +121,38 @@ export class SQLitePacketRepository implements PacketRepository {
   async getCustody(packetId: PacketId) { const row = await this.database.getFirstAsync<{ custody_json: string }>('SELECT custody_json FROM packets WHERE packet_id = ?', packetId); return row ? JSON.parse(row.custody_json) as CustodyRecord : undefined; }
   async updateCustody(record: CustodyRecord) { await this.database.runAsync('UPDATE packets SET custody_json = ? WHERE packet_id = ?', JSON.stringify(record), record.packetId); }
 
+  /**
+   * Relayable custody records, MOST URGENT FIRST.
+   *
+   * This used to return `ORDER BY stored_at_ms` and nothing else, so priority
+   * was ignored on the device while memory-store (and therefore all 69 tests)
+   * ordered by priority then age. The two stores disagreed, and the simulator
+   * was not modelling the phones.
+   *
+   * It was invisible while every node held fewer packets than the callers'
+   * limits, because ordering only matters once something gets cut. Both callers
+   * cut: the session plan takes 64, and the inventory announcement fits ~19 --
+   * so under age-only ordering a fresh SOS could be dropped from the
+   * announcement by older, lower-priority records. Sorting here rather than in
+   * SQL because priority lives in the encoded header, not in a column.
+   */
   async listRelayable(limit: number) {
     const rows = await this.database.getAllAsync<PacketRow>('SELECT * FROM packets ORDER BY stored_at_ms');
     const now = Date.now();
-    return rows.map((row) => JSON.parse(row.custody_json) as CustodyRecord)
-      .filter((item) => item.copyBudgetRemaining > 0 && !['expired', 'invalid', 'evicted'].includes(item.state) && (item.nextEligibleAtMs ?? 0) <= now)
-      .slice(0, limit);
+    const eligible: { custody: CustodyRecord; priority: number; createdAt: number }[] = [];
+    for (const row of rows) {
+      const custody = JSON.parse(row.custody_json) as CustodyRecord;
+      if (custody.copyBudgetRemaining <= 0) continue;
+      if (['expired', 'invalid', 'evicted'].includes(custody.state)) continue;
+      if ((custody.nextEligibleAtMs ?? 0) > now) continue;
+      const decoded = decodePacket(base64ToBytes(row.bytes_b64));
+      if (!decoded.ok) continue;
+      eligible.push({ custody, priority: decoded.packet.header.priority, createdAt: decoded.packet.header.createdAt });
+    }
+    // Identical to memory-store: priority first (lower is more urgent), then
+    // oldest, so queue fairness is the same on device as it is under test.
+    eligible.sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.createdAt - b.createdAt));
+    return eligible.slice(0, limit).map((item) => item.custody);
   }
 
   async listUploadQueue(limit: number) {

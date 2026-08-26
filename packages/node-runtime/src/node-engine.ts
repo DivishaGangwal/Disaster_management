@@ -182,6 +182,23 @@ export class NodeEngine {
     return this.inventoryDigest;
   }
 
+  /** 0..3, announced in HELLO_CAPABILITY so a peer can score this node. */
+  get batteryBandValue(): number {
+    return this.batteryBand;
+  }
+
+  /** 0..3 derived from storage pressure, for the same reason. */
+  get storageBandValue(): number {
+    if (this.storagePressure === 'critical') return 0;
+    if (this.storagePressure === 'high') return 1;
+    return 3;
+  }
+
+  /** Alias used by the hello record; see currentHighestWaitingPriority. */
+  get highestWaitingPriority(): number {
+    return this.waitingPriority;
+  }
+
   setBatteryBand(band: number): void {
     this.batteryBand = band;
   }
@@ -446,6 +463,7 @@ export class NodeEngine {
     peerToken: string,
     peerInventory: ReadonlySet<string>,
     nowMs: number,
+    options: { readonly peerInventoryTruncated?: boolean } = {},
   ): Promise<ReturnType<typeof planTransfer>> {
     const peer = (await this.peers.get(peerToken)) ?? {
       peerToken,
@@ -467,6 +485,9 @@ export class NodeEngine {
     const ctx: NeighborContext = {
       peer,
       peerInventory,
+      ...(options.peerInventoryTruncated !== undefined
+        ? { peerInventoryTruncated: options.peerInventoryTruncated }
+        : {}),
       nowMs,
       localBatteryBand: this.batteryBand,
       previousHopByPacket: this.previousHopByPacket,

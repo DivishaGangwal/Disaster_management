@@ -130,6 +130,20 @@ export interface PeerObservationRecord {
   readonly queueEpoch: number;
   readonly sessionsCompleted: number;
   readonly sessionsFailed: number;
+  /**
+   * Learned from HELLO_CAPABILITY, so absent until a session has reached the
+   * hello phase with this peer. The 12-byte advertisement has no room for any
+   * of it -- these are the fields that only a connected exchange can carry.
+   *
+   * `batteryBand` is why the hello phase matters to routing: without it the
+   * forwarding score's battery term could only ever read the LOCAL battery,
+   * so a relay would happily push non-critical traffic into a peer at 4%.
+   */
+  readonly batteryBand?: number;
+  readonly storageBand?: number;
+  /** The peer's usable record size; our records to it must fit this. */
+  readonly maxRecordBytes?: number;
+  readonly capabilitiesAtMs?: number;
 }
 
 export interface PeerRepository {

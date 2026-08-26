@@ -21,7 +21,7 @@ import {
   type PolicyReasonName,
   type PriorityValue,
 } from '@dsm/contracts';
-import { budgetClassFor } from '@dsm/codec';
+import { budgetClassFor, packetIdPrefixKey } from '@dsm/codec';
 
 export interface RelayCandidate {
   readonly packetId: string;
@@ -31,8 +31,18 @@ export interface RelayCandidate {
 
 export interface NeighborContext {
   readonly peer: PeerObservationRecord;
-  /** Packet IDs the peer advertised in this session's inventory. */
+  /**
+   * What the peer announced holding, as 8-byte ID PREFIX KEYS -- not full IDs.
+   * Build it only with `packetIdPrefixKey`; a set of full IDs would silently
+   * never match and every session would re-send everything.
+   */
   readonly peerInventory: ReadonlySet<string>;
+  /**
+   * True when the peer said its inventory did not fit one record. Its absence
+   * from `peerInventory` then means "not announced", NOT "not held", so a
+   * truncated peer must never be treated as fully reconciled.
+   */
+  readonly peerInventoryTruncated?: boolean;
   readonly nowMs: number;
   readonly localBatteryBand: number;
   /** Rotating token of the hop we received a packet from, to avoid bounce-back. */
@@ -66,7 +76,7 @@ export function forwardingUtility(candidate: RelayCandidate, ctx: NeighborContex
   const header = packet.header;
 
   // --- Hard eligibility gates (02-... "Candidate eligibility") --------------
-  if (ctx.peerInventory.has(candidate.packetId)) {
+  if (ctx.peerInventory.has(packetIdPrefixKey(candidate.packetId))) {
     return refuse(PolicyReason.NEIGHBOR_ALREADY_HAS);
   }
   if (custody.knownHolders.includes(ctx.peer.peerToken)) {
@@ -86,6 +96,13 @@ export function forwardingUtility(candidate: RelayCandidate, ctx: NeighborContex
     return refuse(PolicyReason.COPY_BUDGET_EXHAUSTED);
   }
   if (ctx.localBatteryBand <= 0 && header.priority > Priority.RESPONSE_CONTROL) {
+    return refuse(PolicyReason.BATTERY_RESTRICTED);
+  }
+  // Symmetric to the gate above, and only enforceable since HELLO_CAPABILITY
+  // started carrying the peer's band. Pushing non-critical traffic into a peer
+  // that is nearly flat costs the mesh the relay itself, so critical traffic
+  // (which is what the peer's remaining battery should be spent on) is exempt.
+  if (ctx.peer.batteryBand !== undefined && ctx.peer.batteryBand <= 0 && header.priority > Priority.RESPONSE_CONTROL) {
     return refuse(PolicyReason.BATTERY_RESTRICTED);
   }
 
@@ -108,7 +125,10 @@ export function forwardingUtility(candidate: RelayCandidate, ctx: NeighborContex
   const ttl = Math.max(1, header.expiresAt - header.createdAt);
   const age = Math.min(1, ageS / ttl);
 
-  const battery = ctx.localBatteryBand / 3;
+  // The link is only as sustainable as its weaker end. Before hello was sent
+  // this could read the local band only, so the term never described the peer
+  // it was scoring; an unknown peer falls back to the local band.
+  const battery = Math.min(ctx.localBatteryBand, ctx.peer.batteryBand ?? ctx.localBatteryBand) / 3;
 
   const components = {
     gateway: gateway * UTILITY_WEIGHTS.gatewayProven,
