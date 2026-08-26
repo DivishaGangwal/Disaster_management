@@ -24,7 +24,7 @@ import { MemoryEventSink } from '@dsm/store';
 import { createNativeTransport, createNativeWavePxAudioInput, requestNativeWavePxPermission } from '@dsm/android-radio-bridge';
 import { HttpGatewayClient } from '@dsm/gateway-client';
 import { GatewaySynchronizer } from '@dsm/node-runtime';
-import { ASSAM_CONTENT_PACK, PackResolver, toMapOperations } from '@dsm/mapkit';
+import { MUMBAI_CONTENT_PACK, PackResolver, toMapOperations } from '@dsm/mapkit';
 import { Tier2Receiver } from '@dsm/tier2';
 import { AppRuntime } from './app-runtime';
 import { openMobileRepositories } from './sqlite-repositories';
@@ -112,7 +112,7 @@ class MobileController {
         void notifyPacketReceived(result.policy.alert, result.packetId, transport);
       },
       ...(!expoGo ? { adapterFactory: createNativeTransport } : {}),
-    }, new PackResolver(ASSAM_CONTENT_PACK));
+    }, new PackResolver(MUMBAI_CONTENT_PACK));
     const report = await runtime.getCapabilities();
     const backendBaseUrl = process.env.EXPO_PUBLIC_DSM_BACKEND_URL?.replace(/\/$/, '');
     if (backendBaseUrl) {

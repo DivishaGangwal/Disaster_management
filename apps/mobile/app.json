@@ -21,6 +21,7 @@
       ]
     },
     "plugins": [
+      "./withMonorepoFix",
       "expo-router",
       "expo-location",
       "expo-notifications",

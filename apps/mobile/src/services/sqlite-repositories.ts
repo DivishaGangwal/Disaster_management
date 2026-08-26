@@ -29,19 +29,31 @@ type PacketRow = {
 
 /** Durable repositories shared by the engine; all writes are parameterized. */
 export async function openMobileRepositories(name = 'disaster-sos-mesh.sqlite') {
-  const database = await openDatabaseAsync(name);
-  await database.execAsync(`
-    PRAGMA journal_mode = WAL;
-    PRAGMA foreign_keys = ON;
-    CREATE TABLE IF NOT EXISTS seen_packets(packet_id TEXT PRIMARY KEY, digest TEXT NOT NULL, seen_at_ms INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS packets(packet_id TEXT PRIMARY KEY, bytes_b64 TEXT NOT NULL, digest TEXT NOT NULL, stored_at_ms INTEGER NOT NULL, retention_until_s INTEGER NOT NULL, custody_json TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS observations(id INTEGER PRIMARY KEY AUTOINCREMENT, packet_id TEXT NOT NULL, body_json TEXT NOT NULL);
-    CREATE INDEX IF NOT EXISTS observations_packet_idx ON observations(packet_id);
-    CREATE TABLE IF NOT EXISTS fragments(object_id TEXT NOT NULL, fragment_index INTEGER NOT NULL, body_json TEXT NOT NULL, PRIMARY KEY(object_id, fragment_index));
-    CREATE TABLE IF NOT EXISTS peers(peer_token TEXT PRIMARY KEY, body_json TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS assembled_files(file_id TEXT PRIMARY KEY, body_json TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS map_objects(object_id TEXT PRIMARY KEY, kind TEXT NOT NULL, label TEXT NOT NULL, state INTEGER, lat_e7 INTEGER, lon_e7 INTEGER, as_of_s INTEGER NOT NULL, provenance TEXT NOT NULL);
-  `);
+  console.log('[DB] openMobileRepositories v2 called - runAsync path');
+  console.log('[DB] opening database...');
+  const database = await openDatabaseAsync(name, { useNewConnection: true });
+  console.log('[DB] database opened, running setup statements individually...');
+  const stmts = [
+    'PRAGMA journal_mode = WAL',
+    'PRAGMA foreign_keys = ON',
+    'CREATE TABLE IF NOT EXISTS seen_packets(packet_id TEXT PRIMARY KEY, digest TEXT NOT NULL, seen_at_ms INTEGER NOT NULL)',
+    'CREATE TABLE IF NOT EXISTS packets(packet_id TEXT PRIMARY KEY, bytes_b64 TEXT NOT NULL, digest TEXT NOT NULL, stored_at_ms INTEGER NOT NULL, retention_until_s INTEGER NOT NULL, custody_json TEXT NOT NULL)',
+    'CREATE TABLE IF NOT EXISTS observations(id INTEGER PRIMARY KEY AUTOINCREMENT, packet_id TEXT NOT NULL, body_json TEXT NOT NULL)',
+    'CREATE INDEX IF NOT EXISTS observations_packet_idx ON observations(packet_id)',
+    'CREATE TABLE IF NOT EXISTS fragments(object_id TEXT NOT NULL, fragment_index INTEGER NOT NULL, body_json TEXT NOT NULL, PRIMARY KEY(object_id, fragment_index))',
+    'CREATE TABLE IF NOT EXISTS peers(peer_token TEXT PRIMARY KEY, body_json TEXT NOT NULL)',
+    'CREATE TABLE IF NOT EXISTS assembled_files(file_id TEXT PRIMARY KEY, body_json TEXT NOT NULL)',
+    'CREATE TABLE IF NOT EXISTS map_objects(object_id TEXT PRIMARY KEY, kind TEXT NOT NULL, label TEXT NOT NULL, state INTEGER, lat_e7 INTEGER, lon_e7 INTEGER, as_of_s INTEGER NOT NULL, provenance TEXT NOT NULL)',
+  ];
+  for (const sql of stmts) {
+    try {
+      console.log('[DB] running:', sql.slice(0, 60));
+      await database.runAsync(sql);
+    } catch (err) {
+      console.error('[DB] FAILED on:', sql.slice(0, 60), err);
+      throw err;
+    }
+  }
   return {
     database,
     packets: new SQLitePacketRepository(database),
