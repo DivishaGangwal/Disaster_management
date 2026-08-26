@@ -180,33 +180,23 @@ made: no golden vectors existed and no packets were persisted.
 
 ---
 
-## HD-009 — `RECORD_UPSERT` cannot currently be encoded
+## HD-009 — `RECORD_UPSERT` uses a bounded dynamic map
 
-Its `fields` member holds caller-defined keys, so it has no fixed field map.
-The encoder now **throws** rather than silently emitting an empty map — which
-is what it did before, quietly discarding the entire record body.
-
-Supporting it needs a dynamic string-keyed map in the codec. Until then the
-family is defined and unusable, which is recorded honestly rather than hidden.
+Its `fields` member uses a deterministic string-keyed map extension. Keys are
+UTF-8, canonically sorted and bounded to 64 bytes; at most 32 entries are
+accepted. Values are bounded scalars, bytes, or scalar arrays. Nested arbitrary
+objects are rejected so the previously fail-closed behavior remains intact.
 
 ---
 
-## HD-010 — The console composes alerts and map records, not check-ins
+## HD-010 — The console composes check-ins and returns responses over Tier 1
 
-WEB-004 lists check-in campaigns among the authority surfaces. The operations
-console no longer offers that packet type: the composer creates public alerts
-and regional map records only, and `POST /api/campaigns` rejects
-`dataType: "check-in"`.
-
-The frozen `CHECKIN_CAMPAIGN` / `CHECKIN_RESPONSE` types, their field maps and
-validator rules are untouched, so nothing about the packet surface changed —
-only which packets this console composes. **Deliberate scope reduction, not a
-spec resolution.** WEB-004 is unmet until a check-in composer returns.
-
-What replaced it in the same panel: an operator-selected broadcast point
-(`latE7`, `lonE7`, `radiusM`) on the OFFICIAL_ALERT packet, and reception
-verification that rebuilds the canonical packet from recovered frames instead
-of reporting the stored draft back to the operator.
+WEB-004 is restored. The operations console composes public alerts, regional
+map records, and `CHECKIN_CAMPAIGN` packets. A recovered campaign opens the
+cached Mumbai form on the Android client. The client creates a canonical
+`CHECKIN_RESPONSE`, saves it in SQLite, and advertises it through the existing
+Tier 1 relay; an available gateway may upload it during the normal sync cycle.
+The response is never encoded as WavePX because Tier 2 remains one-way.
 
 ---
 

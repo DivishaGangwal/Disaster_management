@@ -52,8 +52,8 @@ No row claims 🟥: no compatible Android handset or two-device acoustic setup w
 | Packet → WavePX → decode → map operation | ✅ | 🟦 | Tests cover create, close, move and reopen. Recovered canonical bytes are translated by the shared `toMapOperations()` path. |
 | Tier 1/gateway/Tier 2 projection agreement | ✅ | 🟦 | All paths enter `NodeEngine.ingest()` and the same deterministic `MapProjection`. |
 | Website regional update → WavePX → mobile SQLite/map | ✅ implemented, physical acoustics unmeasured | 🟩 | Website resource packets use the canonical codec; recovered mobile packets are stored in SQLite, projected through typed map operations and shown in the received-packet ledger and map. |
-| Mobile graphical/offline map renderer | ✅ implemented, device download unmeasured | 🟩 | MapLibre renders GPS and projected layers. A one-tap Assam pack downloads zooms 5–12 to persistent native storage and reports real progress, bytes and resources. |
-| Assam baseline operational registry | ✅ synthetic | 🟦 | A typed pack paints 23 Assam-focused demo objects and four corridors before packet deltas arrive. Facility labels are explicitly demo data, not an authority register. |
+| Mobile graphical/offline map renderer | ✅ implemented, device download unmeasured | 🟩 | MapLibre renders GPS and projected layers. A one-tap Mumbai pack downloads zooms 8–14 to persistent native storage and reports real progress, bytes and resources. |
+| Mumbai baseline operational registry | ✅ development data | 🟦 | A typed pack paints Mumbai-focused operational objects and four corridors before packet deltas arrive. The registry is identified in documentation as development data, not an authority-issued register. |
 
 ## Web authority and coordination
 
@@ -67,12 +67,12 @@ No row claims 🟥: no compatible Android handset or two-device acoustic setup w
 
 ## Mobile screens
 
-All 12 required routes exist. Readiness, SOS composer, nearby incidents, responder detail, resource detail, profile, diagnostics and the Assam map are connected to runtime data. Remaining partials concern evidence that cannot be invented, such as a responder acknowledgement not observed locally or physical radio measurements.
+All 12 required routes exist. Readiness, SOS composer, nearby incidents, responder detail, resource detail, profile, diagnostics and the Mumbai map are connected to runtime data. Remaining partials concern evidence that cannot be invented, such as a responder acknowledgement not observed locally or physical radio measurements.
 
 ## Complete remaining list
 
-1. **Physical evidence, not code:** run website-speaker-to-phone WavePX trials plus BLE and Classic on selected phones; complete an Assam pack download, test airplane-mode restart/map rendering, screen-off relay, battery/thermal measurements and acoustic success rate.
-2. **Production map/data:** replace the hackathon style host and synthetic Assam facilities with authority-approved/self-hosted tiles and a sourced registry.
+1. **Physical evidence, not code:** run website-speaker-to-phone WavePX trials plus BLE and Classic on selected phones; complete a Mumbai pack download, test airplane-mode restart/map rendering, screen-off relay, battery/thermal measurements and acoustic success rate.
+2. **Production map/data:** replace the development style host and Mumbai development facilities with authority-approved/self-hosted tiles and a sourced registry.
 3. **Documented protocol deviation:** implement a literal `PACKET_REQUEST` round trip only if HD-001 is reversed; the current missing-only filtered exchange already passes the relay acceptance behaviour.
 
 Everything else requested in this pass is implemented and covered by static, integration or simulator evidence. The items above must not be presented as finished until their stated evidence exists.

@@ -168,9 +168,9 @@ export const useAppStore = create<AppState>()(
       setFocusMapObjectId: (focusMapObjectId) => set({ focusMapObjectId }),
 
       // Region
-      selectedRegion: 'Assam Statewide',
+      selectedRegion: 'Mumbai Operational Region',
       setSelectedRegion: (r) => set({ selectedRegion: r }),
-      offlinePackVersion: 'assam-v1',
+      offlinePackVersion: 'mumbai-v1',
       offlinePackStatus: 'not-downloaded',
       setOfflinePackStatus: (s) => set({ offlinePackStatus: s }),
       offlinePackProgress: 0,
@@ -200,11 +200,11 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'dsm-app-state',
-      version: 3,
+      version: 4,
       migrate: (persisted) => {
         const previous = persisted as Partial<AppState>;
-        const staleRegion = !previous.selectedRegion || previous.selectedRegion.includes('Mumbai') || previous.selectedRegion.endsWith('DISTRICT');
-        return { ...previous, ...(staleRegion ? { selectedRegion: 'Assam Statewide' } : {}) } as AppState;
+        const staleRegion = !previous.selectedRegion || previous.selectedRegion.includes('Assam') || previous.selectedRegion.endsWith('DISTRICT');
+        return { ...previous, ...(staleRegion ? { selectedRegion: 'Mumbai Operational Region' } : {}) } as AppState;
       },
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({

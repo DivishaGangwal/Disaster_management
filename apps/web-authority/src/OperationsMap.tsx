@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import type { Map as MapLibreMap } from 'maplibre-gl';
-import { TIME } from '@dsm/contracts';
+import { DEPLOYMENT, TIME } from '@dsm/contracts';
 import { e7ToFloat } from './coordinates';
 import type { GatewayAudit, Incident, RegionalRecord } from './types';
 import { isOperationallyUsable } from './operational-status';
@@ -45,7 +45,7 @@ export function OperationsMap({ incidents, records, gateways, selected, onSelect
   const [ready, setReady] = useState(false);
   const [created, setCreated] = useState(false);
   const [filters, setFilters] = useState<Set<Filter>>(() => new Set(['incidents', 'centres', 'routes', 'hazards', 'gateways']));
-  const [mapReadout, setMapReadout] = useState({ zoom: 6.1, lat: 26.1, lon: 92.5 });
+  const [mapReadout, setMapReadout] = useState({ zoom: 10.2, lat: DEPLOYMENT.map.centerLat, lon: DEPLOYMENT.map.centerLon });
   callbacks.current = { onSelect, onQuickState, onPick };
 
   const data = useMemo(() => featureCollection(incidents, records, gateways, filters), [incidents, records, gateways, filters]);
@@ -71,9 +71,9 @@ export function OperationsMap({ incidents, records, gateways, selected, onSelect
           { id: 'osm-basemap', type: 'raster', source: 'osm', paint: { 'raster-saturation': -0.45, 'raster-contrast': 0.06, 'raster-opacity': 0.86 } },
         ],
       },
-      center: [92.5, 26.1],
-      zoom: 6.1,
-      minZoom: 4,
+      center: [DEPLOYMENT.map.centerLon, DEPLOYMENT.map.centerLat],
+      zoom: 10.2,
+      minZoom: 7,
       maxZoom: 17,
       attributionControl: false,
     });
@@ -177,7 +177,7 @@ export function OperationsMap({ incidents, records, gateways, selected, onSelect
   const unavailable = records.filter((record) => !isOperationallyUsable(record)).length;
   const selectedLabel = records.find((record) => record.objectId === selected)?.name ?? incidents.find((incident) => incident.incidentId === selected)?.incidentId ?? gateways?.gateways.find((gateway) => gateway.gatewayToken === selected)?.nodeToken;
   return <div className={compact ? 'maplibre-shell compact' : 'maplibre-shell'}>
-    <div className="map-toolbar" aria-label="Map layers">{(['incidents', 'centres', 'routes', 'hazards', ...(gateways ? ['gateways' as const] : [])] as Filter[]).map((filter) => <button key={filter} aria-pressed={filters.has(filter)} className={filters.has(filter) ? 'active' : ''} onClick={() => toggle(filter)}><i aria-hidden="true">{filters.has(filter) ? '✓' : ''}</i>{filter}</button>)}<button onClick={() => map.current?.fitBounds([[89.6, 23.8], [96.2, 28.3]], { padding: 44, maxZoom: 8 })}>Fit state</button></div>
+    <div className="map-toolbar" aria-label="Map layers">{(['incidents', 'centres', 'routes', 'hazards', ...(gateways ? ['gateways' as const] : [])] as Filter[]).map((filter) => <button key={filter} aria-pressed={filters.has(filter)} className={filters.has(filter) ? 'active' : ''} onClick={() => toggle(filter)}><i aria-hidden="true">{filters.has(filter) ? '✓' : ''}</i>{filter}</button>)}<button onClick={() => map.current?.fitBounds([[DEPLOYMENT.map.minLonE7 / 1e7, DEPLOYMENT.map.minLatE7 / 1e7], [DEPLOYMENT.map.maxLonE7 / 1e7, DEPLOYMENT.map.maxLatE7 / 1e7]], { padding: 44, maxZoom: 12 })}>Fit Mumbai</button></div>
     <div ref={container} className="maplibre-canvas" />
     {!compact && <div className="map-overview"><span><b>{data.features.length}</b> visible</span>{records.length > 0 && <><span><b>{records.length - unavailable}</b> available</span><span><b>{unavailable}</b> restricted</span></>}<span className="map-selection">{selectedLabel ?? 'No selection'}</span></div>}
     {onPick && <div className="map-pick-hint">{pick ? 'Drag the pin or click the map to move the broadcast point' : 'Click the map, or a marker, to set the broadcast point'}</div>}
@@ -198,7 +198,7 @@ function featureCollection(incidents: Incident[], records: RegionalRecord[], gat
     const point = gatewayPoint(gateway.gatewayToken);
     if (!point) continue;
     const activity = gatewayActivity(gateways, gateway.gatewayToken);
-    features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [point.lon, point.lat] }, properties: { id: gateway.gatewayToken, featureType: 'gateway', glyph: 'G', label: gateway.nodeToken.replaceAll('-', ' '), subtitle: `Synthetic demo placement · ${activity.uploads} uploaded · ${activity.downloads} downloaded · ${activity.observations} observations`, status: activity.ageMs < GATEWAY_ACTIVE_WINDOW_MS ? 'online' : 'stale', state: activity.ageMs < GATEWAY_ACTIVE_WINDOW_MS ? 'online' : 'stale', kind: 'gateway' } });
+    features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [point.lon, point.lat] }, properties: { id: gateway.gatewayToken, featureType: 'gateway', glyph: 'G', label: gateway.nodeToken.replaceAll('-', ' '), subtitle: `Configured development placement · ${activity.uploads} uploaded · ${activity.downloads} downloaded · ${activity.observations} observations`, status: activity.ageMs < GATEWAY_ACTIVE_WINDOW_MS ? 'online' : 'stale', state: activity.ageMs < GATEWAY_ACTIVE_WINDOW_MS ? 'online' : 'stale', kind: 'gateway' } });
   }
   return { type: 'FeatureCollection', features };
 }
@@ -222,4 +222,4 @@ function markerGlyph(kind: string): string { return kind === 'medical' ? '+' : k
 function locationAge(item: Incident): string { const nowS = Math.floor((Date.now() - TIME.DEMO_EPOCH_MS) / 1000); const seconds = Math.max(0, nowS - (item.locationReportedAtS ?? item.updatedAtS) + (item.locationAgeS ?? 0)); return seconds < 60 ? `${seconds}s` : seconds < 3600 ? `${Math.floor(seconds / 60)}m` : `${Math.floor(seconds / 3600)}h`; }
 const GATEWAY_ACTIVE_WINDOW_MS = 10 * 60_000;
 function gatewayActivity(audit: GatewayAudit, token: string) { const transfers = audit.transfers.filter((item) => item.gatewayToken === token); const observations = audit.observations.filter((item) => item.gatewayToken === token); const lastAtMs = Math.max(0, ...transfers.map((item) => item.atMs), ...observations.map((item) => item.uploadedAtMs)); return { ageMs: lastAtMs ? Date.now() - lastAtMs : Number.POSITIVE_INFINITY, uploads: transfers.filter((item) => item.direction === 'upload').reduce((sum, item) => sum + item.itemCount, 0), downloads: transfers.filter((item) => item.direction === 'download').reduce((sum, item) => sum + item.itemCount, 0), observations: observations.length }; }
-function gatewayPoint(token: string): { lat: number; lon: number } | undefined { const known: Record<string, { lat: number; lon: number }> = { 'GW-ASSAM-OPS': { lat: 26.1445, lon: 91.7362 }, 'GW-GUWAHATI': { lat: 26.181, lon: 91.752 }, 'GW-NAGAON': { lat: 26.349, lon: 92.684 }, 'GW-DIBRUGARH': { lat: 27.472, lon: 94.912 }, 'GW-SILCHAR': { lat: 24.833, lon: 92.779 } }; return known[token]; }
+function gatewayPoint(token: string): { lat: number; lon: number } | undefined { const known: Record<string, { lat: number; lon: number }> = { 'GW-MUMBAI-OPS': { lat: 19.076, lon: 72.8777 }, 'GW-MUMBAI-SOUTH': { lat: 18.9388, lon: 72.8354 }, 'GW-MUMBAI-CENTRAL': { lat: 18.969, lon: 72.8194 }, 'GW-MUMBAI-EAST': { lat: 19.0658, lon: 72.8782 }, 'GW-MUMBAI-WEST': { lat: 19.1196, lon: 72.8458 } }; return known[token]; }

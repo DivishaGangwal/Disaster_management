@@ -36,7 +36,7 @@ export interface CampaignRecord {
   readonly campaignVersion: number;
   readonly title: string;
   readonly summary: string;
-  readonly dataType?: 'official-alert' | 'regional-record';
+  readonly dataType?: 'official-alert' | 'regional-record' | 'check-in';
   readonly objectId?: string;
   /** Operator-selected broadcast point, degrees × 1e7, when one was chosen. */
   readonly latE7?: number;

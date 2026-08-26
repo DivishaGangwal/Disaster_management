@@ -4,13 +4,13 @@ One region is enough (DEC-011). The pack is predownloaded and must render with
 no internet (DEC-012, MAP-001, OFF-006).
 
 The shape is defined by `ContentPack` in
-`packages/contracts/src/content-pack.ts`. A synthetic Assam pack that works
-end-to-end lives in `packages/mapkit/src/assam-pack.ts`. The mobile development
+`packages/contracts/src/content-pack.ts`. The current Mumbai development pack that works
+end-to-end lives in `packages/mapkit/src/mumbai-pack.ts`. The mobile development
 build downloads its basemap through MapLibre into the native offline database.
 
 ## To ship the real pack
 
-1. Assam is the current focused region (`IN-AS`).
+1. Mumbai, Maharashtra is the current focused region (`IN-MH`) within the national platform.
 2. Configure an authority-approved/self-hosted MapLibre style with
    `EXPO_PUBLIC_DSM_MAP_STYLE_URL` for production distribution.
 3. Build the object registry with **stable compact IDs** (MAP-002). Once an ID

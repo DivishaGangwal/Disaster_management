@@ -9,7 +9,7 @@ function campaign(campaignId: string, state: string, updatedAtMs: number, prepar
     campaignVersion: 1,
     title: campaignId,
     summary: 'test',
-    regionCode: 'IN-AS',
+    regionCode: 'IN-MH',
     state,
     profile: 'audible-normal',
     contentRevision: 1,

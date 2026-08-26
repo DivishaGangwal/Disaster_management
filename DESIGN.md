@@ -1,10 +1,10 @@
-# NDON Assam Design System
+# NDON Mumbai Deployment Design System
 
-This document records the shipped visual and interaction authority for the National Disaster Operations Network Assam web console. It describes the implementation in `apps/web-authority`; it does not expand product or evidence claims.
+This document records the shipped visual and interaction authority for the National Disaster Operations Network web console, currently deployed for Mumbai. It describes the implementation in `apps/web-authority`; it does not expand product or evidence claims.
 
 ## Direction
 
-The product is a **state control atlas**: a calm, civic operations surface organised around one living Assam map, formal registers, and explicit state transitions. It should feel like public-service command infrastructure—not a generic SaaS dashboard, developer console, or technology demo.
+The product is a **national control atlas**: a calm, civic operations surface organised around one living Mumbai map, formal registers, and explicit state transitions. It should feel like public-service command infrastructure—not a generic SaaS dashboard or developer console.
 
 The visual world is light-first: warm porcelain working surfaces over a cool ground, framed by deep command navy. Vermilion, orange, amber, cobalt, and green are operational inks, not decoration. The small tricolour brand mark is restrained; nationalism must never become ornamental.
 
@@ -100,7 +100,7 @@ Across queues and registers, semantic state uses a compact coloured dot beside e
 
 - One packet may have many gateway observations; observations do not create additional incidents or victims.
 - Link receipt, gateway upload, backend acknowledgement, responder progress, arrival, resolution, scheduled broadcast, playback, and reception are distinct states. Do not collapse or visually equate them.
-- Gateway map coordinates are **synthetic demo placements**. Label them as such in popovers and detail views; never imply measured gateway location.
+- Gateway map coordinates are **configured development placements**. Label them as such in popovers and detail views; never imply measured gateway location.
 - Software WAV/frame comparison proves comparison against a prepared artifact. It does not prove licensed radio-chain transmission or physical acoustic reception.
 - Playing the user-triggered GGWave preview is local audition only. It is not scheduled playback and must not be written to broadcast history.
 - Organisation-provisioned operator/responder records are not cryptographic personal identity proof.
@@ -127,6 +127,6 @@ Do not introduce:
 - permanent campaign composer/broadcast/decoder columns;
 - developer-first protocol detail ahead of the operational decision;
 - vague AI-generated slogans, inflated capability claims, decorative icons, excessive badges, or fabricated activity;
-- ornamental nationalism, stock disaster imagery, or demo labels that weaken the civic command tone.
+- ornamental nationalism, stock disaster imagery, or prototype labels that weaken the civic command tone.
 
 When extending the console, prefer one stronger shared operational surface, one clear selected record, and one truthful next action.

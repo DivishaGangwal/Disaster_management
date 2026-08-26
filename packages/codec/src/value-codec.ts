@@ -23,7 +23,12 @@ const TAG = {
   TRUE: 5,
   ARRAY: 6,
   MAP: 7,
+  STRING_MAP: 8,
 } as const;
+
+const MAX_DYNAMIC_MAP_ITEMS = 32;
+const MAX_DYNAMIC_KEY_BYTES = 64;
+const DYNAMIC_MAP_FIELDS = new Set(['fields']);
 
 export interface EncodeLimits {
   readonly maxBytes: number;
@@ -44,7 +49,7 @@ const textDecoder = new TextDecoder('utf-8', { fatal: true });
 
 type Encodable = number | string | boolean | Uint8Array | readonly unknown[] | Readonly<Record<string, unknown>>;
 
-function writeValue(w: ByteWriter, value: Encodable, limits: EncodeLimits, depth: number, nestedMap?: FieldMap): void {
+function writeValue(w: ByteWriter, value: Encodable, limits: EncodeLimits, depth: number, nestedMap?: FieldMap, dynamicMap = false): void {
   if (depth > limits.maxDepth) throw new RangeError('payload nesting exceeds maxDepth');
 
   if (typeof value === 'boolean') {
@@ -87,6 +92,10 @@ function writeValue(w: ByteWriter, value: Encodable, limits: EncodeLimits, depth
     return;
   }
   if (typeof value === 'object' && value !== null) {
+    if (dynamicMap) {
+      writeDynamicMap(w, value as Record<string, unknown>, limits, depth + 1);
+      return;
+    }
     if (!nestedMap) {
       // FAIL CLOSED. Previously this wrote an empty map and silently dropped
       // every field -- which is how the entire GEO extension went missing.
@@ -99,6 +108,24 @@ function writeValue(w: ByteWriter, value: Encodable, limits: EncodeLimits, depth
     return;
   }
   throw new TypeError(`unsupported payload value type: ${typeof value}`);
+}
+
+function writeDynamicMap(w: ByteWriter, source: Record<string, unknown>, limits: EncodeLimits, depth: number): void {
+  const entries = Object.entries(source).filter((entry) => entry[1] !== undefined && entry[1] !== null);
+  if (entries.length > MAX_DYNAMIC_MAP_ITEMS) throw new RangeError('dynamic map exceeds item limit');
+  entries.sort(([left], [right]) => left.localeCompare(right, 'en'));
+  w.u8(TAG.STRING_MAP);
+  w.uvarint(entries.length);
+  for (const [key, value] of entries) {
+    const keyBytes = textEncoder.encode(key);
+    if (keyBytes.length === 0 || keyBytes.length > MAX_DYNAMIC_KEY_BYTES) throw new RangeError('dynamic map key exceeds byte limit');
+    w.uvarint(keyBytes.length);
+    w.bytes(keyBytes);
+    if (typeof value === 'object' && value !== null && !(value instanceof Uint8Array) && !Array.isArray(value)) {
+      throw new TypeError('dynamic map values must be bounded scalars, bytes, or scalar arrays');
+    }
+    writeValue(w, value as Encodable, limits, depth);
+  }
 }
 
 function writeFieldsBody(
@@ -122,7 +149,7 @@ function writeFieldsBody(
   w.uvarint(entries.length);
   for (const entry of entries) {
     w.uvarint(entry.key);
-    writeValue(w, entry.value, limits, depth, NESTED_FIELD_MAPS[entry.name]);
+    writeValue(w, entry.value, limits, depth, NESTED_FIELD_MAPS[entry.name], DYNAMIC_MAP_FIELDS.has(entry.name));
   }
 }
 
@@ -170,9 +197,27 @@ function readValue(r: ByteReader, limits: EncodeLimits, depth: number, nestedMap
     }
     case TAG.MAP:
       return readFieldsBody(r, nestedMap, limits, depth + 1);
+    case TAG.STRING_MAP:
+      return readDynamicMap(r, limits, depth + 1);
     default:
       throw new RangeError(`unknown value tag ${tag}`);
   }
+}
+
+function readDynamicMap(r: ByteReader, limits: EncodeLimits, depth: number): Record<string, unknown> {
+  const count = r.uvarint();
+  if (count > MAX_DYNAMIC_MAP_ITEMS) throw new RangeError('dynamic map count exceeds item limit');
+  const out: Record<string, unknown> = {};
+  let previous = '';
+  for (let i = 0; i < count; i += 1) {
+    const length = r.uvarint();
+    if (length === 0 || length > MAX_DYNAMIC_KEY_BYTES) throw new RangeError('dynamic map key exceeds byte limit');
+    const key = textDecoder.decode(r.bytes(length, MAX_DYNAMIC_KEY_BYTES));
+    if (i > 0 && key.localeCompare(previous, 'en') <= 0) throw new RangeError('dynamic map keys are not canonical');
+    previous = key;
+    out[key] = readValue(r, limits, depth);
+  }
+  return out;
 }
 
 function readFieldsBody(

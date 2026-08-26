@@ -9,6 +9,8 @@ import {
   MessageType,
   Mobility,
   ArrivalEvidence,
+  CheckinStatus,
+  DEPLOYMENT,
   GATEWAY,
   ResolutionOutcome,
   ReplyCapability,
@@ -20,7 +22,7 @@ import {
   type LocalProfile,
   type Tier2RawFrame,
 } from '@dsm/contracts';
-import { buildResponderState, buildSosCancel, buildSosCreate, buildSosUpdate, decodePacket, floatToE7, newNodeToken, newSourceId, toEpochS } from '@dsm/codec';
+import { buildCheckinResponse, buildResponderState, buildSosCancel, buildSosCreate, buildSosUpdate, decodePacket, floatToE7, newNodeToken, newSourceId, toEpochS } from '@dsm/codec';
 import { MemoryEventSink } from '@dsm/store';
 import { createNativeTransport, createNativeWavePxAudioInput, requestNativeWavePxPermission } from '@dsm/android-radio-bridge';
 import { HttpGatewayClient } from '@dsm/gateway-client';
@@ -116,7 +118,7 @@ class MobileController {
     const expoGo = Constants.appOwnership === 'expo';
     const runtime = await AppRuntime.create({
       profile,
-      regionCode: 'IN-AS',
+      regionCode: DEPLOYMENT.regionCode,
       adapter: expoGo ? 'simulated' : 'native-ble',
       localSourceId: sourceId,
       nodeToken,
@@ -143,8 +145,8 @@ class MobileController {
     if (backendBaseUrl) {
       runtime.attachGateway(new GatewaySynchronizer({
         engine: runtime.engine,
-        client: new HttpGatewayClient({ baseUrl: backendBaseUrl, expectedIdentity: 'dsm-backend-demo-v1' }),
-        regionCode: 'IN-AS',
+        client: new HttpGatewayClient({ baseUrl: backendBaseUrl, expectedIdentity: DEPLOYMENT.backendIdentity }),
+        regionCode: DEPLOYMENT.regionCode,
         now: () => Date.now(),
       }));
     }
@@ -363,6 +365,25 @@ class MobileController {
     if (!runtime.relay.isRunning) await runtime.startRelay();
     await runtime.relay.refreshAdvertisement();
     await this.refresh(runtime);
+    return result;
+  }
+
+  /** Check-in responses leave through Tier 1 and an optional gateway, never Tier 2. */
+  async respondToCheckin(campaignId: string, status: number) {
+    const runtime = await this.initialize();
+    const boundedStatus = Math.max(CheckinStatus.SAFE, Math.min(CheckinStatus.DISPLACED, Math.trunc(status))) as 0 | 1 | 2 | 3 | 4;
+    const location = await bestEffortLocation();
+    const packet = buildCheckinResponse(context(runtime), campaignId, {
+      status: boundedStatus,
+      sourceRef: runtime.engine.localSourceId.slice(0, 16),
+      ...(location ? { location } : {}),
+    });
+    const result = await runtime.engine.createLocal(packet, campaignId);
+    if (!result.validation.ok) throw new Error(result.validation.reason);
+    if (!runtime.relay.isRunning) await runtime.startRelay();
+    await runtime.relay.refreshAdvertisement();
+    await this.refresh(runtime);
+    void this.syncGateway(false);
     return result;
   }
 

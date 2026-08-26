@@ -1,4 +1,4 @@
-# Assam Operations Console
+# National Operations Console — Mumbai Deployment
 
 Workstream E is delivered as one integrated web application. There is no role
 switch and no separate broadcaster application. Authority, coordination,
@@ -17,8 +17,8 @@ npm run demo
 Open `http://localhost:8787`.
 
 The console requires an operator name and operations key before it exposes any
-authority, coordinator, or broadcaster controls. In demo mode the default key is
-`assam-operations-demo`. Override it for any shared deployment:
+authority, coordinator, or broadcaster controls. For local development the default key is
+`mumbai-operations-local`. Override it for any shared deployment:
 
 ```bash
 DSM_OPERATIONS_KEY='replace-with-a-long-random-value' npm run demo
@@ -35,7 +35,7 @@ from the same process.
 
 ## Persistence
 
-The default database is `data/assam-operations.sqlite`. Override it with:
+The default database is `data/mumbai-operations.sqlite`. Override it with:
 
 ```bash
 DSM_DATABASE_PATH=/absolute/path/operations.sqlite npm run demo
@@ -94,7 +94,7 @@ future Android receiver. Attribution is in
 
 Coordinate and Publish use MapLibre GL JS with live GeoJSON. The map clusters
 dense points and provides incident/centre/route/hazard filters, navigation,
-fullscreen, scale, fit-to-Assam, state-coloured markers, enlarged selectable
+fullscreen, scale, fit-to-Mumbai, state-coloured markers, enlarged selectable
 objects, cursor coordinates, zoom level, visible-object totals, selection
 fly-to, and safe DOM popups. Publish is a single map-first workspace: selecting
 an object on the map or regional register opens the same state control and its
@@ -102,7 +102,7 @@ packet delivery trail. A regional object can be created, moved/edited, closed,
 blocked, cleared, or reopened; every action uses the versioned publication
 endpoint and emits a canonical packet. Recovered packets use the shared
 `toMapOperations()` translation. The mobile MapLibre map and its list consume
-the same projected objects and Assam baseline registry.
+the same projected objects and Mumbai baseline registry.
 
 ## Evidence inspection
 
@@ -124,11 +124,13 @@ recovered by the current browser, and the stored exact-comparison result. The
 human-readable decoded public message remains visible after a successful
 microphone or WAV reception.
 
-The campaign composer creates two canonical packet categories: public alerts and
-current regional map records. Each is encoded with its existing frozen message
+The campaign composer creates three canonical packet categories: public alerts,
+current regional map records, and safety check-ins. Each is encoded with its existing frozen message
 type and passes through the same approval, WavePX/ggwave preparation,
 speaker/WAV transmission, frame comparison, and decode evidence flow. The
-console no longer composes check-in campaigns (HD-010).
+contract. Check-in campaigns open the cached Mumbai form on receiving phones;
+responses return through Tier 1 Bluetooth mesh and an available gateway because
+WavePX is deliberately one-way.
 
 A public alert carries an operator-selected broadcast point. The point is chosen
 on the composer map — click the basemap, drag the pin, click an existing
@@ -146,7 +148,7 @@ air rather than from the stored draft. A campaign reaches `decode-tested` only
 when every expected frame arrived and the recovered packet is byte-identical.
 
 The current web basemap is online. The mobile development build can download
-the configured Assam MapLibre style into persistent native offline storage;
+the configured Mumbai MapLibre style into persistent native offline storage;
 production distribution still requires an approved/self-hosted tile source.
 
 Program preparation advances `broadcaster-ready → audio-generated`. Only a
@@ -159,9 +161,9 @@ successful speaker playback records the same immutable evidence and advances
 Preparation, reception, export and playback results are stored in SQLite and
 written to the append-only broadcast register.
 
-## Assam data boundary
+## Mumbai data boundary
 
-`IN-AS` currently contains prepared development operations data owned by this build. It is
+`IN-MH` currently contains prepared development operations data owned by this build. It is
 not a sourced facility register or offline base map and must not be presented as
 one. Workstream D still owns the licensed regional content pack.
 
@@ -185,8 +187,8 @@ physical success rate is claimed by this implementation pass.
 
 ## Reset
 
-`POST /api/demo/reset` clears local operational state and restores the versioned
-Assam seed. Set `DSM_DEMO_MODE=false` wherever reset must be unavailable.
+`POST /api/operations/reset` clears local operational state and restores the versioned
+Mumbai development seed. Set `DSM_DEMO_MODE=false` wherever reset must be unavailable.
 
 ## Verification
 

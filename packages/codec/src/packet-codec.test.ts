@@ -270,21 +270,28 @@ test('regression: the GEO header extension survives a round trip', () => {
   assert.deepEqual(decoded.packet.geo, geo);
 });
 
-test('regression: encoding an unregistered nested object throws, never silently empties', () => {
-  assert.throws(
-    () =>
-      encodePacket({
-        type: MessageType.RECORD_UPSERT,
-        // `fields` holds caller-defined keys and has no registered field map.
-        payload: { bundleId: 'B1', objectId: 'O1', recordVersion: 1, fields: { anything: 1 } },
-        sourceId: ctx.sourceId,
-        sourceClass: SourceClass.AUTHORITY_PROVISIONED,
-        createdAt: ctx.nowS,
-        ttlS: 3600,
-        hopLimit: 4,
-      }),
-    /no registered field map/,
-  );
+test('RECORD_UPSERT dynamic fields encode deterministically and round-trip', () => {
+  const options = {
+    type: MessageType.RECORD_UPSERT,
+    sourceId: ctx.sourceId,
+    sourceClass: SourceClass.AUTHORITY_PROVISIONED,
+    createdAt: ctx.nowS,
+    ttlS: 3600,
+    hopLimit: 4,
+    packetId: '00112233445566778899aabbccddeeff',
+  } as const;
+  const first = encodePacket({ ...options, payload: { bundleId: 'B1', objectId: 'O1', recordVersion: 1, fields: { state: 2, label: 'Mumbai centre', active: true } } });
+  const reordered = encodePacket({ ...options, payload: { bundleId: 'B1', objectId: 'O1', recordVersion: 1, fields: { active: true, label: 'Mumbai centre', state: 2 } } });
+  assert.deepEqual(first.bytes, reordered.bytes);
+  const decoded = decodePacket(first.bytes);
+  assert.equal(decoded.ok, true);
+  if (decoded.ok) assert.deepEqual((decoded.packet.payload as Record<string, unknown>)['fields'], { active: true, label: 'Mumbai centre', state: 2 });
+});
+
+test('RECORD_UPSERT rejects nested dynamic values and oversized key sets', () => {
+  const base = { type: MessageType.RECORD_UPSERT, sourceId: ctx.sourceId, sourceClass: SourceClass.AUTHORITY_PROVISIONED, createdAt: ctx.nowS, ttlS: 3600, hopLimit: 4 } as const;
+  assert.throws(() => encodePacket({ ...base, payload: { bundleId: 'B1', objectId: 'O1', recordVersion: 1, fields: { nested: { unsafe: true } } } }), /bounded scalars/);
+  assert.throws(() => encodePacket({ ...base, payload: { bundleId: 'B1', objectId: 'O1', recordVersion: 1, fields: Object.fromEntries(Array.from({ length: 33 }, (_, index) => [`key-${index}`, index])) } }), /item limit/);
 });
 
 test('regression: relabelling a packet breaks its digest', () => {

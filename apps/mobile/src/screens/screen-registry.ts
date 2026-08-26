@@ -124,7 +124,7 @@ export const SCREENS: readonly ScreenSpec[] = [
       'latest incident update and timeline',
       'Send My Location button (deliberate publish of responder status/location)',
       'mark arrived',
-      'resolve with a reason, or escalate/reopen where the demo workflow allows',
+      'resolve with a reason, or escalate/reopen where the operations workflow allows',
       'every transition produces a compact state packet',
     ],
     status: 'complete',

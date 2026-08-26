@@ -16,13 +16,13 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
-import { CAMPAIGN_TRANSITIONS, GATEWAY, type CampaignState } from '@dsm/contracts';
+import { CAMPAIGN_TRANSITIONS, DEPLOYMENT, GATEWAY, type CampaignState } from '@dsm/contracts';
 import { BackendStore, IngestService, IncidentQueryService, OutboundService } from './services.js';
 import { OperationsService, type CampaignCreateInput } from './operations.js';
-import { ASSAM_SEED_VERSION, ensureAssamDemoPopulation, seedAssamDemo } from './demo-seed.js';
+import { MUMBAI_SEED_VERSION, ensureMumbaiPopulation, seedMumbaiOperations } from './demo-seed.js';
 import { SqliteBackendStore } from './sqlite-store.js';
 
-export const BACKEND_IDENTITY = 'dsm-backend-demo-v1';
+export const BACKEND_IDENTITY = DEPLOYMENT.backendIdentity;
 
 export interface ServerOptions {
   readonly port?: number;
@@ -34,18 +34,18 @@ export interface ServerOptions {
 }
 
 export function createBackend(options: ServerOptions = {}) {
-  const store = options.store ?? new SqliteBackendStore(options.databasePath ?? resolve(process.cwd(), 'data', 'assam-operations.sqlite'));
+  const store = options.store ?? new SqliteBackendStore(options.databasePath ?? resolve(process.cwd(), 'data', DEPLOYMENT.defaultDatabaseFile));
   const ingest = new IngestService(store);
   const incidents = new IncidentQueryService(store);
   const outbound = new OutboundService(store);
   const sqliteStore = store instanceof SqliteBackendStore ? store : undefined;
   const operations = sqliteStore ? new OperationsService(sqliteStore, ingest, outbound) : undefined;
   const demoMode = process.env['DSM_DEMO_MODE'] !== 'false';
-  const operationsKey = options.operationsKey ?? process.env['DSM_OPERATIONS_KEY'] ?? (demoMode ? 'assam-operations-demo' : '');
+  const operationsKey = options.operationsKey ?? process.env['DSM_OPERATIONS_KEY'] ?? (demoMode ? DEPLOYMENT.developmentOperationsKey : '');
   if (sqliteStore && (options.seed ?? true) && sqliteStore.responders.size === 0 && sqliteStore.packets.size === 0) {
-    seedAssamDemo(sqliteStore, ingest);
+    seedMumbaiOperations(sqliteStore, ingest);
   } else if (sqliteStore && (options.seed ?? true) && demoMode) {
-    ensureAssamDemoPopulation(sqliteStore, ingest);
+    ensureMumbaiPopulation(sqliteStore, ingest);
   }
   const staticDir = options.staticDir ?? resolve(process.cwd(), 'apps', 'web-authority', 'dist');
 
@@ -71,7 +71,7 @@ export function createBackend(options: ServerOptions = {}) {
     if (path === '/api/session' && req.method === 'POST') {
       const operatorLabel = authorizeOperations(req, operationsKey);
       if (!operatorLabel) return send(res, 401, { error: 'A valid operations key and operator name are required.' });
-      return send(res, 200, { operatorLabel, roles: ['authority-publisher', 'coordinator', 'radio-broadcaster'], regionCode: 'IN-AS' });
+      return send(res, 200, { operatorLabel, roles: ['authority-publisher', 'coordinator', 'radio-broadcaster'], regionCode: DEPLOYMENT.regionCode });
     }
 
     if (path === '/gateway/register') {
@@ -79,8 +79,8 @@ export function createBackend(options: ServerOptions = {}) {
       const body = await readJson(req);
       const nodeToken = typeof body['nodeToken'] === 'string' ? body['nodeToken'].trim() : '';
       const regionCode = typeof body['regionCode'] === 'string' ? body['regionCode'].trim() : '';
-      if (!nodeToken || nodeToken.length > 64 || !/^IN-[A-Z0-9-]{2,24}$/.test(regionCode)) {
-        return send(res, 400, { error: 'A bounded node token and valid region code are required.' });
+      if (!nodeToken || nodeToken.length > 64 || regionCode !== DEPLOYMENT.regionCode) {
+        return send(res, 400, { error: `A bounded node token and region ${DEPLOYMENT.regionCode} are required.` });
       }
       const gatewayToken = `GW-${nodeToken}`;
       store.registerGateway(gatewayToken, nodeToken, regionCode);
@@ -205,19 +205,20 @@ export function createBackend(options: ServerOptions = {}) {
       });
     }
 
-    if ((path === '/api/region/IN-AS/records' || path === '/api/region/IN-AS-DEMO/records') && req.method === 'GET') {
+    if (path === `/api/region/${DEPLOYMENT.regionCode}/records` && req.method === 'GET') {
       if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
       return send(res, 200, { records: operations.listRegionalRecords() });
     }
 
-    if ((path === '/api/region/IN-AS/records' || path === '/api/region/IN-AS-DEMO/records') && req.method === 'POST') {
+    if (path === `/api/region/${DEPLOYMENT.regionCode}/records` && req.method === 'POST') {
       if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
       if (!authorizeOperations(req, operationsKey)) return send(res, 401, { error: 'Operator session required.' });
       const body = await readJson(req);
       return send(res, 201, { record: operations.upsertRegionalCentre(regionalRecordInput(body)) });
     }
 
-    const regionalMatch = path.match(/^\/api\/region\/(?:IN-AS|IN-AS-DEMO)\/records\/([^/]+)$/);
+    const regionalPrefix = `/api/region/${DEPLOYMENT.regionCode}/records/`;
+    const regionalMatch = path.startsWith(regionalPrefix) ? [path, path.slice(regionalPrefix.length)] : null;
     if (regionalMatch && req.method === 'POST') {
       if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
       if (!authorizeOperations(req, operationsKey)) return send(res, 401, { error: 'Operator session required.' });
@@ -233,9 +234,9 @@ export function createBackend(options: ServerOptions = {}) {
     }
 
     // District-scoped routing over the same RegionalRecord.district field the
-    // /api/region/IN-AS routes already write. No new data model: this is only
+    // The current deployment's regional routes already write. This is only
     // a district-scoped view over the same records. Reads remain available to
-    // the console; writes require the same operator session as IN-AS writes.
+    // the console; writes require the same operator session as regional writes.
     const districtRecordsMatch = path.match(/^\/api\/districts\/([^/]+)\/records$/);
     if (districtRecordsMatch && req.method === 'GET') {
       if (!operations) return send(res, 503, { error: 'operations storage unavailable' });
@@ -347,13 +348,13 @@ export function createBackend(options: ServerOptions = {}) {
       return send(res, 200, { audit: sqliteStore.audit });
     }
 
-    if (path === '/api/demo/reset' && req.method === 'POST') {
+    if ((path === '/api/operations/reset' || path === '/api/demo/reset') && req.method === 'POST') {
       if (!sqliteStore) return send(res, 503, { error: 'operations storage unavailable' });
       if (!authorizeOperations(req, operationsKey)) return send(res, 401, { error: 'Operator session required.' });
       if (process.env['DSM_DEMO_MODE'] === 'false') return send(res, 403, { error: 'demo reset disabled' });
       sqliteStore.resetAll();
-      seedAssamDemo(sqliteStore, ingest);
-      return send(res, 200, { ok: true, seedVersion: ASSAM_SEED_VERSION });
+      seedMumbaiOperations(sqliteStore, ingest);
+      return send(res, 200, { ok: true, seedVersion: MUMBAI_SEED_VERSION });
     }
 
     if (req.method === 'GET' && !path.startsWith('/api/') && serveStatic(res, path, staticDir)) return;
@@ -460,7 +461,7 @@ function campaignInput(body: Record<string, unknown>): CampaignCreateInput {
     ...(typeof body['severity'] === 'number' ? { severity: body['severity'] } : {}),
     ...(typeof body['category'] === 'number' ? { category: body['category'] } : {}),
     ...(typeof body['instruction'] === 'number' ? { instruction: body['instruction'] } : {}),
-    ...(body['dataType'] === 'official-alert' || body['dataType'] === 'regional-record' ? { dataType: body['dataType'] } : {}),
+    ...(body['dataType'] === 'official-alert' || body['dataType'] === 'regional-record' || body['dataType'] === 'check-in' ? { dataType: body['dataType'] } : {}),
     ...(typeof body['objectId'] === 'string' ? { objectId: body['objectId'] } : {}),
     ...(typeof body['latE7'] === 'number' ? { latE7: body['latE7'] } : {}),
     ...(typeof body['lonE7'] === 'number' ? { lonE7: body['lonE7'] } : {}),

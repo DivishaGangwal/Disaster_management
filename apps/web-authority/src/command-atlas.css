@@ -1674,3 +1674,8 @@ textarea {
     transition-duration: .01ms !important;
   }
 }
+
+/* Stress-safe interaction targets: compact visual chrome with a full 44px hit area. */
+:where(.button, .nav-item, input, select, summary, .mode-tabs button, .campaign-list button, .map-toolbar button, .notice button) {
+  min-height: 44px;
+}

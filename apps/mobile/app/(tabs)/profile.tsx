@@ -17,12 +17,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { mobileController } from '@/src/services/mobile-controller';
 
 const regions = [
-  'Assam Statewide',
-  'Brahmaputra Valley',
-  'Barak Valley',
-  'Upper Assam',
-  'Lower Assam',
-  'Dima Hasao & Karbi Anglong',
+  'Mumbai Operational Region',
+  'Mumbai City',
+  'Eastern Suburbs',
+  'Western Suburbs',
+  'Mumbai Coastal Sector',
 ];
 
 export default function ProfileScreen() {
@@ -49,7 +48,7 @@ export default function ProfileScreen() {
   const handleUpdateMap = async () => {
     try {
       await mobileController.downloadOfflineMap();
-      Alert.alert('Assam map saved', 'The Assam basemap is now stored in the phone’s persistent MapLibre offline database and can render without internet.');
+      Alert.alert('Mumbai map saved', 'The Mumbai basemap is now stored in the phone’s persistent MapLibre offline database and can render without internet.');
     } catch (reason) {
       Alert.alert('Map download failed', reason instanceof Error ? reason.message : String(reason));
     }
@@ -69,6 +68,9 @@ export default function ProfileScreen() {
         {/* District / Region */}
         <Text style={{ color: '#AEAEB2', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 8 }}>DISTRICT / REGION</Text>
         <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={`Select district or region. Current selection ${selectedRegion}`}
+          accessibilityState={{ expanded: showRegionPicker }}
           onPress={() => setShowRegionPicker(!showRegionPicker)}
           style={{ backgroundColor: '#2C2C2E', borderWidth: 1, borderColor: '#3A3A3C', paddingHorizontal: 16, paddingVertical: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}
         >
@@ -81,6 +83,9 @@ export default function ProfileScreen() {
             {regions.map((r) => (
               <TouchableOpacity
                 key={r}
+                accessibilityRole="button"
+                accessibilityLabel={`Use ${r} as the selected region`}
+                accessibilityState={{ selected: selectedRegion === r }}
                 onPress={() => { setSelectedRegion(r); setShowRegionPicker(false); }}
                 style={{ backgroundColor: selectedRegion === r ? '#1C1C1E' : '#000000', borderWidth: 1, borderColor: selectedRegion === r ? '#2D5A27' : '#3A3A3C', paddingHorizontal: 16, paddingVertical: 12, marginBottom: 4 }}
               >
@@ -94,7 +99,7 @@ export default function ProfileScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', borderLeftWidth: 4, borderLeftColor: '#2D5A27', backgroundColor: '#1C1C1E', paddingHorizontal: 16, paddingVertical: 14, marginBottom: 16 }}>
           <CheckIcon size={18} color="#a1d494" style={{ marginRight: 12 }} />
           <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600', flex: 1 }}>
-            ASSAM OFFLINE PACK: {offlinePackVersion.toUpperCase()} ({offlinePackStatus === 'ready' ? 'READY' : offlinePackStatus.toUpperCase()})
+            MUMBAI OFFLINE PACK: {offlinePackVersion.toUpperCase()} ({offlinePackStatus === 'ready' ? 'READY' : offlinePackStatus.toUpperCase()})
           </Text>
         </View>
 
@@ -102,12 +107,15 @@ export default function ProfileScreen() {
           {offlinePackStatus === 'downloading'
             ? `${offlinePackProgress}% · ${formatBytes(offlinePackBytes)} · ${offlinePackResources} resources saved`
             : offlinePackStatus === 'ready'
-              ? `${formatBytes(offlinePackBytes)} stored persistently on this phone. Assam remains available after restart and without a connection.`
+              ? `${formatBytes(offlinePackBytes)} stored persistently on this phone. Mumbai remains available after restart and without a connection.`
               : 'Download once while internet is available. The basemap is then retained in persistent phone storage for offline use.'}
         </Text>
 
         {/* Update button */}
         <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={offlinePackStatus === 'ready' ? 'Update Mumbai offline map' : 'Download Mumbai offline map'}
+          accessibilityState={{ disabled: offlinePackStatus === 'downloading', busy: offlinePackStatus === 'downloading' }}
           onPress={handleUpdateMap}
           disabled={offlinePackStatus === 'downloading'}
           style={{
@@ -123,7 +131,7 @@ export default function ProfileScreen() {
         >
           <DownloadIcon size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
           <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '700', letterSpacing: 1 }}>
-            {offlinePackStatus === 'downloading' ? `DOWNLOADING ${offlinePackProgress}%` : offlinePackStatus === 'ready' ? 'UPDATE ASSAM OFFLINE MAP' : 'DOWNLOAD ASSAM OFFLINE MAP'}
+            {offlinePackStatus === 'downloading' ? `DOWNLOADING ${offlinePackProgress}%` : offlinePackStatus === 'ready' ? 'UPDATE MUMBAI OFFLINE MAP' : 'DOWNLOAD MUMBAI OFFLINE MAP'}
           </Text>
         </TouchableOpacity>
 
@@ -138,7 +146,7 @@ export default function ProfileScreen() {
             <Text style={{ color: '#AEAEB2', fontSize: 13, fontWeight: '700', letterSpacing: 1 }}>SYS. STATUS</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <View style={{ width: 8, height: 8, backgroundColor: '#a1d494', marginRight: 8 }} />
-              <Text style={{ color: '#a1d494', fontSize: 13, fontWeight: '600' }}>PROTOTYPE</Text>
+              <Text style={{ color: '#a1d494', fontSize: 13, fontWeight: '600' }}>OPERATIONAL CLIENT</Text>
             </View>
           </View>
         </View>
@@ -153,6 +161,8 @@ export default function ProfileScreen() {
         ].map((item) => (
           <TouchableOpacity
             key={item.route}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${item.label.toLowerCase()}`}
             onPress={() => router.push(item.route)}
             style={{ backgroundColor: '#1C1C1E', borderWidth: 1, borderColor: '#3A3A3C', paddingHorizontal: 16, paddingVertical: 16, marginBottom: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
           >

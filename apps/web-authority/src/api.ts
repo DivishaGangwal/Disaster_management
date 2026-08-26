@@ -1,4 +1,4 @@
-import type { CampaignState } from '@dsm/contracts';
+import { DEPLOYMENT, type CampaignState } from '@dsm/contracts';
 import type { AuditRecord, Campaign, GatewayAudit, Incident, OperatorSession, Overview, PacketStreamItem, RegionalRecord, Responder } from './types';
 
 export interface CampaignDraftInput {
@@ -8,7 +8,7 @@ export interface CampaignDraftInput {
   readonly category?: number;
   readonly instruction?: number;
   readonly profile: string;
-  readonly dataType: 'official-alert' | 'regional-record';
+  readonly dataType: 'official-alert' | 'regional-record' | 'check-in';
   readonly objectId?: string;
   /** Degrees × 1e7. Sent only when the operator selected a broadcast point. */
   readonly latE7?: number;
@@ -46,6 +46,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 const SESSION_KEY = 'dsm-operator-session';
+const REGIONAL_RECORDS_PATH = `/api/region/${DEPLOYMENT.regionCode}/records`;
 
 function storedSession(): OperatorSession | undefined {
   try {
@@ -74,7 +75,7 @@ export const api = {
   overview: () => request<Overview>('/api/overview'),
   incidents: async () => (await request<{ incidents: Incident[] }>('/api/incidents')).incidents,
   responders: async () => (await request<{ responders: Responder[] }>('/api/responders')).responders,
-  records: async () => (await request<{ records: RegionalRecord[] }>('/api/region/IN-AS/records')).records,
+  records: async () => (await request<{ records: RegionalRecord[] }>(REGIONAL_RECORDS_PATH)).records,
   campaigns: async () => (await request<{ campaigns: Campaign[] }>('/api/campaigns')).campaigns,
   audit: async () => (await request<{ audit: AuditRecord[] }>('/api/audit')).audit,
   gateways: () => request<GatewayAudit>('/api/gateway-audit'),
@@ -90,12 +91,12 @@ export const api = {
       body: JSON.stringify({ action }),
     })).responder,
   updateRecord: async (objectId: string, state: string) =>
-    (await request<{ record: RegionalRecord }>(`/api/region/IN-AS/records/${encodeURIComponent(objectId)}`, {
+    (await request<{ record: RegionalRecord }>(`${REGIONAL_RECORDS_PATH}/${encodeURIComponent(objectId)}`, {
       method: 'POST',
       body: JSON.stringify({ state }),
     })).record,
   upsertCentre: async (input: RegionalCentreInput) =>
-    (await request<{ record: RegionalRecord }>(input.objectId ? `/api/region/IN-AS/records/${encodeURIComponent(input.objectId)}` : '/api/region/IN-AS/records', {
+    (await request<{ record: RegionalRecord }>(input.objectId ? `${REGIONAL_RECORDS_PATH}/${encodeURIComponent(input.objectId)}` : REGIONAL_RECORDS_PATH, {
       method: 'POST',
       body: JSON.stringify(input),
     })).record,
@@ -123,5 +124,5 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ event }),
     })).campaign,
-  reset: () => request<{ ok: true; seedVersion: string }>('/api/demo/reset', { method: 'POST', body: '{}' }),
+  reset: () => request<{ ok: true; seedVersion: string }>('/api/operations/reset', { method: 'POST', body: '{}' }),
 };

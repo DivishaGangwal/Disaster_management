@@ -1,19 +1,19 @@
-import type { ContentPack } from '@dsm/contracts';
+import { DEPLOYMENT, type ContentPack } from '@dsm/contracts';
 
 /**
- * Mumbai (Maharashtra) operational registry for live SIH demo.
- * Uses real approximate coordinates for actual Mumbai facilities.
+ * Mumbai (Maharashtra) development operational registry.
+ * Coordinates are approximate and must not be represented as authority data.
  * Replace with BMC/NDMA authority-issued data before production deployment.
  */
 export const MUMBAI_CONTENT_PACK: ContentPack = {
   manifest: {
-    packId: 'PACK-IN-MH-MUM-DEMO', packVersion: 1, regionCode: 'IN-MH', regionName: 'Mumbai',
+    packId: DEPLOYMENT.contentPackId, packVersion: DEPLOYMENT.contentPackVersion, regionCode: DEPLOYMENT.regionCode, regionName: DEPLOYMENT.regionName,
     bounds: { minLatE7: 188800000, minLonE7: 727700000, maxLatE7: 193000000, maxLonE7: 729900000 },
     createdAtMs: Date.UTC(2026, 7, 26), schemaVersion: 1,
     baseMapArtifact: 'openfreemap-liberty-mumbai-z5-z14', languages: ['en', 'hi', 'mr'],
-    integrity: 'mumbai-sih-demo-operational-registry-v1', sizeBytes: 0, readiness: 'ready',
+    integrity: 'mumbai-development-operational-registry-v1', sizeBytes: 0, readiness: 'ready',
     counts: { shelter: 5, medical: 5, 'food-water': 3, 'safe-zone': 3, 'help-centre': 4, route: 4, region: 1, guide: 2, form: 1, phrase: 4 },
-    sourceNote: 'Live SIH demo registry with real Mumbai facility coordinates. Verify and replace with BMC/NDMA authority-issued data before operational deployment.',
+    sourceNote: 'Development registry with approximate Mumbai facility coordinates. Replace with BMC/NDMA authority-issued data before operational deployment.',
   },
   objects: [
     // --- Shelters (large public venues usable as relief camps) ---

@@ -33,7 +33,7 @@ test('live HTTP contract carries mobile SOS up and website map updates down', as
 
     const registration = await fixture.request('/gateway/register', {
       method: 'POST',
-      body: JSON.stringify({ nodeToken: 'phone-a', regionCode: 'IN-AS' }),
+      body: JSON.stringify({ nodeToken: 'phone-a', regionCode: 'IN-MH' }),
     });
     assert.equal(registration.status, 200);
     const gatewayToken = String(registration.body['gatewayToken']);
@@ -47,7 +47,7 @@ test('live HTTP contract carries mobile SOS up and website map updates down', as
         severity: Severity.LIFE_CRITICAL,
         peopleTotal: 3,
         mobility: Mobility.LIMITED,
-        location: { source: LocationSource.FRESH_GNSS, latE7: 261445000, lonE7: 917362000, accuracyM: 12, ageS: 2 },
+        location: { source: LocationSource.FRESH_GNSS, latE7: 190658000, lonE7: 728782000, accuracyM: 12, ageS: 2 },
         replyCapabilities: ReplyCapability.TIER1_BLE,
       },
     );
@@ -87,7 +87,7 @@ test('live HTTP contract carries mobile SOS up and website map updates down', as
 
     const firstOutbound = await fixture.request('/gateway/outbound', {
       method: 'POST',
-      body: JSON.stringify({ gatewayToken, regionCode: 'IN-AS', maxItems: 32 }),
+      body: JSON.stringify({ gatewayToken, regionCode: 'IN-MH', maxItems: 32 }),
     });
     assert.equal(firstOutbound.status, 200);
     const firstItems = firstOutbound.body['items'] as { packetId: string; bytesBase64: string }[];
@@ -99,19 +99,19 @@ test('live HTTP contract carries mobile SOS up and website map updates down', as
 
     const wrongRegion = await fixture.request('/gateway/outbound', {
       method: 'POST',
-      body: JSON.stringify({ gatewayToken, regionCode: 'IN-MH', maxItems: 32 }),
+      body: JSON.stringify({ gatewayToken, regionCode: 'IN-AS', maxItems: 32 }),
     });
     assert.equal(wrongRegion.status, 403);
 
-    const created = await fixture.request('/api/region/IN-AS/records', {
+    const created = await fixture.request('/api/region/IN-MH/records', {
       method: 'POST',
       headers: AUTH_HEADERS,
       body: JSON.stringify({
         kind: 'shelter',
         name: 'HTTP contract shelter',
-        district: 'Kamrup Metropolitan',
-        latE7: 261500000,
-        lonE7: 917500000,
+        district: 'Kurla',
+        latE7: 190660000,
+        lonE7: 728790000,
         state: 'open',
       }),
     });
@@ -120,7 +120,7 @@ test('live HTTP contract carries mobile SOS up and website map updates down', as
 
     const mapOutbound = await fixture.request('/gateway/outbound', {
       method: 'POST',
-      body: JSON.stringify({ gatewayToken, regionCode: 'IN-AS', cursor: firstCursor, maxItems: 32 }),
+      body: JSON.stringify({ gatewayToken, regionCode: 'IN-MH', cursor: firstCursor, maxItems: 32 }),
     });
     assert.equal(mapOutbound.status, 200);
     const mapItems = mapOutbound.body['items'] as { packetId: string; bytesBase64: string }[];
@@ -150,7 +150,7 @@ test('live HTTP contract carries mobile SOS up and website map updates down', as
 test('live campaign endpoints preserve canonical bytes through WavePX and map projection', async () => {
   const fixture = await openFixture();
   try {
-    const createdRecord = await fixture.request('/api/region/IN-AS/records', {
+    const createdRecord = await fixture.request('/api/region/IN-MH/records', {
       method: 'POST',
       headers: AUTH_HEADERS,
       body: JSON.stringify({
@@ -214,7 +214,7 @@ test('live campaign endpoints preserve canonical bytes through WavePX and map pr
     assert.equal(result.mapOperations[0]?.kind, 'upsert-resource');
     assert.equal(result.mapOperations[0]?.objectId, objectId);
 
-    for (const endpoint of ['/api/overview', '/api/responders', '/api/region/IN-AS/records', '/api/campaigns', '/api/packets', '/api/gateway-audit', '/api/audit']) {
+    for (const endpoint of ['/api/overview', '/api/responders', '/api/region/IN-MH/records', '/api/campaigns', '/api/packets', '/api/gateway-audit', '/api/audit']) {
       assert.equal((await fixture.request(endpoint)).status, 200, `${endpoint} should remain readable by the console`);
     }
   } finally {
@@ -232,7 +232,7 @@ test('all remaining web console endpoints enforce their workflow and authenticat
     assert.equal(badSession.status, 401);
     const session = await fixture.request('/api/session', { method: 'POST', headers: AUTH_HEADERS, body: '{}' });
     assert.equal(session.status, 200);
-    assert.equal(session.body['regionCode'], 'IN-AS');
+    assert.equal(session.body['regionCode'], 'IN-MH');
 
     const incidents = (await fixture.request('/api/incidents')).body['incidents'] as { incidentId: string }[];
     assert.ok(incidents.length > 0);
@@ -253,11 +253,11 @@ test('all remaining web console endpoints enforce their workflow and authenticat
       })).status, 200);
     }
 
-    const records = (await fixture.request('/api/region/IN-AS/records')).body['records'] as { objectId: string; state: string; kind: string; district: string }[];
+    const records = (await fixture.request('/api/region/IN-MH/records')).body['records'] as { objectId: string; state: string; kind: string; district: string }[];
     const centre = records.find((value) => !['hazard', 'route'].includes(value.kind));
     assert.ok(centre);
     const nextState = centre!.state === 'closed' ? 'open' : 'closed';
-    assert.equal((await fixture.request(`/api/region/IN-AS/records/${encodeURIComponent(centre!.objectId)}`, {
+    assert.equal((await fixture.request(`/api/region/IN-MH/records/${encodeURIComponent(centre!.objectId)}`, {
       method: 'POST', headers: AUTH_HEADERS, body: JSON.stringify({ state: nextState }),
     })).status, 200);
     assert.equal((await fixture.request(`/api/districts/${encodeURIComponent(centre!.district)}/records`)).status, 200);

@@ -27,7 +27,7 @@ network icon proves nothing.
 
 **Response `200`**
 ```json
-{ "identity": "dsm-backend-demo-v1", "atMs": 1748736000000 }
+{ "identity": "dsm-coordination-v1", "atMs": 1748736000000 }
 ```
 
 | Field | Type | Notes |
@@ -44,7 +44,7 @@ The client treats the proof as expiring after `FRESHNESS.GATEWAY_PROOF_S`
 
 **Request**
 ```json
-{ "nodeToken": "a1a10001", "regionCode": "IN-DEMO-01" }
+{ "nodeToken": "a1a10001", "regionCode": "IN-MH" }
 ```
 
 | Field | Type | Bound |
@@ -117,7 +117,7 @@ The client treats the proof as expiring after `FRESHNESS.GATEWAY_PROOF_S`
 ```json
 {
   "gatewayToken": "GW-a1a10001",
-  "regionCode": "IN-DEMO-01",
+  "regionCode": "IN-MH",
   "cursor": "42",
   "maxItems": 32
 }
@@ -216,7 +216,7 @@ All console endpoints use the `/api` prefix.
 
 ### `GET /api/overview` ✅
 
-Returns Assam scope, active-incident, responder, outbound-packet and approved-
+Returns Mumbai scope within the national platform, active-incident, responder, outbound-packet and approved-
 campaign counts plus recent audit entries.
 
 ### `GET /api/packets` ✅
@@ -256,19 +256,19 @@ emits the matching responder-provisioned packet, advances the incident reducer,
 and records the authenticated operator who entered the field report. Illegal
 state shortcuts are rejected.
 
-### `GET /api/region/IN-AS/records` ✅
+### `GET /api/region/IN-MH/records` ✅
 
-Returns the prepared Assam operational register. The current records remain
+Returns the prepared Mumbai operational register. The current records remain
 development data until Workstream D supplies a sourced and licensed pack.
 
-### `POST /api/region/IN-AS/records` ✅
+### `POST /api/region/IN-MH/records` ✅
 
 Creates a temporary shelter, medical post, food/water point or safe zone. Body:
 `{ "kind", "name", "district", "latE7", "lonE7", "state" }`. The backend
 assigns a stable temporary object ID and emits the same canonical regional
 packet consumed by gateway, Tier 1 and Tier 2 projection paths.
 
-### `POST /api/region/IN-AS/records/:objectId` ✅
+### `POST /api/region/IN-MH/records/:objectId` ✅
 
 Body may contain only `{ "state": "open|full|closed|damaged|active|watch|cleared|restricted|blocked" }`
 or a full edit with `kind`, `name`, `district`, `latE7`, `lonE7` and `state` to
@@ -344,8 +344,8 @@ advances the campaign to `played`.
 Return per-gateway upload/download/ack history, packet observations,
 region-bounded outbound queues, and the append-only operations log.
 
-### `POST /api/demo/reset` ✅
-Controlled non-production only. Restores deterministic synthetic Assam
+### `POST /api/operations/reset` ✅
+Controlled non-production only. Restores deterministic Mumbai development
 operations data. Set
 `DSM_DEMO_MODE=false` to disable the endpoint.
 

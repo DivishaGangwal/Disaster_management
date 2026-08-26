@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   AlertCategory,
   ArrivalEvidence,
+  DEPLOYMENT,
   Flags,
   GeometryKind,
   InstructionCode,
@@ -17,9 +18,10 @@ import {
   type MapOperation,
   type PacketId,
 } from '@dsm/contracts';
-import { ASSAM_CONTENT_PACK, toMapOperations } from '@dsm/mapkit';
+import { MUMBAI_CONTENT_PACK, toMapOperations } from '@dsm/mapkit';
 import {
   buildHazard,
+  buildCheckinCampaign,
   buildOfficialAlert,
   buildResponderState,
   buildResourceRecord,
@@ -48,7 +50,7 @@ import {
   type ResponderRecord,
 } from './sqlite-store.js';
 
-export const REGION_CODE = 'IN-AS';
+export const REGION_CODE = DEPLOYMENT.regionCode;
 const AUTHORITY_SOURCE_ID = 'a55a0ff1ce000001';
 const COORDINATOR_SOURCE_ID = 'c00d1a7000000001';
 
@@ -59,7 +61,7 @@ export interface CampaignCreateInput {
   readonly category?: number;
   readonly instruction?: number;
   readonly profile?: WavePxProfileName;
-  readonly dataType?: 'official-alert' | 'regional-record';
+  readonly dataType?: 'official-alert' | 'regional-record' | 'check-in';
   readonly objectId?: string;
   /** Broadcast point, degrees × 1e7. Both must be present to carry a location. */
   readonly latE7?: number;
@@ -127,7 +129,7 @@ export class OperationsService {
     const incidents = this.store.incidents.list();
     const campaigns = [...this.store.campaigns.values()];
     return {
-      region: { code: REGION_CODE, name: 'Assam State Operations Region', synthetic: true },
+      region: { code: REGION_CODE, name: DEPLOYMENT.operationalLabel, synthetic: true },
       counts: {
         activeIncidents: incidents.filter((item) => !['resolved', 'cancelled', 'expired'].includes(item.state)).length,
         availableResponders: [...this.store.responders.values()].filter((item) => item.available).length,
@@ -374,11 +376,11 @@ export class OperationsService {
   }
 
   createCampaign(input: CampaignCreateInput): CampaignRecord {
-    const campaignId = `CMP-AS-${Date.now().toString(36).toUpperCase()}`;
+    const campaignId = `CMP-MUM-${Date.now().toString(36).toUpperCase()}`;
     const campaign = this.buildCampaign({
       campaignId,
       campaignVersion: 1,
-      title: utf8Bounded(input.title || 'Assam public alert', 72, 'campaign title'),
+      title: utf8Bounded(input.title || 'Mumbai public alert', 72, 'campaign title'),
       summary: utf8Bounded(input.summary || 'Await official instructions.', 140, 'public instruction'),
       severity: clamp(input.severity ?? Severity.URGENT, 0, 3),
       category: clamp(input.category ?? AlertCategory.WEATHER, 0, 6),
@@ -601,7 +603,7 @@ export class OperationsService {
     category: number;
     instruction: number;
     profile: WavePxProfileName;
-    dataType: 'official-alert' | 'regional-record';
+    dataType: 'official-alert' | 'regional-record' | 'check-in';
     objectId?: string;
     location?: { latE7: number; lonE7: number; radiusM: number };
     contentRevision: number;
@@ -614,7 +616,18 @@ export class OperationsService {
     if (input.dataType === 'regional-record' && !selectedRecord) throw new Error('select a known regional record');
     const packet = input.dataType === 'regional-record' && selectedRecord
       ? buildRegionalBroadcast(context, selectedRecord)
-      : buildOfficialAlert(context, `ALT-${input.campaignId.slice(4)}`, input.campaignVersion, input.severity as 0 | 1 | 2 | 3, {
+      : input.dataType === 'check-in'
+        ? buildCheckinCampaign(context, input.campaignId, {
+          campaignVersion: input.campaignVersion,
+          formId: 'MUM-FORM-CHECKIN',
+          deadlineS: toEpochS(now + 6 * 60 * 60 * 1000),
+          regionCode: REGION_CODE,
+          allowedStatuses: [0, 1, 2, 3, 4],
+          requestPeopleCount: true,
+          requestLocation: true,
+          fallbackPrompt: input.summary,
+        })
+        : buildOfficialAlert(context, `ALT-${input.campaignId.slice(4)}`, input.campaignVersion, input.severity as 0 | 1 | 2 | 3, {
         category: input.category,
         instruction: input.instruction,
         regionCode: REGION_CODE,
@@ -637,8 +650,8 @@ export class OperationsService {
       regionCode: REGION_CODE,
       validFromS: toEpochS(now),
       validUntilS: toEpochS(now + 6 * 60 * 60 * 1000),
-      requiredPackId: ASSAM_CONTENT_PACK.manifest.packId,
-      requiredPackVersion: ASSAM_CONTENT_PACK.manifest.packVersion,
+      requiredPackId: MUMBAI_CONTENT_PACK.manifest.packId,
+      requiredPackVersion: MUMBAI_CONTENT_PACK.manifest.packVersion,
       profile: input.profile,
       packets: [{
         packetId: packet.packetId,
@@ -700,7 +713,7 @@ export class OperationsService {
     const batchId = `OPS-${randomUUID()}`;
     const response = this.ingest.ingest(
       {
-        gatewayToken: 'GW-ASSAM-OPS',
+        gatewayToken: 'GW-MUMBAI-OPS',
         batchId,
         items: [{ packetId, bytes, observation: { receivedAtMs: Date.now(), transport: 'gateway', hopCountOnArrival: 0 } }],
       },
@@ -926,7 +939,7 @@ function decodedCampaignMessage(
     instruction: Number(payload['instruction'] ?? campaign.instruction ?? 0),
     severity: campaign.severity,
     language: String(payload['language'] ?? 'en'),
-    text: String(payload['fallbackText'] ?? campaign.summary),
+    text: String(payload['fallbackText'] ?? payload['fallbackPrompt'] ?? campaign.summary),
     ...(hasLocation
       ? {
           location: {

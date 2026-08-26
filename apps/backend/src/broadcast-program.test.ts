@@ -4,24 +4,42 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
+import { MUMBAI_CONTENT_PACK } from '@dsm/mapkit';
 import { createBackend } from './server.js';
 
-test('Assam demo seed supplies a populated, idempotent realtime command picture', async () => {
+test('Mumbai development seed supplies a populated, idempotent realtime command picture', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'dsm-command-picture-'));
   const databasePath = join(directory, 'operations.sqlite');
   try {
     const backend = createBackend({ databasePath });
-    assert.equal(backend.incidents.list().filter((item) => item.incidentId.startsWith('INC-AS-V2-')).length, 10);
+    assert.equal(backend.incidents.list().filter((item) => item.incidentId.startsWith('INC-MUM-V1-')).length, 10);
     assert.equal(backend.operations!.listResponders().length, 8);
-    assert.equal(backend.operations!.listRegionalRecords().length, 17);
+    assert.equal(backend.operations!.listRegionalRecords().length, 22);
+    const websiteRecords = new Map(backend.operations!.listRegionalRecords().map((record) => [record.objectId, record]));
+    for (const object of MUMBAI_CONTENT_PACK.objects.filter((item) => ['shelter', 'medical', 'food-water', 'safe-zone'].includes(item.type))) {
+      const record = websiteRecords.get(object.objectId);
+      assert.ok(record, `${object.objectId} must exist on website and mobile`);
+      assert.equal(record.name, object.name);
+      assert.equal(record.latE7, object.latE7);
+      assert.equal(record.lonE7, object.lonE7);
+      assert.equal(record.state, 'open');
+    }
+    for (const route of MUMBAI_CONTENT_PACK.routes) {
+      const record = websiteRecords.get(route.objectId);
+      assert.ok(record, `${route.objectId} must exist on website and mobile`);
+      assert.equal(record.name, route.name);
+      assert.equal(record.latE7, route.fromLatE7);
+      assert.equal(record.lonE7, route.fromLonE7);
+      assert.equal(record.state, 'open');
+    }
     assert.equal(backend.store.gatewayTokens.size, 4);
     assert.ok(backend.store.observations.length >= 10);
     await backend.close();
 
     const restored = createBackend({ databasePath });
-    assert.equal(restored.incidents.list().filter((item) => item.incidentId.startsWith('INC-AS-V2-')).length, 10);
+    assert.equal(restored.incidents.list().filter((item) => item.incidentId.startsWith('INC-MUM-V1-')).length, 10);
     assert.equal(restored.operations!.listResponders().length, 8);
-    assert.equal(restored.operations!.listRegionalRecords().length, 17);
+    assert.equal(restored.operations!.listRegionalRecords().length, 22);
     assert.equal(restored.store.gatewayTokens.size, 4);
     await restored.close();
   } finally {
@@ -64,7 +82,7 @@ test('approved campaign becomes an exact, persisted WavePX frame program', async
     assert.equal(complete.decodeResult?.passed, true);
     assert.equal(complete.decodeResult?.receptionTransport, 'tier2-direct');
     assert.equal(complete.decodeResult?.decodedMessage?.text, 'Move to designated higher ground and follow district instructions.');
-    assert.equal(complete.decodeResult?.decodedMessage?.regionCode, 'IN-AS');
+    assert.equal(complete.decodeResult?.decodedMessage?.regionCode, 'IN-MH');
 
     assert.throws(() => operations.recordBroadcastEvent(campaign.campaignId, 'played', 'Operator Test'), /scheduled/);
     const exported = operations.recordBroadcastEvent(campaign.campaignId, 'exported', 'Operator Test');
@@ -172,7 +190,7 @@ test('coordinator responder actions emit the complete incident lifecycle', async
   }
 });
 
-test('campaign composer emits distinct canonical alert and regional packet types', async () => {
+test('campaign composer emits distinct canonical alert, regional, and check-in packet types', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'dsm-broadcast-types-'));
   try {
     const backend = createBackend({ databasePath: join(directory, 'operations.sqlite') });
@@ -180,8 +198,8 @@ test('campaign composer emits distinct canonical alert and regional packet types
     const alert = operations.createCampaign({
       title: 'District evacuation notice',
       summary: 'Move to the marked assembly point and await district instructions.',
-      latE7: 263501000,
-      lonE7: 920003000,
+      latE7: 190760000,
+      lonE7: 728770000,
       radiusM: 7500,
     });
     const regional = operations.createCampaign({
@@ -190,25 +208,39 @@ test('campaign composer emits distinct canonical alert and regional packet types
       dataType: 'regional-record',
       objectId: operations.listRegionalRecords().find((item) => item.kind === 'shelter')!.objectId,
     });
+    const checkin = operations.createCampaign({
+      title: 'Mumbai household safety check-in',
+      summary: 'Confirm whether your household is safe or needs assistance.',
+      dataType: 'check-in',
+    });
 
     assert.equal(alert.messageType, 0x60);
     assert.equal(alert.dataType, 'official-alert');
-    assert.equal(alert.latE7, 263501000);
-    assert.equal(alert.lonE7, 920003000);
+    assert.equal(alert.latE7, 190760000);
+    assert.equal(alert.lonE7, 728770000);
     assert.equal(alert.radiusM, 7500);
     assert.equal(regional.messageType, 0x40);
     assert.equal(regional.dataType, 'regional-record');
+    assert.equal(checkin.messageType, 0x70);
+    assert.equal(checkin.dataType, 'check-in');
     assert.equal(alert.packetPreview.typeName, 'OFFICIAL_ALERT');
     assert.equal(alert.packetPreview.mapOperations.length, 0, 'official instructions display without inventing a map mutation');
     assert.equal(regional.packetPreview.typeName, 'SHELTER');
+    assert.equal(checkin.packetPreview.typeName, 'CHECKIN_CAMPAIGN');
+    assert.equal(checkin.packetPreview.payload['regionCode'], 'IN-MH');
+    assert.equal(checkin.packetPreview.payload['formId'], 'MUM-FORM-CHECKIN');
+    assert.equal(checkin.packetPreview.payload['fallbackPrompt'], 'Confirm whether your household is safe or needs assistance.');
+    assert.equal(checkin.packetPreview.mapOperations.length, 0, 'a check-in opens a cached form and does not invent a map mutation');
     assert.deepEqual(regional.packetPreview.mapOperations.map((operation) => operation.kind), ['upsert-resource']);
     const regionalImpact = regional.packetPreview.mapOperations[0];
     if (!regionalImpact || regionalImpact.kind !== 'upsert-resource') assert.fail('expected a resource map preview');
     assert.equal(regionalImpact.objectId, regional.objectId);
     assert.equal(regional.packetPreview.bytesHex.length, regional.packetPreview.totalBytes * 2);
     assert.notEqual(alert.packetId, regional.packetId);
+    assert.notEqual(checkin.packetId, regional.packetId);
     assert.ok(alert.preview.totalTier2Bytes > 0);
     assert.ok(regional.preview.totalTier2Bytes > 0);
+    assert.ok(checkin.preview.totalTier2Bytes > 0);
     await backend.close();
   } finally {
     rmSync(directory, { recursive: true, force: true });

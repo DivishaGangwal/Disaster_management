@@ -16,6 +16,7 @@ import test from 'node:test';
 
 import {
   ArrivalEvidence,
+  CheckinStatus,
   EmergencyCategory,
   FILE_TRANSFER,
   MimeCategory,
@@ -32,7 +33,10 @@ import {
 import {
   buildFileFragment,
   buildFileManifest,
+  buildCheckinCampaign,
+  buildCheckinResponse,
   buildOfficialAlert,
+  buildResourceRecord,
   buildResponderState,
   buildSosCreate,
   decodePacket,
@@ -375,12 +379,115 @@ test('scenarios G and H: Tier 2 paths agree, and a Tier 2 packet bridges into Ti
   await scenario.stopAll();
 });
 
+test('a WavePX check-in opens on a phone and its response returns through Tier 1', async () => {
+  const scenario = scenarioWithThreeNodes();
+  scenario.link('victim', 'carrier');
+  await scenario.startAll();
+
+  const nowS = toEpochS(scenario.medium.clockMs);
+  const campaignId = 'CMP-CHECKIN-1';
+  const campaign = buildCheckinCampaign(
+    { sourceId: '9999999999999999', sourceClass: SourceClass.AUTHORITY_PROVISIONED, nowS },
+    campaignId,
+    {
+      campaignVersion: 1,
+      formId: 'MUM-FORM-CHECKIN',
+      deadlineS: nowS + 3600,
+      regionCode: REGION,
+      allowedStatuses: [0, 1, 2, 3, 4],
+      requestPeopleCount: true,
+      requestLocation: true,
+      fallbackPrompt: 'Confirm whether your household is safe or needs assistance.',
+    },
+  );
+  const decoded = decodePacket(campaign.bytes);
+  assert.equal(decoded.ok, true);
+  if (!decoded.ok) return;
+
+  const receiver = new Tier2Receiver();
+  let recovered: Uint8Array | undefined;
+  for (const frame of toTier2Frames({
+    campaignHandle: 11,
+    campaignVersion: 1,
+    packetHandle: 1,
+    messageType: MessageType.CHECKIN_CAMPAIGN,
+    priority: decoded.packet.header.priority,
+    severity: decoded.packet.header.severity,
+    canonicalPacketBytes: campaign.bytes,
+  })) {
+    const outcome = receiver.accept({ bytes: frame, source: 'tier2-mic', receivedAtMs: scenario.medium.clockMs });
+    if (outcome.packet) recovered = outcome.packet.bytes;
+  }
+  assert.ok(recovered, 'WavePX must recover the self-describing check-in campaign');
+  const victim = scenario.node('victim');
+  assert.equal((await victim.engine.ingest(recovered!, 'tier2-mic', { campaignId })).accepted, true);
+
+  const response = buildCheckinResponse(
+    { sourceId: victim.spec.sourceId, sourceClass: SourceClass.GENERAL_PUBLIC, nowS },
+    campaignId,
+    { status: CheckinStatus.NEED_ASSISTANCE, sourceRef: victim.spec.sourceId },
+  );
+  const created = await victim.engine.createLocal(response, campaignId);
+  assert.equal(created.validation.ok, true);
+  await scenario.gossip(4, 300);
+  assert.equal(await scenario.node('carrier').engine.packets.hasSeen(response.packetId), true, 'the response must leave over Tier 1');
+
+  await scenario.stopAll();
+});
+
 test('scenario K: person markers become stale and then expire', () => {
   const nowS = 1_000_000;
   assert.equal(freshnessOf(nowS, nowS), 'live');
   assert.equal(freshnessOf(nowS - FRESHNESS.LOCATION_LIVE_S - 1, nowS), 'aging');
   assert.equal(freshnessOf(nowS - FRESHNESS.LOCATION_STALE_S - 1, nowS), 'stale');
   assert.equal(freshnessOf(nowS - FRESHNESS.LOCATION_EXPIRE_S - 1, nowS), 'expired');
+});
+
+test('WavePX Mumbai resource update enters the mobile engine and changes the shared map projection once', async () => {
+  const scenario = scenarioWithThreeNodes();
+  const phone = scenario.node('responder');
+  const context = {
+    sourceId: '9999999999999999',
+    sourceClass: SourceClass.AUTHORITY_PROVISIONED,
+    nowS: toEpochS(scenario.medium.clockMs),
+  };
+  const update = buildResourceRecord(context, MessageType.SHELTER, 'MUM-SHL-MMRDA', 7, {
+    state: 2,
+    location: { source: LocationSource.USER_PIN, latE7: 190658000, lonE7: 728657000, accuracyM: 20, ageS: 0 },
+    fallbackLabel: 'MMRDA Grounds Relief Centre',
+  });
+  const decoded = decodePacket(update.bytes);
+  assert.equal(decoded.ok, true);
+  if (!decoded.ok) return;
+
+  const frames = toTier2Frames({
+    campaignHandle: 26,
+    campaignVersion: 1,
+    packetHandle: 1,
+    messageType: MessageType.SHELTER,
+    priority: decoded.packet.header.priority,
+    severity: decoded.packet.header.severity,
+    canonicalPacketBytes: update.bytes,
+  });
+  const receiver = new Tier2Receiver();
+  let recovered: Uint8Array | undefined;
+  for (const bytes of frames) {
+    const result = receiver.accept({ bytes, source: 'tier2-mic', receivedAtMs: scenario.medium.clockMs });
+    if (result.packet) recovered = result.packet.bytes;
+  }
+  assert.deepEqual(Array.from(recovered ?? []), Array.from(update.bytes), 'browser and phone must agree on canonical packet bytes');
+
+  const first = await phone.engine.ingest(recovered!, 'tier2-mic', { campaignId: 'CMP-MUM-MAP-1' });
+  assert.equal(first.accepted, true);
+  assert.equal(first.mapOperationsApplied, 1);
+  const visible = phone.engine.projection.visible(toEpochS(scenario.medium.clockMs)).find((object) => object.objectId === 'MUM-SHL-MMRDA');
+  assert.equal(visible?.state, 2);
+  assert.equal(visible?.latE7, 190658000);
+  assert.equal(visible?.provenance, 'tier2');
+
+  const duplicate = await phone.engine.ingest(recovered!, 'tier2-mic', { campaignId: 'CMP-MUM-MAP-1' });
+  assert.equal(duplicate.storeOutcome, 'duplicate');
+  assert.equal(duplicate.mapOperationsApplied, 0);
 });
 
 test('a duplicate packet is observed but never acted on twice', async () => {

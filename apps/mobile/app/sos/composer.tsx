@@ -17,7 +17,7 @@ import { mobileController } from '@/src/services/mobile-controller';
 
 const categories = ['Medical Emergency', 'Fire', 'Flood', 'Earthquake', 'Landslide', 'Cyclone', 'Building Collapse', 'Chemical/Gas', 'Violence', 'Other'];
 const mobilityOptions = ['Mobile (Can walk)', 'Limited mobility', 'Immobile', 'Trapped', 'Unknown'];
-const languages = ['English', 'Hindi', 'Marathi', 'Assamese'];
+const languages = ['English', 'Hindi', 'Marathi'];
 
 const sevLevels = [
   { label: 'INFO', bg: '#3A3A3C', textColor: '#FFFFFF' },

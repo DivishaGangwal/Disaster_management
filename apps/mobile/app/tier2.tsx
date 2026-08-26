@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { CheckinStatus } from '@dsm/contracts';
 import { icons } from '@/constants/icons';
 import { useAppStore, type ReceivedPacketSummary } from '@/store/useAppStore';
 import { mobileController } from '@/src/services/mobile-controller';
@@ -34,6 +35,13 @@ export default function Tier2ListenScreen() {
   const openMap = (objectId: string) => {
     setFocusMapObjectId(objectId);
     router.push('/(tabs)/map');
+  };
+
+  const respondToCheckin = async (campaignId: string, status: number) => {
+    setBusy(true);
+    try { await mobileController.respondToCheckin(campaignId, status); }
+    catch (reason) { useAppStore.getState().setRuntimeError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
   };
 
   return <SafeAreaView style={styles.safe}>
@@ -69,7 +77,7 @@ export default function Tier2ListenScreen() {
       </View>
 
       <SectionLabel label="Decoded packets and phone changes" />
-      {receivedPackets.map((packet) => <PacketCard key={packet.packetId} packet={packet} expanded={expandedId === packet.packetId} onToggle={() => setExpandedId(expandedId === packet.packetId ? '' : packet.packetId)} onOpenMap={openMap} />)}
+      {receivedPackets.map((packet) => <PacketCard key={packet.packetId} packet={packet} expanded={expandedId === packet.packetId} onToggle={() => setExpandedId(expandedId === packet.packetId ? '' : packet.packetId)} onOpenMap={openMap} onRespond={respondToCheckin} busy={busy} />)}
       {receivedPackets.length === 0 && <View style={styles.empty}><Text style={styles.emptyTitle}>No packet received yet</Text><Text style={styles.emptyCopy}>Start listening here, then use “Play test audio” or “Transmit scheduled campaign” on the website. The recovered message and every applied map change will appear here.</Text></View>}
 
       <SectionLabel label="Frame activity" />
@@ -78,7 +86,7 @@ export default function Tier2ListenScreen() {
   </SafeAreaView>;
 }
 
-function PacketCard({ packet, expanded, onToggle, onOpenMap }: { packet: ReceivedPacketSummary; expanded: boolean; onToggle: () => void; onOpenMap: (objectId: string) => void }) {
+function PacketCard({ packet, expanded, onToggle, onOpenMap, onRespond, busy }: { packet: ReceivedPacketSummary; expanded: boolean; onToggle: () => void; onOpenMap: (objectId: string) => void; onRespond: (campaignId: string, status: number) => Promise<void>; busy: boolean }) {
   const mapTarget = packet.impacts.find((impact) => impact.objectId)?.objectId;
   const changedMap = packet.impacts.some((impact) => impact.applied);
   return <View style={styles.packetCard}>
@@ -93,6 +101,10 @@ function PacketCard({ packet, expanded, onToggle, onOpenMap }: { packet: Receive
       {packet.impacts.length ? packet.impacts.map((impact, index) => <View key={`${impact.kind}-${index}`} style={styles.impactRow}><View style={[styles.impactDot, impact.applied && styles.impactDotApplied]} /><View style={styles.impactCopy}><Text style={styles.impactLabel}>{impact.label}</Text><Text style={styles.impactDetail}>{impact.detail} · {impact.applied ? 'applied to local map' : 'stored without changing current state'}</Text></View></View>) : <Text style={styles.noImpactCopy}>The official instruction is stored and displayed, but it does not alter shelter, hazard, route, responder, or incident geometry.</Text>}
       {mapTarget && <TouchableOpacity accessibilityRole="button" onPress={() => onOpenMap(mapTarget)} style={styles.mapButton}><Text style={styles.mapButtonText}>VIEW CHANGED ITEM ON MAP</Text></TouchableOpacity>}
     </View>
+    {packet.typeName === 'CHECKIN_CAMPAIGN' && <View style={styles.checkinActions} accessibilityLabel="Safety check-in response actions">
+      <Text style={styles.checkinTitle}>RESPOND THROUGH BLUETOOTH MESH / GATEWAY</Text>
+      <View style={styles.checkinRow}><TouchableOpacity accessibilityRole="button" disabled={busy} onPress={() => void onRespond(packet.campaignId ?? String(packet.payload['campaignId']), CheckinStatus.SAFE)} style={styles.checkinButton}><Text style={styles.checkinButtonText}>I AM SAFE</Text></TouchableOpacity><TouchableOpacity accessibilityRole="button" disabled={busy} onPress={() => void onRespond(packet.campaignId ?? String(packet.payload['campaignId']), CheckinStatus.NEED_ASSISTANCE)} style={[styles.checkinButton, styles.checkinAssist]}><Text style={styles.checkinButtonText}>NEED ASSISTANCE</Text></TouchableOpacity></View>
+    </View>}
     {expanded && <View style={styles.packetEvidence}>
       <View style={styles.evidenceLine}><Text style={styles.evidenceLabel}>CAMPAIGN</Text><Text style={styles.evidenceValue}>{packet.campaignId ?? 'Compact over-air campaign'} · v{packet.campaignVersion ?? '—'}</Text></View>
       <View style={styles.evidenceLine}><Text style={styles.evidenceLabel}>TRANSPORT</Text><Text style={styles.evidenceValue}>{packet.transport === 'tier2-mic' ? 'WavePX microphone' : 'WavePX direct input'}</Text></View>
@@ -121,6 +133,7 @@ const styles = StyleSheet.create({
   packetIdentity: { flex: 1, padding: 13, justifyContent: 'center' }, packetType: { color: '#F0F3EE', fontSize: 14, fontWeight: '800' }, packetId: { marginTop: 4, color: '#768079', fontSize: 9 }, packetOutcome: { padding: 12, alignItems: 'flex-end', justifyContent: 'center' }, packetOutcomeText: { color: '#A8D69C', fontSize: 9, fontWeight: '900', letterSpacing: .7 }, packetTime: { marginTop: 5, color: '#768079', fontSize: 10 },
   messageBlock: { padding: 15, borderTopWidth: 1, borderTopColor: '#232C24' }, messageLabel: { color: '#7F8982', fontSize: 9, fontWeight: '800', letterSpacing: 1 }, message: { marginTop: 7, color: '#FFFFFF', fontSize: 16, lineHeight: 23, fontWeight: '700' },
   mapResult: { margin: 12, marginTop: 0, padding: 13, borderLeftWidth: 3 }, mapResultApplied: { backgroundColor: '#132416', borderLeftColor: '#55C96B' }, mapResultStored: { backgroundColor: '#171D21', borderLeftColor: '#5E8CC8' }, mapResultTitle: { color: '#A8D69C', fontSize: 10, fontWeight: '900', letterSpacing: .7 }, impactRow: { marginTop: 10, flexDirection: 'row', alignItems: 'flex-start' }, impactDot: { width: 8, height: 8, marginTop: 4, marginRight: 9, borderRadius: 4, backgroundColor: '#6C7470' }, impactDotApplied: { backgroundColor: '#55C96B' }, impactCopy: { flex: 1 }, impactLabel: { color: '#F0F3EE', fontSize: 12, fontWeight: '800' }, impactDetail: { marginTop: 3, color: '#91A095', fontSize: 10, lineHeight: 15 }, noImpactCopy: { marginTop: 7, color: '#91A095', fontSize: 11, lineHeight: 16 }, mapButton: { minHeight: 42, marginTop: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#315D30' }, mapButtonText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900', letterSpacing: .8 },
+  checkinActions: { margin: 12, marginTop: 0, padding: 13, borderWidth: 1, borderColor: '#38473A', backgroundColor: '#151B16' }, checkinTitle: { color: '#A8D69C', fontSize: 9, fontWeight: '900', letterSpacing: .7 }, checkinRow: { marginTop: 10, flexDirection: 'row', gap: 8 }, checkinButton: { flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', backgroundColor: '#315D30' }, checkinAssist: { backgroundColor: '#8A4428' }, checkinButtonText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900', letterSpacing: .6 },
   packetEvidence: { padding: 14, borderTopWidth: 1, borderTopColor: '#2A342B' }, evidenceLine: { marginBottom: 9, flexDirection: 'row', justifyContent: 'space-between', gap: 12 }, evidenceLabel: { color: '#727C74', fontSize: 9, fontWeight: '800', letterSpacing: .8 }, evidenceValue: { flex: 1, color: '#D2D8D3', fontSize: 10, textAlign: 'right' }, payloadLabel: { marginTop: 5, color: '#727C74', fontSize: 9, fontWeight: '800', letterSpacing: .8 }, payloadScroll: { marginTop: 7, maxHeight: 220, backgroundColor: '#080A08' }, payload: { padding: 12, color: '#B9C8BC', fontSize: 10, lineHeight: 15 },
   frameLedger: { borderTopWidth: 1, borderTopColor: '#2A342B' }, frameRow: { minHeight: 54, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#202721' }, frameMarker: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#55C96B' }, frameMarkerError: { backgroundColor: '#E45A54' }, frameCopy: { flex: 1, paddingHorizontal: 11 }, frameName: { color: '#D8DED9', fontSize: 12, fontWeight: '700', textTransform: 'capitalize' }, frameReason: { marginTop: 2, color: '#737D76', fontSize: 9 }, frameTime: { color: '#737D76', fontSize: 10 },
 });

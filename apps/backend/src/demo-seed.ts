@@ -11,47 +11,54 @@ import { IngestService } from './services.js';
 import { REGION_CODE } from './operations.js';
 import { SqliteBackendStore, type RegionalRecord, type ResponderRecord } from './sqlite-store.js';
 
-export const ASSAM_SEED_VERSION = 'assam-synthetic-v2';
+export const MUMBAI_SEED_VERSION = 'mumbai-development-v2';
 
 const RESPONDERS: readonly ResponderRecord[] = [
-  responder('RSP-AS-01', 'River Rescue Unit 01', 'Kamrup Metropolitan', ['rescue', 'flood', 'first-aid']),
-  responder('RSP-AS-02', 'Medical Response Unit 02', 'Nagaon', ['medical', 'triage']),
-  responder('RSP-AS-03', 'Relief Field Unit 03', 'Dibrugarh', ['shelter', 'supplies', 'evacuation']),
-  responder('RSP-AS-04', 'Hill Response Unit 04', 'Dima Hasao', ['landslide', 'rescue']),
-  responder('RSP-AS-05', 'Urban Search Unit 05', 'Kamrup Metropolitan', ['collapse', 'search', 'medical']),
-  responder('RSP-AS-06', 'Boat Response Unit 06', 'Barpeta', ['rescue', 'flood', 'evacuation']),
-  responder('RSP-AS-07', 'Mobile Medical Unit 07', 'Cachar', ['medical', 'triage', 'transport']),
-  responder('RSP-AS-08', 'Relief Logistics Unit 08', 'Jorhat', ['supplies', 'shelter', 'routing']),
+  responder('RSP-MUM-01', 'Mumbai Fire Brigade Rescue 01', 'Mumbai City', ['rescue', 'flood', 'first-aid']),
+  responder('RSP-MUM-02', 'Municipal Medical Response 02', 'Mumbai Central', ['medical', 'triage']),
+  responder('RSP-MUM-03', 'Eastern Suburbs Relief Unit 03', 'Kurla', ['shelter', 'supplies', 'evacuation']),
+  responder('RSP-MUM-04', 'Western Suburbs Rescue 04', 'Andheri', ['flood', 'rescue']),
+  responder('RSP-MUM-05', 'Urban Search Unit 05', 'Dadar', ['collapse', 'search', 'medical']),
+  responder('RSP-MUM-06', 'Coastal Response Unit 06', 'Colaba', ['rescue', 'flood', 'evacuation']),
+  responder('RSP-MUM-07', 'Mobile Medical Unit 07', 'Sion', ['medical', 'triage', 'transport']),
+  responder('RSP-MUM-08', 'Relief Logistics Unit 08', 'Bandra', ['supplies', 'shelter', 'routing']),
 ];
 
 const REGIONAL: readonly RegionalRecord[] = [
-  regional('SHL-AS-001', 'shelter', 'District Relief Shelter 01', 'Kamrup Metropolitan', 'open', 26.1445, 91.7362),
-  regional('SHL-AS-002', 'shelter', 'Flood Relief Shelter 02', 'Nagaon', 'open', 26.3509, 92.6922),
-  regional('MED-AS-001', 'medical', 'Emergency Medical Post 01', 'Dibrugarh', 'open', 27.4728, 94.9120),
-  regional('FWD-AS-001', 'food-water', 'Relief Distribution Point 01', 'Morigaon', 'open', 26.2529, 92.3424),
-  regional('SFZ-AS-001', 'safe-zone', 'Assembly Area 01', 'Kamrup Metropolitan', 'open', 26.1158, 91.7086),
-  regional('HZD-AS-001', 'hazard', 'Flood Watch Sector 01', 'Nagaon', 'active', 26.4150, 92.7300),
-  regional('RTE-AS-001', 'route', 'Relief Corridor 01', 'Kamrup Metropolitan', 'restricted', 26.1800, 91.7800),
-  regional('SHL-AS-003', 'shelter', 'Barpeta Higher Secondary Shelter', 'Barpeta', 'open', 26.3232, 91.0054),
-  regional('SHL-AS-004', 'shelter', 'Silchar College Relief Camp', 'Cachar', 'full', 24.8170, 92.7979),
-  regional('MED-AS-002', 'medical', 'Nagaon Mobile Medical Camp', 'Nagaon', 'open', 26.3442, 92.6769),
-  regional('MED-AS-003', 'medical', 'Silchar Emergency Field Post', 'Cachar', 'damaged', 24.8273, 92.7798),
-  regional('FWD-AS-002', 'food-water', 'Barpeta Supply Distribution Point', 'Barpeta', 'open', 26.3216, 91.0019),
-  regional('FWD-AS-003', 'food-water', 'Jorhat Relief Logistics Yard', 'Jorhat', 'open', 26.7509, 94.2037),
-  regional('SFZ-AS-002', 'safe-zone', 'Dibrugarh Assembly Ground', 'Dibrugarh', 'open', 27.4721, 94.8991),
-  regional('HZD-AS-002', 'hazard', 'Brahmaputra Erosion Watch', 'Dhubri', 'watch', 26.0211, 89.9744),
-  regional('RTE-AS-002', 'route', 'NH-27 Barpeta Approach', 'Barpeta', 'blocked', 26.2871, 91.1172),
-  regional('RTE-AS-003', 'route', 'Silchar Medical Access Route', 'Cachar', 'open', 24.8420, 92.8065),
+  // IDs, labels, coordinates and baseline state agree with MUMBAI_CONTENT_PACK.
+  // Website edits then travel as canonical packets and replace this baseline on phones.
+  regional('MUM-SHL-MMRDA', 'shelter', 'MMRDA Grounds, BKC', 'Bandra Kurla Complex', 'open', 19.0658, 72.8657),
+  regional('MUM-SHL-WANK', 'shelter', 'Wankhede Stadium, Marine Lines', 'Marine Lines', 'open', 18.9398, 72.8251),
+  regional('MUM-SHL-AZAD', 'shelter', 'Azad Maidan, Fort', 'Fort', 'open', 18.9370, 72.8328),
+  regional('MUM-SHL-ANDHERI', 'shelter', 'Andheri Sports Complex', 'Andheri', 'open', 19.1196, 72.8458),
+  regional('MUM-SHL-DHARAVI', 'shelter', 'Dharavi Community Hall', 'Dharavi', 'open', 19.0390, 72.8557),
+  regional('MUM-MED-KEM', 'medical', 'KEM Hospital, Parel', 'Parel', 'open', 19.0013, 72.8413),
+  regional('MUM-MED-NAIR', 'medical', 'Nair Hospital, Mumbai Central', 'Mumbai Central', 'open', 18.9649, 72.8161),
+  regional('MUM-MED-SION', 'medical', 'Lokmanya Tilak Municipal Hospital, Sion', 'Sion', 'open', 19.0401, 72.8614),
+  regional('MUM-MED-COOPER', 'medical', 'Cooper Hospital, Vile Parle', 'Vile Parle', 'open', 19.1127, 72.8367),
+  regional('MUM-MED-JJH', 'medical', 'JJ Hospital, Byculla', 'Byculla', 'open', 18.9854, 72.8381),
+  regional('MUM-FWD-DADAR', 'food-water', 'Dadar Relief Distribution Point', 'Dadar', 'open', 19.0182, 72.8329),
+  regional('MUM-FWD-KURLA', 'food-water', 'Kurla Supply Distribution', 'Kurla', 'open', 19.0658, 72.8782),
+  regional('MUM-FWD-BORIVALI', 'food-water', 'Borivali Supply Point', 'Borivali', 'open', 19.2290, 72.8565),
+  regional('MUM-SFZ-MALABAR', 'safe-zone', 'Malabar Hill (High Ground)', 'Malabar Hill', 'open', 18.9520, 72.8078),
+  regional('MUM-SFZ-POWAI', 'safe-zone', 'Powai Elevated Zone', 'Powai', 'open', 19.1177, 72.9060),
+  regional('MUM-SFZ-AAREY', 'safe-zone', 'Aarey Colony High Ground', 'Aarey', 'open', 19.1548, 72.8758),
+  regional('MUM-HZD-KURLA', 'hazard', 'Kurla Flood Watch Sector', 'Kurla', 'active', 19.0658, 72.8782),
+  regional('MUM-HZD-MITHI', 'hazard', 'Mithi River Flood Watch', 'Mumbai Suburban', 'watch', 19.0710, 72.8840),
+  regional('MUM-RTE-WE', 'route', 'Western Express Highway Corridor', 'Western Suburbs', 'open', 18.8980, 72.8251),
+  regional('MUM-RTE-EE', 'route', 'Eastern Freeway Corridor', 'Eastern Suburbs', 'open', 18.9320, 72.8370),
+  regional('MUM-RTE-LBS', 'route', 'LBS Marg East Corridor', 'Eastern Suburbs', 'open', 19.0070, 72.8810),
+  regional('MUM-RTE-SL', 'route', 'Sion–Panvel Highway Corridor', 'Sion', 'open', 19.0380, 72.8617),
 ];
 
 const GATEWAYS = [
-  ['GW-GUWAHATI', 'assam-guwahati'],
-  ['GW-NAGAON', 'assam-nagaon'],
-  ['GW-DIBRUGARH', 'assam-dibrugarh'],
-  ['GW-SILCHAR', 'assam-silchar'],
+  ['GW-MUMBAI-SOUTH', 'mumbai-south'],
+  ['GW-MUMBAI-CENTRAL', 'mumbai-central'],
+  ['GW-MUMBAI-EAST', 'mumbai-east'],
+  ['GW-MUMBAI-WEST', 'mumbai-west'],
 ] as const;
 
-export function seedAssamDemo(store: SqliteBackendStore, ingest: IngestService): void {
+export function seedMumbaiOperations(store: SqliteBackendStore, ingest: IngestService): void {
   for (const [token, node] of GATEWAYS) store.registerGateway(token, node, REGION_CODE);
   for (const item of RESPONDERS) store.responders.set(item.responderRef, item);
   for (const item of REGIONAL) store.regionalRecords.set(item.objectId, item);
@@ -63,15 +70,20 @@ export function seedAssamDemo(store: SqliteBackendStore, ingest: IngestService):
     atMs: Date.now(),
     action: 'system.baseline-restored',
     subject: REGION_CODE,
-    detail: `Synthetic Assam operations data restored (${ASSAM_SEED_VERSION})`,
+    detail: `Mumbai development operations data restored (${MUMBAI_SEED_VERSION})`,
   });
 }
 
-export function ensureAssamDemoPopulation(store: SqliteBackendStore, ingest: IngestService): void {
+export function ensureMumbaiPopulation(store: SqliteBackendStore, ingest: IngestService): void {
   for (const [token, node] of GATEWAYS) if (!store.gatewayTokens.has(token)) store.registerGateway(token, node, REGION_CODE);
   for (const item of RESPONDERS) if (!store.responders.has(item.responderRef)) store.responders.set(item.responderRef, item);
-  for (const item of REGIONAL) if (!store.regionalRecords.has(item.objectId)) store.regionalRecords.set(item.objectId, item);
-  const hasCurrentScenario = store.incidents.list().some((incident) => incident.incidentId.startsWith('INC-AS-V2-'));
+  for (const item of REGIONAL) {
+    const current = store.regionalRecords.get(item.objectId);
+    // A published website edit increments the version and wins. Version-one
+    // baseline rows may be safely reconciled with the shared mobile pack.
+    if (!current || current.version === 1) store.regionalRecords.set(item.objectId, item);
+  }
+  const hasCurrentScenario = store.incidents.list().some((incident) => incident.incidentId.startsWith('INC-MUM-V1-'));
   if (!hasCurrentScenario) seedActiveScenario(store, ingest);
   store.saveOperations();
 }
@@ -83,13 +95,13 @@ function seedActiveScenario(store: SqliteBackendStore, ingest: IngestService): v
     buildSosCreate(
       { sourceId: 'a500000000000001', sourceClass: SourceClass.GENERAL_PUBLIC, nowS: toEpochS(nowMs - 12 * 60_000) },
       {
-        incidentId: 'INC-AS-V2-FLOOD-01',
+        incidentId: 'INC-MUM-V1-FLOOD-01',
         category: EmergencyCategory.FLOOD,
         severity: Severity.LIFE_CRITICAL,
         peopleTotal: 5,
         injured: 1,
         mobility: Mobility.LIMITED,
-        location: { source: LocationSource.USER_PIN, latE7: 263501000, lonE7: 920003000, accuracyM: 35, ageS: 90 },
+        location: { source: LocationSource.USER_PIN, latE7: 190658000, lonE7: 728782000, accuracyM: 35, ageS: 90 },
         replyCapabilities: ReplyCapability.TIER1_BLE,
         shortNote: 'Family isolated by rising water',
       },
@@ -97,13 +109,13 @@ function seedActiveScenario(store: SqliteBackendStore, ingest: IngestService): v
     buildSosCreate(
       { sourceId: 'a500000000000002', sourceClass: SourceClass.GENERAL_PUBLIC, nowS: toEpochS(nowMs - 7 * 60_000) },
       {
-        incidentId: 'INC-AS-V2-MED-02',
+        incidentId: 'INC-MUM-V1-MED-02',
         category: EmergencyCategory.MEDICAL,
         severity: Severity.URGENT,
         peopleTotal: 2,
         injured: 1,
         mobility: Mobility.IMMOBILE,
-        location: { source: LocationSource.CACHED_GNSS, latE7: 264901000, lonE7: 919201000, accuracyM: 60, ageS: 180 },
+        location: { source: LocationSource.CACHED_GNSS, latE7: 190401000, lonE7: 728614000, accuracyM: 60, ageS: 180 },
         replyCapabilities: ReplyCapability.TIER1_BLE,
         shortNote: 'Medical support requested',
       },
@@ -111,43 +123,43 @@ function seedActiveScenario(store: SqliteBackendStore, ingest: IngestService): v
     buildSosCreate(
       { sourceId: 'a500000000000003', sourceClass: SourceClass.GENERAL_PUBLIC, nowS: toEpochS(nowMs - 4 * 60_000) },
       {
-        incidentId: 'INC-AS-V2-LAND-03',
+        incidentId: 'INC-MUM-V1-TRAPPED-03',
         category: EmergencyCategory.TRAPPED,
         severity: Severity.URGENT,
         peopleTotal: 3,
         mobility: Mobility.TRAPPED,
-        location: { source: LocationSource.USER_PIN, latE7: 251702000, lonE7: 932106000, accuracyM: 80, ageS: 240 },
+        location: { source: LocationSource.USER_PIN, latE7: 190390000, lonE7: 728557000, accuracyM: 80, ageS: 240 },
         replyCapabilities: ReplyCapability.TIER1_BLE,
-        shortNote: 'Road access blocked after slope failure',
+        shortNote: 'Road access blocked after structural failure',
       },
     ),
     buildSosCreate(
       { sourceId: 'a500000000000004', sourceClass: SourceClass.GENERAL_PUBLIC, nowS: toEpochS(nowMs - 9 * 60_000) },
-      { incidentId: 'INC-AS-V2-FLOOD-04', category: EmergencyCategory.FLOOD, severity: Severity.URGENT, peopleTotal: 8, injured: 0, mobility: Mobility.LIMITED, location: { source: LocationSource.USER_PIN, latE7: 263202000, lonE7: 910214000, accuracyM: 45, ageS: 120 }, replyCapabilities: ReplyCapability.TIER1_BLE, shortNote: 'Two households cut off near embankment' },
+      { incidentId: 'INC-MUM-V1-FLOOD-04', category: EmergencyCategory.FLOOD, severity: Severity.URGENT, peopleTotal: 8, injured: 0, mobility: Mobility.LIMITED, location: { source: LocationSource.USER_PIN, latE7: 190710000, lonE7: 728840000, accuracyM: 45, ageS: 120 }, replyCapabilities: ReplyCapability.TIER1_BLE, shortNote: 'Two households cut off near Mithi River' },
     ),
     buildSosCreate(
       { sourceId: 'a500000000000005', sourceClass: SourceClass.GENERAL_PUBLIC, nowS: toEpochS(nowMs - 6 * 60_000) },
-      { incidentId: 'INC-AS-V2-COLLAPSE-05', category: EmergencyCategory.STRUCTURAL_COLLAPSE, severity: Severity.LIFE_CRITICAL, peopleTotal: 4, injured: 2, mobility: Mobility.TRAPPED, location: { source: LocationSource.CACHED_GNSS, latE7: 261522000, lonE7: 917806000, accuracyM: 28, ageS: 75 }, replyCapabilities: ReplyCapability.TIER1_BLE, shortNote: 'Wall collapse with people trapped' },
+      { incidentId: 'INC-MUM-V1-COLLAPSE-05', category: EmergencyCategory.STRUCTURAL_COLLAPSE, severity: Severity.LIFE_CRITICAL, peopleTotal: 4, injured: 2, mobility: Mobility.TRAPPED, location: { source: LocationSource.CACHED_GNSS, latE7: 190182000, lonE7: 728329000, accuracyM: 28, ageS: 75 }, replyCapabilities: ReplyCapability.TIER1_BLE, shortNote: 'Wall collapse with people trapped' },
     ),
     buildSosCreate(
       { sourceId: 'a500000000000006', sourceClass: SourceClass.GENERAL_PUBLIC, nowS: toEpochS(nowMs - 16 * 60_000) },
-      { incidentId: 'INC-AS-V2-MED-06', category: EmergencyCategory.MEDICAL, severity: Severity.ASSISTANCE, peopleTotal: 1, injured: 1, mobility: Mobility.IMMOBILE, location: { source: LocationSource.USER_PIN, latE7: 248288000, lonE7: 927916000, accuracyM: 55, ageS: 210 }, replyCapabilities: ReplyCapability.TIER1_BLE, shortNote: 'Insulin and transport requested' },
+      { incidentId: 'INC-MUM-V1-MED-06', category: EmergencyCategory.MEDICAL, severity: Severity.ASSISTANCE, peopleTotal: 1, injured: 1, mobility: Mobility.IMMOBILE, location: { source: LocationSource.USER_PIN, latE7: 189649000, lonE7: 728161000, accuracyM: 55, ageS: 210 }, replyCapabilities: ReplyCapability.TIER1_BLE, shortNote: 'Insulin and transport requested' },
     ),
     buildSosCreate(
       { sourceId: 'a500000000000007', sourceClass: SourceClass.GENERAL_PUBLIC, nowS: toEpochS(nowMs - 3 * 60_000) },
-      { incidentId: 'INC-AS-V2-FIRE-07', category: EmergencyCategory.FIRE, severity: Severity.URGENT, peopleTotal: 6, injured: 0, mobility: Mobility.MOBILE, location: { source: LocationSource.USER_PIN, latE7: 267491000, lonE7: 942104000, accuracyM: 32, ageS: 45 }, replyCapabilities: ReplyCapability.TIER1_BLE, shortNote: 'Electrical fire near relief storage' },
+      { incidentId: 'INC-MUM-V1-FIRE-07', category: EmergencyCategory.FIRE, severity: Severity.URGENT, peopleTotal: 6, injured: 0, mobility: Mobility.MOBILE, location: { source: LocationSource.USER_PIN, latE7: 191120000, lonE7: 728540000, accuracyM: 32, ageS: 45 }, replyCapabilities: ReplyCapability.TIER1_BLE, shortNote: 'Electrical fire near relief storage' },
     ),
     buildSosCreate(
       { sourceId: 'a500000000000008', sourceClass: SourceClass.GENERAL_PUBLIC, nowS: toEpochS(nowMs - 14 * 60_000) },
-      { incidentId: 'INC-AS-V2-MISSING-08', category: EmergencyCategory.MISSING_PERSON, severity: Severity.ASSISTANCE, peopleTotal: 1, injured: 0, mobility: Mobility.UNKNOWN, location: { source: LocationSource.CACHED_GNSS, latE7: 270922000, lonE7: 931684000, accuracyM: 120, ageS: 360 }, replyCapabilities: ReplyCapability.TIER1_BLE, shortNote: 'Separated from family during evacuation' },
+      { incidentId: 'INC-MUM-V1-MISSING-08', category: EmergencyCategory.MISSING_PERSON, severity: Severity.ASSISTANCE, peopleTotal: 1, injured: 0, mobility: Mobility.UNKNOWN, location: { source: LocationSource.CACHED_GNSS, latE7: 192290000, lonE7: 728565000, accuracyM: 120, ageS: 360 }, replyCapabilities: ReplyCapability.TIER1_BLE, shortNote: 'Separated from family during evacuation' },
     ),
     buildSosCreate(
       { sourceId: 'a500000000000009', sourceClass: SourceClass.GENERAL_PUBLIC, nowS: toEpochS(nowMs - 5 * 60_000) },
-      { incidentId: 'INC-AS-V2-TRAPPED-09', category: EmergencyCategory.TRAPPED, severity: Severity.LIFE_CRITICAL, peopleTotal: 7, injured: 2, mobility: Mobility.TRAPPED, location: { source: LocationSource.USER_PIN, latE7: 260182000, lonE7: 899802000, accuracyM: 70, ageS: 95 }, replyCapabilities: ReplyCapability.TIER1_BLE, shortNote: 'Vehicle stranded in fast-moving water' },
+      { incidentId: 'INC-MUM-V1-TRAPPED-09', category: EmergencyCategory.TRAPPED, severity: Severity.LIFE_CRITICAL, peopleTotal: 7, injured: 2, mobility: Mobility.TRAPPED, location: { source: LocationSource.USER_PIN, latE7: 191177000, lonE7: 729060000, accuracyM: 70, ageS: 95 }, replyCapabilities: ReplyCapability.TIER1_BLE, shortNote: 'Vehicle stranded in fast-moving water' },
     ),
     buildSosCreate(
       { sourceId: 'a50000000000000a', sourceClass: SourceClass.GENERAL_PUBLIC, nowS: toEpochS(nowMs - 11 * 60_000) },
-      { incidentId: 'INC-AS-V2-OTHER-10', category: EmergencyCategory.OTHER, severity: Severity.URGENT, peopleTotal: 12, injured: 0, mobility: Mobility.LIMITED, location: { source: LocationSource.USER_PIN, latE7: 254851000, lonE7: 935626000, accuracyM: 90, ageS: 160 }, replyCapabilities: ReplyCapability.TIER1_BLE, shortNote: 'Evacuation transport needed before road closes' },
+      { incidentId: 'INC-MUM-V1-OTHER-10', category: EmergencyCategory.OTHER, severity: Severity.URGENT, peopleTotal: 12, injured: 0, mobility: Mobility.LIMITED, location: { source: LocationSource.USER_PIN, latE7: 191548000, lonE7: 728758000, accuracyM: 90, ageS: 160 }, replyCapabilities: ReplyCapability.TIER1_BLE, shortNote: 'Evacuation transport needed before road closes' },
     ),
   ];
 
@@ -156,7 +168,7 @@ function seedActiveScenario(store: SqliteBackendStore, ingest: IngestService): v
     ingest.ingest(
       {
         gatewayToken,
-        batchId: `SEED-${ASSAM_SEED_VERSION}-${gatewayIndex}`,
+        batchId: `SEED-${MUMBAI_SEED_VERSION}-${gatewayIndex}`,
         items: selected.map((packet, index) => ({
         packetId: packet.packetId,
         bytes: packet.bytes,

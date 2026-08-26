@@ -57,9 +57,7 @@ export const AUTHORITY_SURFACES: readonly SurfaceSpec[] = [
   },
   {
     key: 'alert-composer',
-    // HD-010: check-in campaigns are no longer composed here. WEB-004 stays
-    // unmet on that point rather than being quietly reworded as complete.
-    title: 'Official alert composer (check-in campaigns not offered, HD-010)',
+    title: 'Official alert, map update, and safety check-in composer',
     requirements: ['WEB-004', 'WEB-005', 'DEC-015'],
     mustShow: [
       'compact outbound content preview',
@@ -67,8 +65,9 @@ export const AUTHORITY_SURFACES: readonly SurfaceSpec[] = [
       'campaign validation and approval controls',
       'only authority-provisioned sources may compose official alerts',
       'operator-selected broadcast point carried in the alert packet',
+      'check-in responses return through Tier 1 or a gateway, never Tier 2',
     ],
-    status: 'partial',
+    status: 'complete',
   },
   {
     key: 'gateway-audit',

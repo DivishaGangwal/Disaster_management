@@ -8,11 +8,11 @@ Android mobile app plus a web operations console
 
 ## Users
 
-Assam authority, coordination, and radio-broadcast operators working under time pressure in a shared disaster operations room. They triage incoming incidents, understand resource and route availability, assign responders, publish regional changes, approve public-information campaigns, and operate or inspect the separate ggwave audio path.
+National, state, and Mumbai authority, coordination, and radio-broadcast operators working under time pressure in a shared disaster operations room. They triage incoming incidents, understand resource and route availability, assign responders, publish regional changes, approve public-information campaigns, and operate or inspect the separate WavePX audio path.
 
 ## Product Purpose
 
-The Assam Operations Console turns compact disaster packets into one shared operational picture. Success means an operator can see what changed, identify what needs action, understand which centres and gateways are usable, dispatch the right responder, and move an approved campaign through broadcast without switching applications or confusing transport evidence with rescue progress.
+The national operations console, currently focused on Mumbai, turns compact disaster packets into one shared operational picture. Success means an operator can see what changed, identify what needs action, understand which centres and gateways are usable, dispatch the right responder, and move an approved campaign through broadcast without switching applications or confusing transport evidence with rescue progress.
 
 ## Positioning
 
@@ -38,14 +38,14 @@ One canonical packet model joins Bluetooth mesh, opportunistic internet gateways
 
 ## Brand Commitments
 
-The product is the National Disaster Operations Network console for the Assam deployment. Its voice is calm, direct, civic, and operational. It must feel built for public-service command work—not like a generic SaaS dashboard, a developer console, or a decorative technology demo.
+The product is the National Disaster Operations Network console, with Mumbai as the current deployment. Its voice is calm, direct, civic, and operational. It must feel built for public-service command work—not like a generic SaaS dashboard or developer console.
 
 ## Evidence on Hand
 
 - Product and protocol decisions: `docs/agent-reference/01-PRODUCT-DECISIONS-AND-SCOPE.md`
 - Console behavior and deployment notes: `docs/WEB-CONSOLE.md`
 - Existing working React/MapLibre implementation: `apps/web-authority/src/`
-- Synthetic Assam seed data: `apps/backend/src/demo-seed.ts`
+- Mumbai development operations data: `apps/backend/src/demo-seed.ts`
 - User-provided screenshots showing the current hierarchy, density, empty-map, and campaign-composition failures.
 
 No production deployment, cryptographic identity, licensed radio-chain result, or physical two-device reception result should be fabricated.

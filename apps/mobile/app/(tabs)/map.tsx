@@ -13,12 +13,13 @@ import { useRouter } from 'expo-router';
 import { Camera, MapView, MarkerView, type CameraRef } from '@maplibre/maplibre-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { e7ToFloat } from '@dsm/codec';
+import { DEPLOYMENT } from '@dsm/contracts';
 import { icons } from '@/constants/icons';
 import { useAppStore, type RuntimeMapObject } from '@/store/useAppStore';
-import { ASSAM_MAP_STYLE_URL } from '@/src/services/offline-map';
+import { MUMBAI_MAP_STYLE_URL } from '@/src/services/offline-map';
 
-const ASSAM_CENTRE: [number, number] = [92.5, 26.1];
-const REGION_ZOOM = 6.1;
+const MUMBAI_CENTRE: [number, number] = [DEPLOYMENT.map.centerLon, DEPLOYMENT.map.centerLat];
+const REGION_ZOOM = 10.2;
 const DETAIL_ZOOM = 15;
 
 const COLORS = {
@@ -180,13 +181,13 @@ export default function MapScreen() {
         <View style={styles.mapContainer}>
           <MapView
             style={StyleSheet.absoluteFill}
-            mapStyle={ASSAM_MAP_STYLE_URL}
+            mapStyle={MUMBAI_MAP_STYLE_URL}
             logoEnabled={false}
             attributionEnabled
             onDidFinishLoadingStyle={() => { setMapReady(true); setMapError(false); }}
             onDidFailLoadingMap={() => { setMapReady(false); setMapError(true); }}
           >
-            <Camera ref={cameraRef} defaultSettings={{ centerCoordinate: ASSAM_CENTRE, zoomLevel: REGION_ZOOM }} />
+            <Camera ref={cameraRef} defaultSettings={{ centerCoordinate: MUMBAI_CENTRE, zoomLevel: REGION_ZOOM }} />
             {visibleObjects.map((item) => <OperationalMarker key={item.objectId} item={item} onPress={() => openObject(item)} />)}
             {deviceLocation && (
               <MarkerView coordinate={[deviceLocation.lon, deviceLocation.lat]} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>

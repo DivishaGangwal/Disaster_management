@@ -46,11 +46,11 @@ Run the coordination backend:
 npm run demo
 ```
 
-The command builds the single Assam Operations Console, starts the SQLite-backed
+The command builds the National Disaster Operations Network console for the current Mumbai deployment, starts the SQLite-backed
 backend, and serves both at `http://localhost:8787`. Persistent operations data is
-stored in `data/assam-operations.sqlite`. Set `DSM_DATABASE_PATH` to use a
-different file. The demo operations key is `assam-operations-demo`; set
-`DSM_OPERATIONS_KEY` before non-demo use. See
+stored in `data/mumbai-operations.sqlite`. Set `DSM_DATABASE_PATH` to use a
+different file. The local development operations key is `mumbai-operations-local`; set
+`DSM_OPERATIONS_KEY` before shared use. See
 [`docs/WEB-CONSOLE.md`](docs/WEB-CONSOLE.md).
 
 ## About React Native, Expo, and Expo Go
@@ -60,8 +60,8 @@ the difference matters (DEC-004):
 
 | Runtime | Transport | What works |
 |---|---|---|
-| **Stock Expo Go** | simulated | Every route, SOS creation, durable local state, Assam operational map/list, incident timelines and diagnostics; native offline-pack download is unavailable |
-| **Expo development build** | native BLE preferred, Classic fallback | The judged Tier 1 runtime: native Assam basemap download/storage plus advertise/scan/GATT or RFCOMM and the foreground relay service |
+| **Stock Expo Go** | simulated | Every route, SOS creation, durable local state, Mumbai operational map/list, incident timelines and diagnostics; native offline-pack download is unavailable |
+| **Expo development build** | native BLE preferred, Classic fallback | The judged Tier 1 runtime: native Mumbai basemap download/storage plus advertise/scan/GATT or RFCOMM and the foreground relay service |
 
 Real Bluetooth needs native code that is not in the Expo Go binary. Both runtimes
 drive the identical engine; only the injected `TransportAdapter` changes. So UI,

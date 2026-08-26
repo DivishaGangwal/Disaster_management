@@ -25,3 +25,4 @@ export * from './campaign.js';
 export * from './ports.js';
 export * from './events.js';
 export * from './content-pack.js';
+export * from './deployment.js';

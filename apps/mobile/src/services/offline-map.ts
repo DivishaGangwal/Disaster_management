@@ -1,9 +1,13 @@
 import Constants from 'expo-constants';
 import { OfflineManager, OfflinePackDownloadState, type OfflinePackStatus } from '@maplibre/maplibre-react-native';
+import { DEPLOYMENT } from '@dsm/contracts';
 
-export const ASSAM_MAP_PACK_NAME = 'assam-operational-basemap-v1';
-export const ASSAM_MAP_STYLE_URL = process.env.EXPO_PUBLIC_DSM_MAP_STYLE_URL ?? 'https://tiles.openfreemap.org/styles/liberty';
-export const ASSAM_MAP_BOUNDS: [[number, number], [number, number]] = [[96.15, 28.2], [89.65, 24.09]];
+export const MUMBAI_MAP_PACK_NAME = 'mumbai-operational-basemap-v1';
+export const MUMBAI_MAP_STYLE_URL = process.env.EXPO_PUBLIC_DSM_MAP_STYLE_URL ?? 'https://tiles.openfreemap.org/styles/liberty';
+export const MUMBAI_MAP_BOUNDS: [[number, number], [number, number]] = [
+  [DEPLOYMENT.map.maxLonE7 / 1e7, DEPLOYMENT.map.maxLatE7 / 1e7],
+  [DEPLOYMENT.map.minLonE7 / 1e7, DEPLOYMENT.map.minLatE7 / 1e7],
+];
 
 export interface OfflineMapSnapshot {
   readonly status: 'checking' | 'downloading' | 'ready' | 'not-downloaded' | 'error';
@@ -19,7 +23,7 @@ export class OfflineMapService {
   async snapshot(): Promise<OfflineMapSnapshot> {
     if (Constants.appOwnership === 'expo') return unavailable;
     try {
-      const pack = await OfflineManager.getPack(ASSAM_MAP_PACK_NAME);
+      const pack = await OfflineManager.getPack(MUMBAI_MAP_PACK_NAME);
       if (!pack) return unavailable;
       return fromStatus(await pack.status());
     } catch (reason) {
@@ -31,7 +35,7 @@ export class OfflineMapService {
     if (Constants.appOwnership === 'expo') throw new Error('Offline basemap download requires the Android/iOS development build, not stock Expo Go.');
     OfflineManager.setTileCountLimit(75_000);
     OfflineManager.setProgressEventThrottle(750);
-    const existing = await OfflineManager.getPack(ASSAM_MAP_PACK_NAME);
+    const existing = await OfflineManager.getPack(MUMBAI_MAP_PACK_NAME);
     const complete = (status: OfflinePackStatus) => status.state === OfflinePackDownloadState.Complete || status.percentage >= 100;
     if (existing) {
       const current = await existing.status();
@@ -46,15 +50,15 @@ export class OfflineMapService {
       const failure = (_pack: unknown, error: { message?: string }) => reject(new Error(error.message ?? 'Offline map download failed'));
       void (async () => {
         if (existing) {
-          await OfflineManager.subscribe(ASSAM_MAP_PACK_NAME, progress, failure);
+          await OfflineManager.subscribe(MUMBAI_MAP_PACK_NAME, progress, failure);
           await existing.resume();
         } else {
           await OfflineManager.createPack({
-            name: ASSAM_MAP_PACK_NAME,
-            styleURL: ASSAM_MAP_STYLE_URL,
-            bounds: ASSAM_MAP_BOUNDS,
-            minZoom: 5,
-            maxZoom: 12,
+            name: MUMBAI_MAP_PACK_NAME,
+            styleURL: MUMBAI_MAP_STYLE_URL,
+            bounds: MUMBAI_MAP_BOUNDS,
+            minZoom: DEPLOYMENT.map.minZoom,
+            maxZoom: DEPLOYMENT.map.maxZoom,
           }, progress, failure);
         }
       })().catch(reject);

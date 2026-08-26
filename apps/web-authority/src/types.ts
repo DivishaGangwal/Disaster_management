@@ -1,4 +1,4 @@
-import type { CampaignState, IncidentState, WebRole } from '@dsm/contracts';
+import type { CampaignState, DeploymentRegionCode, IncidentState, WebRole } from '@dsm/contracts';
 
 export type SectionKey = 'coordinate' | 'publish' | 'campaigns' | 'wavepx' | 'network';
 
@@ -6,7 +6,7 @@ export interface OperatorSession {
   readonly operatorLabel: string;
   readonly operationsKey: string;
   readonly roles: readonly WebRole[];
-  readonly regionCode: 'IN-AS';
+  readonly regionCode: DeploymentRegionCode;
 }
 
 export interface Incident {
@@ -34,7 +34,7 @@ export interface Responder {
   readonly district: string;
   readonly capabilities: readonly string[];
   readonly available: boolean;
-  readonly provisionedByDemo: true;
+  readonly provisionedByDemo: boolean;
   readonly assignmentId?: string;
   readonly incidentId?: string;
   readonly status: 'available' | 'assigned' | 'accepted' | 'en-route' | 'arrived';
@@ -59,7 +59,7 @@ export interface Campaign {
   readonly campaignVersion: number;
   readonly title: string;
   readonly summary: string;
-  readonly dataType?: 'official-alert' | 'regional-record';
+  readonly dataType?: 'official-alert' | 'regional-record' | 'check-in';
   readonly objectId?: string;
   readonly latE7?: number;
   readonly lonE7?: number;
