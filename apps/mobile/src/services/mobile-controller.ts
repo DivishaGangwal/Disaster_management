@@ -19,8 +19,10 @@ import {
   messageTypeName,
   type MapOperation,
   type AudioInputAdapter,
+  type CapabilityReport,
   type LocalProfile,
   type Tier2RawFrame,
+  type TransportKind,
   type DiagnosticEvent,
 } from '@dsm/contracts';
 import { buildCheckinResponse, buildResponderState, buildSosCancel, buildSosCreate, buildSosUpdate, decodePacket, floatToE7, newNodeToken, newSourceId, toEpochS } from '@dsm/codec';
@@ -58,6 +60,7 @@ class MobileController {
   private readonly wavePxReceiver = new Tier2Receiver();
   private wavePxTimeout?: ReturnType<typeof setTimeout>;
   private removeWavePxFrameListener?: () => void;
+  private removeWavePxStateListener?: () => void;
   private removeAdapterListener?: () => void;
   private gatewaySyncTimer?: ReturnType<typeof setInterval>;
   private gatewaySyncInFlight?: Promise<boolean>;
@@ -73,9 +76,12 @@ class MobileController {
   }
 
   async reconfigureRole(role: UserRole) {
+    this.stopGatewaySync();
     await this.stopWavePxListening();
     this.removeWavePxFrameListener?.();
     this.removeWavePxFrameListener = undefined;
+    this.removeWavePxStateListener?.();
+    this.removeWavePxStateListener = undefined;
     this.wavePxInput = undefined;
     this.removeAdapterListener?.();
     this.removeAdapterListener = undefined;
@@ -84,6 +90,29 @@ class MobileController {
     if (this.runtime?.relay.isRunning) await this.runtime.stopRelay();
     this.runtime = undefined;
     return this.initialize(role);
+  }
+
+  /** Stop every foreground/background capability before logout or teardown. */
+  async shutdown() {
+    this.stopGatewaySync();
+    clearTimeout(this.refreshTimer);
+    this.refreshTimer = undefined;
+    if (this.wavePxInput) await this.stopWavePxListening().catch(() => undefined);
+    this.removeWavePxFrameListener?.();
+    this.removeWavePxFrameListener = undefined;
+    this.removeWavePxStateListener?.();
+    this.removeWavePxStateListener = undefined;
+    this.wavePxInput = undefined;
+    this.removeAdapterListener?.();
+    this.removeAdapterListener = undefined;
+    if (this.runtime?.relay.isRunning) await this.runtime.stopRelay().catch(() => undefined);
+    this.runtime = undefined;
+    this.initializing = undefined;
+    const state = useAppStore.getState();
+    state.setRelayActive(false);
+    state.setTier2Listening(false);
+    state.setPeersRecentlySeen(0);
+    state.setInternetState('untested');
   }
 
   /**
@@ -146,7 +175,7 @@ class MobileController {
     }, new PackResolver(MUMBAI_CONTENT_PACK));
     const report = await runtime.getCapabilities();
     if (report.batteryPercent !== undefined) runtime.engine.setBatteryBand(batteryBand(report.batteryPercent));
-    const backendBaseUrl = (process.env.EXPO_PUBLIC_DSM_BACKEND_URL || 'http://127.0.0.1:8787').replace(/\/$/, '');
+    const backendBaseUrl = (process.env.EXPO_PUBLIC_DSM_BACKEND_URL || '').replace(/\/$/, '');
     if (backendBaseUrl) {
       runtime.attachGateway(new GatewaySynchronizer({
         engine: runtime.engine,
@@ -156,12 +185,7 @@ class MobileController {
       }));
     }
     const state = useAppStore.getState();
-    state.setTransportMode(report.simulated ? 'SIMULATED' : 'native');
-    state.setSelectedRadio(report.simulated ? 'simulated' : runtime.adapter.kind === 'tier1-classic' ? 'Bluetooth Classic' : 'BLE');
-    state.setBatteryPercent(report.batteryPercent);
-    state.setBatteryTemperatureC(report.batteryTemperatureC);
-    state.setThermalState(report.thermalThrottled ? 'limited' : 'normal');
-    state.setBluetoothEnabled(report.bluetoothEnabled);
+    this.applyCapabilityReport(report, runtime.adapter.kind);
     // Packet log is the source of truth: re-derive the map projection from
     // it and reconcile the persisted mirror before the first refresh() reads
     // it, so the fast paint above never permanently drifts.
@@ -187,9 +211,7 @@ class MobileController {
       if (event.kind === 'relay-state-changed') current.setRelayActive(!['stopped', 'permission-required', 'error-user-action-required'].includes(event.state));
       if (event.kind === 'capability-changed') {
         if (event.report.batteryPercent !== undefined) runtime.engine.setBatteryBand(batteryBand(event.report.batteryPercent));
-        current.setBatteryPercent(event.report.batteryPercent);
-        current.setBatteryTemperatureC(event.report.batteryTemperatureC);
-        current.setThermalState(event.report.thermalThrottled ? 'limited' : 'normal');
+        this.applyCapabilityReport(event.report, runtime.adapter.kind);
         this.scheduleRefresh();
       }
       // Notifications are NOT raised here any more. This event fires for every
@@ -201,6 +223,17 @@ class MobileController {
     if (!expoGo) {
       this.wavePxInput = createNativeWavePxAudioInput();
       this.removeWavePxFrameListener = this.wavePxInput.addFrameListener((frame) => { void this.acceptWavePxFrame(runtime, frame); });
+      this.removeWavePxStateListener = this.wavePxInput.addStateListener((event) => {
+        const state = useAppStore.getState();
+        state.setTier2Listening(event.state === 'listening');
+        if (event.state === 'stopped') {
+          clearTimeout(this.wavePxTimeout);
+          this.wavePxTimeout = undefined;
+          this.wavePxReceiver.stop();
+          state.setTier2Metrics(this.wavePxReceiver.metrics());
+          if (event.reason === 'error') state.setRuntimeError('WavePX microphone capture stopped unexpectedly. Check the diagnostic log.');
+        }
+      });
     }
     state.setTier2Metrics(this.wavePxReceiver.metrics());
     return runtime;
@@ -280,16 +313,45 @@ class MobileController {
 
   async requestPermissions() {
     const runtime = await this.initialize();
-    const [native, location, notifications] = await Promise.all([
-      runtime.requestPermissions(),
-      Location.requestForegroundPermissionsAsync(),
-      Notifications.requestPermissionsAsync(),
-    ]);
+    // Android only presents one runtime-permission transaction reliably at a
+    // time. Parallel native/location/notification prompts can swallow one
+    // another and leave Readiness claiming the user was never asked.
+    const native = await runtime.requestPermissions();
+    const location = await Location.requestForegroundPermissionsAsync();
+    await Notifications.requestPermissionsAsync();
     const state = useAppStore.getState();
     state.setBluetoothEnabled(['granted'].includes(native.bluetoothScan) && ['granted'].includes(native.bluetoothConnect));
     state.setLocationEnabled(location.granted);
     state.setMicrophoneEnabled(native.microphone === 'granted');
     return native;
+  }
+
+  /** Refresh the readiness UI from OS/native state without opening a dialog. */
+  async refreshPermissionStatus() {
+    const runtime = await this.initialize();
+    const [report, location] = await Promise.all([
+      runtime.getCapabilities(),
+      Location.getForegroundPermissionsAsync(),
+    ]);
+    this.applyCapabilityReport(report, runtime.adapter.kind);
+    const state = useAppStore.getState();
+    state.setLocationEnabled(location.granted);
+    state.setMicrophoneEnabled(report.permissions.microphone === 'granted');
+    return report.permissions;
+  }
+
+  private applyCapabilityReport(report: CapabilityReport, adapterKind: TransportKind) {
+    const state = useAppStore.getState();
+    state.setTransportMode(report.simulated ? 'SIMULATED' : 'native');
+    state.setSelectedRadio(report.simulated ? 'simulated' : adapterKind === 'tier1-classic' ? 'Bluetooth Classic' : 'BLE');
+    state.setBluetoothEnabled(
+      report.bluetoothEnabled &&
+      report.permissions.bluetoothScan === 'granted' &&
+      report.permissions.bluetoothConnect === 'granted',
+    );
+    state.setBatteryPercent(report.batteryPercent);
+    state.setBatteryTemperatureC(report.batteryTemperatureC);
+    state.setThermalState(report.thermalThrottled ? 'limited' : 'normal');
   }
 
   async sendRapidSos() {
@@ -323,6 +385,7 @@ class MobileController {
     }
     if (!result.validation.ok) throw new Error(result.validation.reason);
     state.setHasActiveSos(true);
+    state.setActiveSosSavedAtMs(Date.now());
     await runtime.startRelay();
     state.setRelayActive(true);
     await runtime.relay.refreshAdvertisement();
@@ -341,6 +404,7 @@ class MobileController {
     if (!result.validation.ok) throw new Error(result.validation.reason);
     state.setHasActiveSos(false);
     state.setActiveIncidentId(undefined);
+    state.setActiveSosSavedAtMs(undefined);
     await runtime.relay.refreshAdvertisement();
     await this.refresh(runtime);
   }

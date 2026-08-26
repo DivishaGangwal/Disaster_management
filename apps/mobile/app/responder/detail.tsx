@@ -1,31 +1,27 @@
-/**
- * RESPONDER INCIDENT DETAIL — Replica of Reference Screen 7
- * PNG ref: screen 7 (Responder Incident)
- * Route: ResponderIncident
- */
+/** Responder incident evidence and monotonic workflow controls. */
 
-import React, { useState } from 'react';
+import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAppStore } from '@/store/useAppStore';
+import { useAppStore, type ResponderWorkflowState as Status } from '@/store/useAppStore';
 import { mobileController } from '@/src/services/mobile-controller';
-
-type Status = 'pending' | 'accepted' | 'declined' | 'en-route' | 'arrived' | 'resolved';
+import { e7ToFloat } from '@dsm/codec';
 
 export default function ResponderIncidentScreen() {
   const router = useRouter();
-  const [status, setStatus] = useState<Status>('pending');
-  const { runtimeIncidents, selectedIncidentId } = useAppStore();
+  const { runtimeIncidents, mapObjects, selectedIncidentId, responderWorkflow, setResponderWorkflowState } = useAppStore();
+  const status: Status = selectedIncidentId ? responderWorkflow[selectedIncidentId] ?? 'pending' : 'pending';
   const incident = runtimeIncidents.find((item) => item.id === selectedIncidentId);
+  const incidentMapObject = mapObjects.find((item) => item.objectId === selectedIncidentId);
 
   const ArrowLeftIcon = icons.arrowLeft;
 
   const transition = async (next: Exclude<Status, 'pending'>, msg: string) => {
     try {
       await mobileController.responderTransition(next);
-      setStatus(next);
+      if (selectedIncidentId) setResponderWorkflowState(selectedIncidentId, next);
       Alert.alert('Status saved', `${msg}. The packet was saved locally and is eligible for relay.`);
     } catch (reason) {
       Alert.alert('Status not saved', reason instanceof Error ? reason.message : String(reason));
@@ -36,7 +32,7 @@ export default function ResponderIncidentScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: '#050811' }}>
       {/* Top Header bar */}
       <View style={{ height: 52, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(0, 242, 254, 0.12)', position: 'relative' }}>
-        <TouchableOpacity onPress={() => router.back()} style={{ position: 'absolute', left: 16, padding: 4 }}>
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} style={{ position: 'absolute', left: 16, minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
           <ArrowLeftIcon size={20} color="#00F2FE" />
         </TouchableOpacity>
         <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '900', letterSpacing: 0.5 }}>
@@ -46,13 +42,12 @@ export default function ResponderIncidentScreen() {
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 50 }}>
         
-        {/* Incident Info Card (Matching reference design) */}
         <View
           style={{
             backgroundColor: '#0D1424',
-            borderRadius: 20,
             borderWidth: 1,
             borderColor: 'rgba(255, 0, 85, 0.35)',
+            borderRadius: 10,
             padding: 16,
             marginBottom: 20,
           }}
@@ -65,19 +60,19 @@ export default function ResponderIncidentScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '900' }}>
-                  {incident ? categoryLabel(incident.category) : 'Building Fire'}
+                  {incident ? categoryLabel(incident.category) : 'No incident selected'}
                 </Text>
                 <Text style={{ color: '#94A3B8', fontSize: 12, marginTop: 2 }}>
-                  ID: {incident?.id ?? 'SOS-7C91'}
+                  ID: {incident?.id ?? 'Unknown'}
                 </Text>
               </View>
             </View>
 
             <View style={{ alignItems: 'flex-end' }}>
-              <View style={{ backgroundColor: 'rgba(255, 0, 85, 0.15)', borderWidth: 1, borderColor: '#FF0055', paddingHorizontal: 12, paddingVertical: 3, borderRadius: 12 }}>
-                <Text style={{ color: '#FF0055', fontSize: 11, fontWeight: '800' }}>High</Text>
+              <View style={{ borderLeftWidth: 2, borderColor: '#FF0055', paddingHorizontal: 8, paddingVertical: 2 }}>
+                <Text style={{ color: '#FF0055', fontSize: 11, fontWeight: '800' }}>{incident ? `Severity ${incident.severity}` : 'Unknown'}</Text>
               </View>
-              <Text style={{ color: '#64748B', fontSize: 11, marginTop: 6 }}>2 min ago</Text>
+              <Text style={{ color: '#64748B', fontSize: 11, marginTop: 6 }}>{incident ? ageLabel(incident.updatedAtS) : 'No timestamp'}</Text>
             </View>
           </View>
 
@@ -87,36 +82,28 @@ export default function ResponderIncidentScreen() {
             {/* People Involved */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ color: '#94A3B8', fontSize: 13, fontWeight: '600' }}>People Involved</Text>
-              <Text style={{ color: '#F8FAFC', fontSize: 15, fontWeight: '900' }}>{incident?.peopleTotal ?? 12}</Text>
+              <Text style={{ color: '#F8FAFC', fontSize: 15, fontWeight: '900' }}>{incident?.peopleTotal ?? 'Unknown'}</Text>
             </View>
 
             {/* Injured */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ color: '#94A3B8', fontSize: 13, fontWeight: '600' }}>Injured</Text>
-              <Text style={{ color: '#F8FAFC', fontSize: 15, fontWeight: '900' }}>{incident?.injured ?? 3}</Text>
+              <Text style={{ color: '#F8FAFC', fontSize: 15, fontWeight: '900' }}>{incident?.injured ?? 'Unknown'}</Text>
             </View>
 
             {/* Last Known Location */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ color: '#94A3B8', fontSize: 13, fontWeight: '600' }}>Last Known Location</Text>
-              <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>0.8 km NE</Text>
+              <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>{incidentMapObject?.latE7 !== undefined && incidentMapObject.lonE7 !== undefined ? 'Packet coordinate available' : 'Not supplied'}</Text>
             </View>
             <View style={{ alignItems: 'flex-end', marginTop: -4 }}>
-              <Text style={{ color: '#94A3B8', fontSize: 11 }}>Lat 19.2187, Lon 72.9781</Text>
-            </View>
-
-            {/* Notes */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 4 }}>
-              <Text style={{ color: '#94A3B8', fontSize: 13, fontWeight: '600' }}>Notes</Text>
-              <Text style={{ color: '#F8FAFC', fontSize: 12, fontWeight: '600', maxWidth: '65%', textAlign: 'right' }}>
-                Building fire spread to 2nd floor.
-              </Text>
+              <Text style={{ color: '#94A3B8', fontSize: 11 }}>{coordinateLabel(incidentMapObject?.latE7, incidentMapObject?.lonE7)}</Text>
             </View>
 
             {/* Status */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
               <Text style={{ color: '#94A3B8', fontSize: 13, fontWeight: '600' }}>Status</Text>
-              <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>Assigned to Unit-7</Text>
+              <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>{status}</Text>
             </View>
 
           </View>
@@ -134,6 +121,9 @@ export default function ResponderIncidentScreen() {
           <View style={{ flexDirection: 'row', gap: 10 }}>
             {/* Accept Button (Solid Green) */}
             <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Accept this incident assignment"
+              accessibilityState={{ disabled: status !== 'pending' }}
               onPress={() => void transition('accepted', 'Assignment accepted')}
               disabled={status !== 'pending'}
               activeOpacity={0.8}
@@ -141,7 +131,7 @@ export default function ResponderIncidentScreen() {
                 flex: 1,
                 backgroundColor: '#16A34A',
                 paddingVertical: 14,
-                borderRadius: 14,
+                borderRadius: 5,
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexDirection: 'row',
@@ -155,6 +145,9 @@ export default function ResponderIncidentScreen() {
 
             {/* Decline Button (Solid Crimson Red) */}
             <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Decline this incident assignment"
+              accessibilityState={{ disabled: status !== 'pending' }}
               onPress={() => void transition('declined', 'Assignment declined')}
               disabled={status !== 'pending'}
               activeOpacity={0.8}
@@ -162,7 +155,7 @@ export default function ResponderIncidentScreen() {
                 flex: 1,
                 backgroundColor: '#DC2626',
                 paddingVertical: 14,
-                borderRadius: 14,
+                borderRadius: 5,
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexDirection: 'row',
@@ -177,6 +170,9 @@ export default function ResponderIncidentScreen() {
 
           {/* Mark En Route (Outlined Teal/Blue) */}
           <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Mark this incident en route"
+            accessibilityState={{ disabled: status !== 'accepted' && status !== 'en-route' }}
             onPress={() => void transition('en-route', 'Marked en route')}
             disabled={status !== 'accepted' && status !== 'en-route'}
             activeOpacity={0.8}
@@ -185,7 +181,7 @@ export default function ResponderIncidentScreen() {
               borderWidth: 1.5,
               borderColor: '#0284C7',
               paddingVertical: 14,
-              borderRadius: 14,
+              borderRadius: 5,
               alignItems: 'center',
               justifyContent: 'center',
               flexDirection: 'row',
@@ -199,6 +195,9 @@ export default function ResponderIncidentScreen() {
 
           {/* Arrived at Scene (Outlined Gold/Amber) */}
           <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Mark arrival at the incident"
+            accessibilityState={{ disabled: status !== 'en-route' && status !== 'arrived' }}
             onPress={() => void transition('arrived', 'Marked arrived')}
             disabled={status !== 'en-route' && status !== 'arrived'}
             activeOpacity={0.8}
@@ -207,7 +206,7 @@ export default function ResponderIncidentScreen() {
               borderWidth: 1.5,
               borderColor: '#D97706',
               paddingVertical: 14,
-              borderRadius: 14,
+              borderRadius: 5,
               alignItems: 'center',
               justifyContent: 'center',
               flexDirection: 'row',
@@ -220,6 +219,9 @@ export default function ResponderIncidentScreen() {
 
           {/* Resolve Incident (Outlined Green) */}
           <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Resolve this incident"
+            accessibilityState={{ disabled: status !== 'arrived' && status !== 'resolved' }}
             onPress={() => void transition('resolved', 'Incident resolved')}
             disabled={status !== 'arrived' && status !== 'resolved'}
             activeOpacity={0.8}
@@ -228,7 +230,7 @@ export default function ResponderIncidentScreen() {
               borderWidth: 1.5,
               borderColor: '#0D9488',
               paddingVertical: 14,
-              borderRadius: 14,
+              borderRadius: 5,
               alignItems: 'center',
               justifyContent: 'center',
               flexDirection: 'row',
@@ -241,19 +243,24 @@ export default function ResponderIncidentScreen() {
 
           {/* Send My Location (Outlined Purple/Magenta) */}
           <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Send my current responder location"
+            accessibilityState={{ disabled: status !== 'accepted' && status !== 'en-route' }}
             onPress={() => void transition('en-route', 'En-route location update saved')}
+            disabled={status !== 'accepted' && status !== 'en-route'}
             activeOpacity={0.8}
             style={{
               backgroundColor: 'rgba(147, 51, 234, 0.15)',
               borderWidth: 1.5,
               borderColor: '#9333EA',
               paddingVertical: 14,
-              borderRadius: 14,
+              borderRadius: 5,
               alignItems: 'center',
               justifyContent: 'center',
               flexDirection: 'row',
               gap: 10,
               marginTop: 4,
+              opacity: status === 'accepted' || status === 'en-route' ? 1 : 0.5,
             }}
           >
             <icons.relay size={18} color="#C084FC" />
@@ -265,6 +272,9 @@ export default function ResponderIncidentScreen() {
     </SafeAreaView>
   );
 }
+
+function ageLabel(asOfS: number) { const age = Math.max(0, Math.round(Date.now() / 1000) - asOfS); return age < 60 ? 'just now' : age < 3600 ? `${Math.floor(age / 60)}m ago` : age < 7 * 86_400 ? `${Math.floor(age / 3600)}h ago` : 'over 7d old'; }
+function coordinateLabel(latE7?: number, lonE7?: number) { return latE7 === undefined || lonE7 === undefined ? 'No coordinate in the projected packet data' : `${e7ToFloat(latE7).toFixed(4)}, ${e7ToFloat(lonE7).toFixed(4)}`; }
 
 function categoryLabel(value: number) {
   return ['Medical Emergency', 'Trapped', 'Building Fire', 'Flooding', 'Violence', 'Building collapse', 'Missing person', 'Other Emergency'][value] ?? 'Emergency';

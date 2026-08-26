@@ -1,239 +1,78 @@
-/**
- * HOME SCREEN — General Public Landing Screen
- * PNG ref: screen 2 (Home) - Style 4 Futuristic Emergency Tech
- * Route: Home (tab index)
- */
-
-import React from 'react';
-import { View, Text, TouchableOpacity, Dimensions, Alert, ScrollView } from 'react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, Alert, Dimensions, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
-import { useAppStore } from '@/store/useAppStore';
-import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { icons } from '@/constants/icons';
 import { mobileController } from '@/src/services/mobile-controller';
+import { useAppStore } from '@/store/useAppStore';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const SOS_SIZE = Math.min(SCREEN_WIDTH * 0.62, 250);
+const SOS_SIZE = Math.min(Dimensions.get('window').width * 0.58, 236);
 
 export default function HomeScreen() {
   const router = useRouter();
-  const {
-    role,
-    isLoggedIn,
-    hasCompletedReadiness,
-    relayActive,
-    peersRecentlySeen,
-    internetState,
-    batteryPercent,
-    batteryTemperatureC,
-    thermalState,
-    selectedRadio,
-  } = useAppStore();
+  const [sending, setSending] = useState(false);
+  const state = useAppStore();
+  if (!state.isLoggedIn) return <Redirect href="/login" />;
+  if (!state.hasCompletedReadiness) return <Redirect href="/readiness" />;
+  if (state.role === 'responder') return <Redirect href="/(tabs)/nearby" />;
 
-  const ChevronRightIcon = icons.chevronDown;
-
-  if (!isLoggedIn) {
-    return <Redirect href="/login" />;
-  }
-
-  if (!hasCompletedReadiness) {
-    return <Redirect href="/readiness" />;
-  }
-
-  if (role === 'responder') {
-    return <Redirect href="/(tabs)/nearby" />;
-  }
-
-  const handleSendSos = async () => {
+  const sendRapidSos = async () => {
+    if (sending) return;
+    setSending(true);
     try {
       await mobileController.sendRapidSos();
-      Alert.alert('SOS Triggered', 'Rapid SOS signal broadcasted to nearby peers & gateway.');
+      Alert.alert('SOS saved on this phone', 'Relay will try nearby devices. A stored copy is not rescue confirmation.', [
+        { text: 'View delivery status', onPress: () => router.push('/sos/active') },
+        { text: 'Stay here', style: 'cancel' },
+      ]);
     } catch (reason) {
-      Alert.alert('SOS failed', reason instanceof Error ? reason.message : String(reason));
+      Alert.alert('SOS was not saved', reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSending(false);
     }
   };
 
-  const battVal = batteryPercent ?? 100;
+  return <SafeAreaView style={{ flex: 1, backgroundColor: '#050811' }}>
+    <View style={{ minHeight: 64, paddingHorizontal: 18, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#142039', flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+      <View><Text style={{ color: '#00F2FE', fontSize: 10, fontWeight: '900', letterSpacing: 2 }}>LOCAL EMERGENCY NODE</Text><Text style={{ color: '#F8FAFC', fontSize: 22, fontWeight: '900', marginTop: 1 }}>Home</Text></View>
+      <Text style={{ color: state.batteryPercent !== undefined && state.batteryPercent < 20 ? '#FFB300' : '#94A3B8', fontSize: 12, fontWeight: '800' }}>{state.batteryPercent === undefined ? 'BAT —' : `BAT ${state.batteryPercent}%`}</Text>
+    </View>
 
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#050811' }}>
-      {/* Header bar */}
-      <View style={{ height: 52, alignItems: 'center', justifyContent: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(0, 242, 254, 0.12)' }}>
-        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '900', letterSpacing: 1 }}>
-          Home
-        </Text>
-      </View>
-
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40, alignItems: 'center' }}>
-        
-        {/* Center Giant SOS Button */}
-        <View style={{ paddingVertical: 20, alignItems: 'center' }}>
-          {/* Outer glowing halo ring */}
-          <View
-            style={{
-              width: SOS_SIZE + 40,
-              height: SOS_SIZE + 40,
-              borderRadius: (SOS_SIZE + 40) / 2,
-              backgroundColor: 'rgba(255, 0, 85, 0.06)',
-              borderWidth: 1.5,
-              borderColor: 'rgba(255, 0, 85, 0.2)',
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}
-          >
-            {/* Middle glow ring */}
-            <View
-              style={{
-                width: SOS_SIZE + 18,
-                height: SOS_SIZE + 18,
-                borderRadius: (SOS_SIZE + 18) / 2,
-                backgroundColor: 'rgba(255, 0, 85, 0.12)',
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-            >
-              {/* Main SOS Circle */}
-              <TouchableOpacity
-                onPress={handleSendSos}
-                activeOpacity={0.75}
-                style={{
-                  width: SOS_SIZE,
-                  height: SOS_SIZE,
-                  borderRadius: SOS_SIZE / 2,
-                  backgroundColor: '#E11D48',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  shadowColor: '#FF0055',
-                  shadowOpacity: 0.6,
-                  shadowRadius: 24,
-                  elevation: 12,
-                }}
-              >
-                <Text style={{ color: '#FFFFFF', fontSize: 48, fontWeight: '900', letterSpacing: -1 }}>
-                  SOS
-                </Text>
-                <Text style={{ color: 'rgba(255, 255, 255, 0.85)', fontSize: 11, fontWeight: '800', letterSpacing: 1.5, marginTop: 4 }}>
-                  TAP FOR HELP
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Detailed SOS Options Button */}
-          <TouchableOpacity
-            onPress={() => router.push('/sos/composer')}
-            activeOpacity={0.8}
-            style={{
-              marginTop: 18,
-              paddingHorizontal: 24,
-              paddingVertical: 10,
-              borderRadius: 20,
-              backgroundColor: '#0D1424',
-              borderWidth: 1,
-              borderColor: 'rgba(0, 242, 254, 0.3)',
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>
-              Detailed SOS Options
-            </Text>
-            <Text style={{ color: '#00F2FE', fontSize: 14, fontWeight: '900' }}>›</Text>
+    <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 40 }}>
+      <View style={{ paddingTop: 22, paddingBottom: 18, alignItems: 'center' }}>
+        <View style={{ width: SOS_SIZE + 24, height: SOS_SIZE + 24, borderRadius: (SOS_SIZE + 24) / 2, borderWidth: 1, borderColor: '#5B1530', alignItems: 'center', justifyContent: 'center' }}>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Create an urgent SOS immediately" accessibilityHint="Saves the SOS locally and starts nearby Bluetooth relay" accessibilityState={{ busy: sending }} disabled={sending} onPress={() => void sendRapidSos()} activeOpacity={0.72} style={{ width: SOS_SIZE, height: SOS_SIZE, borderRadius: SOS_SIZE / 2, backgroundColor: '#E8174F', alignItems: 'center', justifyContent: 'center', opacity: sending ? 0.72 : 1 }}>
+            {sending ? <ActivityIndicator color="#FFF4F7" size="large" /> : <><Text style={{ color: '#FFF4F7', fontSize: 50, fontWeight: '900', letterSpacing: -2 }}>SOS</Text><Text style={{ color: '#FFD7E2', fontSize: 11, fontWeight: '900', letterSpacing: 1.8, marginTop: 5 }}>SAVE + RELAY NOW</Text></>}
           </TouchableOpacity>
         </View>
+        <TouchableOpacity accessibilityRole="button" onPress={() => router.push('/sos/composer')} style={{ minHeight: 48, marginTop: 13, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text style={{ color: '#C7D2E5', fontSize: 14, fontWeight: '800' }}>Add details before sending</Text><Text style={{ color: '#00F2FE', fontSize: 18 }}>→</Text></TouchableOpacity>
+      </View>
 
-        {/* 4 Status Boxes Row (Matching reference home.jpeg) */}
-        <View style={{ width: '100%', flexDirection: 'row', gap: 8, marginBottom: 12 }}>
-          {/* Box 1: Relay Status */}
-          <View style={{ flex: 1, backgroundColor: '#0D1424', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center' }}>
-            <Text style={{ color: '#00E676', fontSize: 11, fontWeight: '700' }}>Relay</Text>
-            <Text style={{ color: relayActive ? '#00E676' : '#94A3B8', fontSize: 14, fontWeight: '900', marginTop: 2 }}>
-              {relayActive ? 'Online' : 'Offline'}
-            </Text>
-          </View>
+      {state.hasActiveSos && <TouchableOpacity accessibilityRole="button" accessibilityLabel="View active SOS delivery status" onPress={() => router.push('/sos/active')} style={{ minHeight: 62, borderWidth: 1, borderColor: '#6D1B37', borderRadius: 10, backgroundColor: '#190A15', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, marginBottom: 20 }}><View><Text style={{ color: '#FF7898', fontSize: 11, fontWeight: '900', letterSpacing: 1.4 }}>ACTIVE SOS</Text><Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800', marginTop: 2 }}>Check delivery evidence</Text></View><Text style={{ color: '#FF7898', fontSize: 20 }}>→</Text></TouchableOpacity>}
 
-          {/* Box 2: Radio Status */}
-          <View style={{ flex: 1, backgroundColor: '#0D1424', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center' }}>
-            <Text style={{ color: '#38BDF8', fontSize: 11, fontWeight: '700' }}>Radio</Text>
-            <Text style={{ color: '#38BDF8', fontSize: 14, fontWeight: '900', marginTop: 2 }}>
-              {selectedRadio === 'simulated' ? 'LoRa' : selectedRadio}
-            </Text>
-          </View>
+      <Text style={{ color: '#64748B', fontSize: 10, fontWeight: '900', letterSpacing: 1.8, marginBottom: 8 }}>RADIO PICTURE</Text>
+      <View style={{ flexDirection: 'row', gap: 7 }}>
+        <Metric label="RELAY" value={state.relayActive ? 'ON' : 'OFF'} color={state.relayActive ? '#00E676' : '#FFB300'} />
+        <Metric label="RADIO" value={state.selectedRadio} color="#38BDF8" />
+        <Metric label="PEERS" value={String(state.peersRecentlySeen)} color="#00F2FE" />
+        <Metric label="BATTERY" value={state.batteryPercent === undefined ? '—' : `${state.batteryPercent}%`} color={state.batteryPercent !== undefined && state.batteryPercent < 20 ? '#FF456F' : '#EAB308'} />
+      </View>
+      <View style={{ marginTop: 8, backgroundColor: '#0D1424', borderWidth: 1, borderColor: '#1B2944', borderRadius: 10, paddingHorizontal: 14 }}>
+        <SignalRow label="Transport mode" value={state.transportMode === 'SIMULATED' ? 'SIMULATED' : 'NATIVE'} color="#38BDF8" detail={state.transportMode === 'SIMULATED' ? 'No physical Bluetooth' : 'Android radio bridge'} />
+        <SignalRow label="Gateway" value={state.internetState === 'proven gateway' ? 'PROVEN' : state.internetState.toUpperCase()} color={state.internetState === 'proven gateway' ? '#00E676' : '#94A3B8'} detail="Optional; mesh remains local" last />
+      </View>
 
-          {/* Box 3: Peers Count */}
-          <View style={{ flex: 1, backgroundColor: '#0D1424', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center' }}>
-            <Text style={{ color: '#38BDF8', fontSize: 11, fontWeight: '700' }}>Peers</Text>
-            <Text style={{ color: '#38BDF8', fontSize: 16, fontWeight: '900', marginTop: 2 }}>
-              {peersRecentlySeen ?? 0}
-            </Text>
-          </View>
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open WavePX acoustic receiver" onPress={() => router.push('/tier2')} style={{ minHeight: 82, marginTop: 16, backgroundColor: '#0A1625', borderWidth: 1, borderColor: '#17314A', borderRadius: 10, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}><icons.mic size={22} color={state.tier2Listening ? '#FF456F' : '#00F2FE'} /><View style={{ flex: 1 }}><Text style={{ color: '#F8FAFC', fontSize: 15, fontWeight: '900' }}>WavePX receiver</Text><Text numberOfLines={2} style={{ color: '#7E8CA6', fontSize: 12, marginTop: 3 }}>{state.tier2Listening ? 'Listening through this microphone' : state.tier2Metrics?.campaignId ? `Last campaign ${state.tier2Metrics.campaignId}` : 'No campaign detected on this device'}</Text></View></View><Text style={{ color: '#00F2FE', fontSize: 20 }}>→</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  </SafeAreaView>;
+}
 
-          {/* Box 4: Battery & Thermal combined */}
-          <View style={{ flex: 1, backgroundColor: '#0D1424', borderRadius: 14, borderWidth: 1, borderColor: '#1E293B', paddingVertical: 10, paddingHorizontal: 6, alignItems: 'center' }}>
-            <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '700' }}>Battery</Text>
-            <Text style={{ color: battVal < 20 ? '#FFB300' : '#EAB308', fontSize: 16, fontWeight: '900', marginTop: 2 }}>
-              {battVal}%
-            </Text>
-          </View>
-        </View>
+function SignalRow({ label, value, color, detail, last = false }: { label: string; value: string; color: string; detail: string; last?: boolean }) {
+  return <View style={{ minHeight: 62, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: last ? 0 : 1, borderBottomColor: '#111C31' }}><View><Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800' }}>{label}</Text><Text style={{ color: '#64748B', fontSize: 11, marginTop: 3 }}>{detail}</Text></View><Text style={{ color, fontSize: 12, fontWeight: '900', letterSpacing: .8 }}>{value}</Text></View>;
+}
 
-        {/* Network Health Card */}
-        <View style={{ width: '100%', backgroundColor: '#0D1424', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', padding: 14, marginBottom: 12 }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800' }}>Network Health</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Text style={{ color: '#94A3B8', fontSize: 12, fontWeight: '700' }}>{peersRecentlySeen ?? 0} Peers</Text>
-              <Text style={{ color: relayActive ? '#00E676' : '#FFB300', fontSize: 14, fontWeight: '900' }}>
-                {relayActive ? 'Active' : 'Standby'}
-              </Text>
-            </View>
-          </View>
-
-          {/* Waveform indicator */}
-          <View style={{ height: 2, backgroundColor: '#00E676', width: '100%', opacity: 0.8, borderRadius: 1, marginVertical: 6 }} />
-
-          <Text style={{ color: '#64748B', fontSize: 11, fontWeight: '600' }}>
-            Local Mesh Good · Internet via Gateway
-          </Text>
-        </View>
-
-        {/* WavePX / Tier-2 Card */}
-        <TouchableOpacity
-          onPress={() => router.push('/tier2')}
-          activeOpacity={0.8}
-          style={{
-            width: '100%',
-            backgroundColor: '#0D1424',
-            borderRadius: 16,
-            borderWidth: 1,
-            borderColor: '#1E293B',
-            padding: 14,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-            <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(0, 242, 254, 0.15)', borderWidth: 1, borderColor: '#00F2FE', justifyContent: 'center', alignItems: 'center' }}>
-              <icons.mic size={18} color="#00F2FE" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800' }}>
-                WavePX / Tier-2
-              </Text>
-              <Text style={{ color: '#64748B', fontSize: 11, marginTop: 2 }}>
-                Listening · Campaign: DRILL-2025
-              </Text>
-            </View>
-          </View>
-
-          <View style={{ backgroundColor: 'rgba(0, 242, 254, 0.1)', borderWidth: 1, borderColor: '#00F2FE', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14 }}>
-            <Text style={{ color: '#00F2FE', fontSize: 12, fontWeight: '800' }}>View</Text>
-          </View>
-        </TouchableOpacity>
-
-      </ScrollView>
-    </SafeAreaView>
-  );
+function Metric({ label, value, color }: { label: string; value: string; color: string }) {
+  return <View style={{ flex: 1, minHeight: 62, backgroundColor: '#0D1424', borderWidth: 1, borderColor: '#1B2944', borderRadius: 8, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }}><Text style={{ color: '#596882', fontSize: 8, fontWeight: '900', letterSpacing: .7 }}>{label}</Text><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={{ color, fontSize: 13, fontWeight: '900', marginTop: 4 }}>{value}</Text></View>;
 }

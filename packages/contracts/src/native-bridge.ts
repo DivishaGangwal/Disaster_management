@@ -217,6 +217,15 @@ export interface AudioInputAdapter {
   /** T2-003: the direct clean-audio path, labelled a controlled demonstration. */
   feedDirectAudio(pcm: Float32Array, sampleRateHz: number): Promise<void>;
   addFrameListener(listener: (frame: Tier2RawFrame) => void): () => void;
+  /** Native capture truth, including timeout and device-side failures. */
+  addStateListener(listener: (event: AudioInputStateEvent) => void): () => void;
+}
+
+export interface AudioInputStateEvent {
+  readonly state: 'listening' | 'stopped';
+  readonly reason?: string;
+  readonly timeoutMs?: number;
+  readonly atMs: number;
 }
 
 export interface Tier2RawFrame {

@@ -2,6 +2,7 @@ import { requireOptionalNativeModule } from 'expo-modules-core';
 import {
   type CapabilityReport,
   type AudioInputAdapter,
+  type AudioInputStateEvent,
   type DiscoverySummary,
   type EncodedPacket,
   type PermissionSnapshot,
@@ -100,6 +101,7 @@ export class NativeTransportAdapter implements TransportAdapter {
 export class NativeWavePxAudioInputAdapter implements AudioInputAdapter {
   readonly id = 'android-wavepx';
   private readonly listeners = new Set<(frame: Tier2RawFrame) => void>();
+  private readonly stateListeners = new Set<(event: AudioInputStateEvent) => void>();
   private subscription?: { remove(): void };
 
   startListening(options: { readonly timeoutMs: number }): Promise<void> {
@@ -122,17 +124,41 @@ export class NativeWavePxAudioInputAdapter implements AudioInputAdapter {
     this.ensureSubscribed();
     return () => {
       this.listeners.delete(listener);
-      if (this.listeners.size === 0) { this.subscription?.remove(); this.subscription = undefined; }
+      this.releaseSubscriptionIfUnused();
+    };
+  }
+
+  addStateListener(listener: (event: AudioInputStateEvent) => void): () => void {
+    this.stateListeners.add(listener);
+    this.ensureSubscribed();
+    return () => {
+      this.stateListeners.delete(listener);
+      this.releaseSubscriptionIfUnused();
     };
   }
 
   private ensureSubscribed(): void {
     if (this.subscription) return;
     this.subscription = moduleOrThrow().addListener('onTransportEvent', (event: NativeEvent) => {
-      if (event.kind !== 'wavepx-frame-native') return;
-      const frame: Tier2RawFrame = { bytes: fromBase64(event.bytesBase64), source: event.source, receivedAtMs: event.atMs };
-      for (const listener of this.listeners) listener(frame);
+      if (event.kind === 'wavepx-frame-native') {
+        const frame: Tier2RawFrame = { bytes: fromBase64(event.bytesBase64), source: event.source, receivedAtMs: event.atMs };
+        for (const listener of this.listeners) listener(frame);
+      } else if (event.kind === 'wavepx-listening-state') {
+        const state: AudioInputStateEvent = {
+          state: event.state,
+          atMs: event.atMs,
+          ...(event.reason ? { reason: event.reason } : {}),
+          ...(event.timeoutMs !== undefined ? { timeoutMs: event.timeoutMs } : {}),
+        };
+        for (const listener of this.stateListeners) listener(state);
+      }
     });
+  }
+
+  private releaseSubscriptionIfUnused(): void {
+    if (this.listeners.size > 0 || this.stateListeners.size > 0) return;
+    this.subscription?.remove();
+    this.subscription = undefined;
   }
 }
 

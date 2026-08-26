@@ -8,6 +8,7 @@ export type InternetState = 'untested' | 'unavailable' | 'probing' | 'proven gat
 export type TransportMode = 'SIMULATED' | 'native';
 export type SelectedRadio = 'simulated' | 'BLE' | 'Bluetooth Classic';
 export type OfflinePackStatus = 'checking' | 'downloading' | 'ready' | 'not-downloaded' | 'error';
+export type ResponderWorkflowState = 'pending' | 'accepted' | 'declined' | 'en-route' | 'arrived' | 'resolved';
 export interface RuntimeIncident { id: string; category: number; severity: number; peopleTotal?: number; injured?: number; updatedAtS: number; }
 export interface RuntimeMapObject { objectId: string; kind: string; label: string; state?: number; latE7?: number; lonE7?: number; asOfS: number; provenance: string; }
 export interface RuntimeDiagnostic {
@@ -99,6 +100,8 @@ interface AppState {
   setDiagnosticEvents: (value: RuntimeDiagnostic[]) => void;
   selectedIncidentId?: string;
   setSelectedIncidentId: (value?: string) => void;
+  responderWorkflow: Record<string, ResponderWorkflowState>;
+  setResponderWorkflowState: (incidentId: string, value: ResponderWorkflowState) => void;
   selectedMapObjectId?: string;
   setSelectedMapObjectId: (value?: string) => void;
   /** Object the Map screen should fly the camera to on next mount, then clear. */
@@ -131,6 +134,8 @@ interface AppState {
   // Active SOS
   hasActiveSos: boolean;
   setHasActiveSos: (v: boolean) => void;
+  activeSosSavedAtMs?: number;
+  setActiveSosSavedAtMs: (value?: number) => void;
 
   // Onboarding
   hasCompletedReadiness: boolean;
@@ -206,6 +211,8 @@ export const useAppStore = create<AppState>()(
       setDiagnosticEvents: (diagnosticEvents) => set({ diagnosticEvents }),
       selectedIncidentId: undefined,
       setSelectedIncidentId: (selectedIncidentId) => set({ selectedIncidentId }),
+      responderWorkflow: {},
+      setResponderWorkflowState: (incidentId, value) => set((state) => ({ responderWorkflow: { ...state.responderWorkflow, [incidentId]: value } })),
       selectedMapObjectId: undefined,
       setSelectedMapObjectId: (selectedMapObjectId) => set({ selectedMapObjectId }),
       focusMapObjectId: undefined,
@@ -237,6 +244,8 @@ export const useAppStore = create<AppState>()(
       // Active SOS
       hasActiveSos: false,
       setHasActiveSos: (v) => set({ hasActiveSos: v }),
+      activeSosSavedAtMs: undefined,
+      setActiveSosSavedAtMs: (activeSosSavedAtMs) => set({ activeSosSavedAtMs }),
 
       // Onboarding
       hasCompletedReadiness: false,
@@ -244,11 +253,15 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'dsm-app-state',
-      version: 4,
+      version: 5,
       migrate: (persisted) => {
         const previous = persisted as Partial<AppState>;
         const staleRegion = !previous.selectedRegion || previous.selectedRegion.includes('Assam') || previous.selectedRegion.endsWith('DISTRICT');
-        return { ...previous, ...(staleRegion ? { selectedRegion: 'Mumbai Operational Region' } : {}) } as AppState;
+        return {
+          ...previous,
+          responderWorkflow: previous.responderWorkflow ?? {},
+          ...(staleRegion ? { selectedRegion: 'Mumbai Operational Region' } : {}),
+        } as AppState;
       },
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
@@ -262,7 +275,9 @@ export const useAppStore = create<AppState>()(
         transportMode: state.transportMode,
         activeIncidentId: state.activeIncidentId,
         hasActiveSos: state.hasActiveSos,
+        activeSosSavedAtMs: state.activeSosSavedAtMs,
         receivedPackets: state.receivedPackets,
+        responderWorkflow: state.responderWorkflow,
       }),
     },
   ),

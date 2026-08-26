@@ -10,7 +10,7 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CheckinStatus } from '@dsm/contracts';
 import { icons } from '@/constants/icons';
-import { useAppStore, type ReceivedPacketSummary } from '@/store/useAppStore';
+import { useAppStore } from '@/store/useAppStore';
 import { mobileController } from '@/src/services/mobile-controller';
 
 export default function Tier2ListenScreen() {
@@ -19,6 +19,8 @@ export default function Tier2ListenScreen() {
   const [busy, setBusy] = useState(false);
   const [expandedId, setExpandedId] = useState(receivedPackets[0]?.packetId ?? '');
   const ArrowLeftIcon = icons.arrowLeft;
+  const checkinCampaignId = receivedPackets.find((packet) => packet.typeName === 'CHECKIN_CAMPAIGN' && packet.campaignId)?.campaignId;
+  const appliedMapChanges = receivedPackets.reduce((count, packet) => count + packet.impacts.filter((impact) => impact.applied).length, 0);
 
   useEffect(() => () => { if (useAppStore.getState().tier2Listening) void mobileController.stopWavePxListening(); }, []);
   useEffect(() => { if (receivedPackets[0]) setExpandedId(receivedPackets[0].packetId); }, [receivedPackets[0]?.packetId]);
@@ -43,9 +45,9 @@ export default function Tier2ListenScreen() {
   const respondToCheckin = async (status: number, label: string) => {
     setBusy(true);
     try {
-      const activeCampaignId = tier2Metrics?.campaignId ?? 'DRILL-2025';
-      await mobileController.respondToCheckin(activeCampaignId, status);
-      Alert.alert('Status Sent', `Check-in status "${label}" broadcasted over mesh network.`);
+      if (!checkinCampaignId) throw new Error('No decoded check-in campaign is available to answer.');
+      await mobileController.respondToCheckin(checkinCampaignId, status);
+      Alert.alert('Status saved', `"${label}" was saved locally and queued for Tier 1 Bluetooth relay or a proven gateway.`);
     } catch (reason) {
       useAppStore.getState().setRuntimeError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -55,24 +57,18 @@ export default function Tier2ListenScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#050811' }}>
-      {/* Top Header bar */}
-      <View style={{ height: 52, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(0, 242, 254, 0.12)', position: 'relative' }}>
-        <TouchableOpacity onPress={() => router.back()} style={{ position: 'absolute', left: 16, padding: 4 }}>
+      <View style={{ minHeight: 64, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#142039' }}>
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
           <ArrowLeftIcon size={20} color="#00F2FE" />
         </TouchableOpacity>
-        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '900', letterSpacing: 0.5 }}>
-          WavePX / Tier-2
-        </Text>
+        <View><Text style={{ color: '#00F2FE', fontSize: 10, fontWeight: '900', letterSpacing: 2 }}>ACOUSTIC RECEIVE</Text><Text style={{ color: '#F8FAFC', fontSize: 20, fontWeight: '900' }}>WavePX / Tier-2</Text></View>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 50, gap: 14 }}>
         
-        {/* Compact Header Listening Card with Pill Toggle Button */}
-        <View style={{ backgroundColor: '#0D1424', borderRadius: 16, borderWidth: 1, borderColor: tier2Listening ? '#00F2FE' : '#1E293B', paddingHorizontal: 16, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <View style={{ backgroundColor: '#0D1424', borderWidth: 1, borderColor: tier2Listening ? '#00F2FE' : '#1B2944', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(0, 242, 254, 0.15)', justifyContent: 'center', alignItems: 'center' }}>
-              <icons.mic size={18} color="#00F2FE" />
-            </View>
+            <icons.mic size={22} color={tier2Listening ? '#FF456F' : '#00F2FE'} />
             <Text style={{ color: '#00F2FE', fontSize: 16, fontWeight: '800' }}>
               {tier2Listening ? 'Listening' : 'Stopped'}
             </Text>
@@ -80,6 +76,9 @@ export default function Tier2ListenScreen() {
 
           {/* Compact Pill Toggle Button */}
           <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={tier2Listening ? 'Stop WavePX listening' : 'Start WavePX listening'}
+            accessibilityState={{ busy }}
             disabled={busy}
             onPress={() => void toggleListening()}
             activeOpacity={0.8}
@@ -89,7 +88,7 @@ export default function Tier2ListenScreen() {
               borderColor: tier2Listening ? '#FF0055' : '#00F2FE',
               paddingHorizontal: 20,
               paddingVertical: 8,
-              borderRadius: 14,
+              borderRadius: 5,
             }}
           >
             <Text style={{ color: tier2Listening ? '#FF0055' : '#00F2FE', fontSize: 13, fontWeight: '900' }}>
@@ -102,34 +101,32 @@ export default function Tier2ListenScreen() {
           <Text style={{ color: '#FF0055', fontSize: 12, paddingHorizontal: 4 }}>{runtimeError}</Text>
         )}
 
-        {/* Campaign Header Card */}
-        <View style={{ backgroundColor: '#0D1424', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', padding: 14 }}>
+        <View style={{ backgroundColor: '#0D1424', borderWidth: 1, borderColor: '#1B2944', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 14 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <Text style={{ color: '#94A3B8', fontSize: 13, fontWeight: '700' }}>Campaign</Text>
             <Text style={{ color: '#00F2FE', fontSize: 14, fontWeight: '900' }}>
-              {tier2Metrics?.campaignId ?? 'DRILL-2025'}
+              {tier2Metrics?.campaignId ?? 'None detected'}
             </Text>
             <Text style={{ color: '#94A3B8', fontSize: 12 }}>
-              Version v{tier2Metrics?.campaignVersion ?? '1.3.2'}
+              {tier2Metrics?.campaignVersion === undefined ? 'No version' : `Version v${tier2Metrics.campaignVersion}`}
             </Text>
           </View>
 
           {/* 5 Telemetry Metrics */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-around', paddingTop: 8, borderTopWidth: 1, borderTopColor: '#1E293B' }}>
-            <MetricBox label="Detected" value={tier2Metrics?.framesDetected ?? 512} color="#00E676" />
-            <MetricBox label="Valid" value={tier2Metrics?.framesValid ?? 386} color="#EAB308" />
-            <MetricBox label="Corrupt" value={tier2Metrics?.framesCorrupt ?? 18} color="#00E676" />
-            <MetricBox label="Duplicate" value={tier2Metrics?.framesDuplicate ?? 42} color="#FF0055" />
-            <MetricBox label="Missing" value={tier2Metrics?.missingPacketIds.length ?? 66} color="#EC4899" />
+            <MetricBox label="Detected" value={tier2Metrics?.framesDetected ?? 0} color="#00E676" />
+            <MetricBox label="Valid" value={tier2Metrics?.framesValid ?? 0} color="#EAB308" />
+            <MetricBox label="Corrupt" value={tier2Metrics?.framesCorrupt ?? 0} color="#FF0055" />
+            <MetricBox label="Duplicate" value={tier2Metrics?.framesDuplicate ?? 0} color="#EC4899" />
+            <MetricBox label="Missing" value={tier2Metrics?.missingPacketIds.length ?? 0} color="#FDBA74" />
           </View>
         </View>
 
-        {/* Decoded Messages Card */}
-        <View style={{ backgroundColor: '#0D1424', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', padding: 16 }}>
+        <View style={{ backgroundColor: '#0D1424', borderWidth: 1, borderColor: '#1B2944', borderRadius: 10, padding: 14 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800' }}>Decoded Messages</Text>
             <Text style={{ color: '#38BDF8', fontSize: 12, fontWeight: '800' }}>
-              {receivedPackets.length > 0 ? `${receivedPackets.length} new` : '128 new'}
+              {receivedPackets.length} received
             </Text>
           </View>
 
@@ -146,28 +143,14 @@ export default function Tier2ListenScreen() {
                 </View>
               ))
             ) : (
-              <>
-                <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
-                  <Text style={{ color: '#64748B', fontSize: 12, fontFamily: 'monospace' }}>09:35:22</Text>
-                  <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '600' }}>Shelter status update</Text>
-                </View>
-                <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
-                  <Text style={{ color: '#64748B', fontSize: 12, fontFamily: 'monospace' }}>09:35:18</Text>
-                  <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '600' }}>Supply request</Text>
-                </View>
-                <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
-                  <Text style={{ color: '#64748B', fontSize: 12, fontFamily: 'monospace' }}>09:35:07</Text>
-                  <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '600' }}>I am safe</Text>
-                </View>
-              </>
+              <Text style={{ color: '#94A3B8', fontSize: 12, lineHeight: 18 }}>No WavePX packets have been decoded on this device yet.</Text>
             )}
           </View>
         </View>
 
-        {/* Map Changes Card */}
-        <View style={{ backgroundColor: '#0D1424', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <View style={{ minHeight: 58, backgroundColor: '#0D1424', borderWidth: 1, borderColor: '#1B2944', borderRadius: 10, paddingHorizontal: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800' }}>Map Changes from Packets</Text>
-          <Text style={{ color: '#00E676', fontSize: 12, fontWeight: '700' }}>applied</Text>
+          <Text style={{ color: appliedMapChanges > 0 ? '#00E676' : '#94A3B8', fontSize: 12, fontWeight: '700' }}>{appliedMapChanges} applied</Text>
         </View>
 
         {/* Missing Action Buttons Grid (Matching Reference Screen 10) */}
@@ -176,7 +159,9 @@ export default function Tier2ListenScreen() {
           <View style={{ flexDirection: 'row', gap: 10 }}>
             {/* I Am Safe (Green Button) */}
             <TouchableOpacity
-              disabled={busy}
+              accessibilityRole="button"
+              accessibilityLabel="Respond to the current check-in: I am safe"
+              disabled={busy || !checkinCampaignId}
               onPress={() => void respondToCheckin(CheckinStatus.SAFE, 'I Am Safe')}
               activeOpacity={0.8}
               style={{
@@ -185,9 +170,11 @@ export default function Tier2ListenScreen() {
                 borderWidth: 1.5,
                 borderColor: '#16A34A',
                 paddingVertical: 14,
-                borderRadius: 14,
+                paddingHorizontal: 12,
+                borderRadius: 5,
                 alignItems: 'center',
                 justifyContent: 'center',
+                opacity: checkinCampaignId ? 1 : 0.45,
               }}
             >
               <Text style={{ color: '#4ADE80', fontSize: 15, fontWeight: '900' }}>I Am Safe</Text>
@@ -195,7 +182,9 @@ export default function Tier2ListenScreen() {
 
             {/* Need Assistance (Amber/Orange Button) */}
             <TouchableOpacity
-              disabled={busy}
+              accessibilityRole="button"
+              accessibilityLabel="Respond to the current check-in: Need assistance"
+              disabled={busy || !checkinCampaignId}
               onPress={() => void respondToCheckin(CheckinStatus.NEED_ASSISTANCE, 'Need Assistance')}
               activeOpacity={0.8}
               style={{
@@ -204,9 +193,11 @@ export default function Tier2ListenScreen() {
                 borderWidth: 1.5,
                 borderColor: '#B45309',
                 paddingVertical: 14,
-                borderRadius: 14,
+                paddingHorizontal: 12,
+                borderRadius: 5,
                 alignItems: 'center',
                 justifyContent: 'center',
+                opacity: checkinCampaignId ? 1 : 0.45,
               }}
             >
               <Text style={{ color: '#FDBA74', fontSize: 15, fontWeight: '900' }}>Need Assistance</Text>
@@ -217,15 +208,19 @@ export default function Tier2ListenScreen() {
           <View style={{ flexDirection: 'row', gap: 10 }}>
             {/* Raw Payload */}
             <TouchableOpacity
-              onPress={() => Alert.alert('Raw Payload', JSON.stringify(receivedPackets[0]?.payload ?? { status: 'OK', packet: 'RAW_AUDIO_TELEMETRY' }, null, 2))}
+              accessibilityRole="button"
+              accessibilityLabel="Inspect the latest decoded raw payload"
+              onPress={() => Alert.alert('Raw Payload', receivedPackets[0] ? JSON.stringify(receivedPackets[0].payload, null, 2) : 'No decoded packet is available.')}
               activeOpacity={0.8}
               style={{
                 flex: 1,
-                backgroundColor: '#0D1424',
-                borderWidth: 1,
-                borderColor: '#1E293B',
+                backgroundColor: 'transparent',
+                borderTopWidth: 1,
+                borderBottomWidth: 1,
+                borderColor: '#1B2944',
                 paddingVertical: 14,
-                borderRadius: 14,
+                paddingHorizontal: 12,
+                borderRadius: 0,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
@@ -235,21 +230,30 @@ export default function Tier2ListenScreen() {
 
             {/* Evidence (12) */}
             <TouchableOpacity
-              onPress={() => Alert.alert('Evidence Records', '12 cryptographic audio packet proofs stored in local SQLite db.')}
+              accessibilityRole="button"
+              accessibilityLabel={`Inspect received packet evidence. ${receivedPackets.length} packets recorded`}
+              onPress={() => Alert.alert(
+                'Received packet ledger',
+                receivedPackets.length === 0
+                  ? 'No recovered WavePX packets are recorded in the app ledger.'
+                  : receivedPackets.map((packet) => `${packet.packetId.slice(0, 12)} · ${packet.typeName} · ${packet.outcome}`).join('\n'),
+              )}
               activeOpacity={0.8}
               style={{
                 flex: 1,
-                backgroundColor: '#0D1424',
-                borderWidth: 1,
-                borderColor: '#1E293B',
+                backgroundColor: 'transparent',
+                borderTopWidth: 1,
+                borderBottomWidth: 1,
+                borderColor: '#1B2944',
                 paddingVertical: 14,
-                borderRadius: 14,
+                paddingHorizontal: 12,
+                borderRadius: 0,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
             >
               <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800' }}>
-                Evidence ({receivedPackets.length || 12})
+                Evidence ({receivedPackets.length})
               </Text>
             </TouchableOpacity>
           </View>

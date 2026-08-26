@@ -17,8 +17,8 @@ const categoryInfo = [
   { label: 'Building Fire', iconKey: 'catFire' as const },
   { label: 'Flooding', iconKey: 'catFlood' as const },
   { label: 'Violence', iconKey: 'catViolence' as const },
-  { label: 'Road Accident', iconKey: 'catBuildingCollapse' as const },
-  { label: 'Gas Leak', iconKey: 'catOther' as const },
+  { label: 'Structural Collapse', iconKey: 'catBuildingCollapse' as const },
+  { label: 'Missing Person', iconKey: 'catOther' as const },
   { label: 'Other Emergency', iconKey: 'catOther' as const },
 ];
 
@@ -33,7 +33,7 @@ export default function NearbyScreen() {
   const router = useRouter();
   const { role, runtimeIncidents, setSelectedIncidentId } = useAppStore();
 
-  const [activeFilter, setActiveFilter] = useState<'all' | 'my-area' | 'unread'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'priority'>('all');
   const [sortOrder, setSortOrder] = useState<'high-to-low' | 'low-to-high'>('high-to-low');
 
   const ShieldIcon = icons.shield;
@@ -51,15 +51,10 @@ export default function NearbyScreen() {
   const incidentsSource = runtimeIncidents;
 
   // Filter logic
-  const myAreaIncidents = incidentsSource.filter((inc) => inc.severity >= 2 || inc.category === 2 || inc.category === 6);
-  const unreadIncidents = incidentsSource.filter((inc) => inc.severity >= 2);
+  const priorityIncidents = incidentsSource.filter((inc) => inc.severity >= 2);
 
   const displayedList = (
-    activeFilter === 'my-area'
-      ? myAreaIncidents
-      : activeFilter === 'unread'
-      ? unreadIncidents
-      : incidentsSource
+    activeFilter === 'priority' ? priorityIncidents : incidentsSource
   ).slice().sort((a, b) => {
     if (sortOrder === 'high-to-low') {
       return b.severity - a.severity || b.updatedAtS - a.updatedAtS;
@@ -74,10 +69,9 @@ export default function NearbyScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#050811' }}>
-      {/* Header with Purple Shield */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(0, 242, 254, 0.15)' }}>
+      <View style={{ minHeight: 64, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: '#142039' }}>
         <ShieldIcon size={22} color="#9333EA" />
-        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '900', letterSpacing: 2, marginLeft: 8, flex: 1 }}>NEARBY INCIDENTS</Text>
+        <View style={{ marginLeft: 10, flex: 1 }}><Text style={{ color: '#A855F7', fontSize: 10, fontWeight: '900', letterSpacing: 2 }}>LOCAL INCIDENT FEED</Text><Text style={{ color: '#F8FAFC', fontSize: 20, fontWeight: '900' }}>Nearby incidents</Text></View>
         <AlertIcon size={20} color="#FFB300" />
       </View>
 
@@ -86,6 +80,9 @@ export default function NearbyScreen() {
         {/* Interactive Filter chips bar (Purple Active Button Background) */}
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
           <TouchableOpacity
+            accessibilityRole="radio"
+            accessibilityLabel={`All incidents, ${incidentsSource.length}`}
+            accessibilityState={{ selected: activeFilter === 'all' }}
             onPress={() => setActiveFilter('all')}
             activeOpacity={0.8}
             style={{
@@ -94,7 +91,7 @@ export default function NearbyScreen() {
               borderColor: activeFilter === 'all' ? '#9333EA' : '#1E293B',
               paddingHorizontal: 16,
               paddingVertical: 8,
-              borderRadius: 20,
+              borderRadius: 4,
             }}
           >
             <Text style={{ color: activeFilter === 'all' ? '#FFFFFF' : '#94A3B8', fontSize: 12, fontWeight: '800' }}>
@@ -103,36 +100,22 @@ export default function NearbyScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            onPress={() => setActiveFilter('my-area')}
+            accessibilityRole="radio"
+            accessibilityLabel={`Priority incidents, ${priorityIncidents.length}`}
+            accessibilityState={{ selected: activeFilter === 'priority' }}
+            onPress={() => setActiveFilter('priority')}
             activeOpacity={0.8}
             style={{
-              backgroundColor: activeFilter === 'my-area' ? '#9333EA' : '#0D1424',
+              backgroundColor: activeFilter === 'priority' ? '#9333EA' : 'transparent',
               borderWidth: 1,
-              borderColor: activeFilter === 'my-area' ? '#9333EA' : '#1E293B',
+              borderColor: activeFilter === 'priority' ? '#9333EA' : '#1E293B',
               paddingHorizontal: 16,
               paddingVertical: 8,
-              borderRadius: 20,
+              borderRadius: 4,
             }}
           >
-            <Text style={{ color: activeFilter === 'my-area' ? '#FFFFFF' : '#94A3B8', fontSize: 12, fontWeight: '700' }}>
-              My Area {myAreaIncidents.length}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => setActiveFilter('unread')}
-            activeOpacity={0.8}
-            style={{
-              backgroundColor: activeFilter === 'unread' ? '#9333EA' : '#0D1424',
-              borderWidth: 1,
-              borderColor: activeFilter === 'unread' ? '#9333EA' : '#1E293B',
-              paddingHorizontal: 16,
-              paddingVertical: 8,
-              borderRadius: 20,
-            }}
-          >
-            <Text style={{ color: activeFilter === 'unread' ? '#FFFFFF' : '#94A3B8', fontSize: 12, fontWeight: '700' }}>
-              Unread {unreadIncidents.length}
+            <Text style={{ color: activeFilter === 'priority' ? '#FFFFFF' : '#94A3B8', fontSize: 12, fontWeight: '700' }}>
+              Priority {priorityIncidents.length}
             </Text>
           </TouchableOpacity>
         </View>
@@ -143,16 +126,18 @@ export default function NearbyScreen() {
             Sorted by Severity ({sortOrder === 'high-to-low' ? 'High → Low' : 'Low → High'})
           </Text>
           <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={`Change severity sort. Currently ${sortOrder === 'high-to-low' ? 'highest first' : 'lowest first'}`}
             onPress={toggleSort}
             activeOpacity={0.8}
-            style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#0D1424', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, borderWidth: 1, borderColor: '#1E293B' }}
+            style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 }}
           >
             <FilterIcon size={14} color="#9333EA" style={{ marginRight: 6 }} />
             <Text style={{ color: '#F8FAFC', fontSize: 11, fontWeight: '700' }}>Sort</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Incident Cards (No Left Highlight Color Bar, No Timeline Ago) */}
+        {/* Compact incident cards: dense evidence, one clear severity accent. */}
         {displayedList.map((inc) => {
           const sev = sevConfig[inc.severity] ?? sevConfig[0];
           const category = categoryInfo[inc.category] ?? categoryInfo[7];
@@ -160,16 +145,20 @@ export default function NearbyScreen() {
 
           return (
             <TouchableOpacity
+              accessibilityRole={role === 'responder' ? 'button' : 'text'}
+              accessibilityLabel={`${category.label}, severity ${inc.severity}. ${inc.peopleTotal ?? 'unknown'} people, ${inc.injured ?? 'unknown'} injured`}
+              accessibilityHint={role === 'responder' ? 'Opens responder incident actions' : 'Public incident details are intentionally limited'}
+              disabled={role !== 'responder'}
               key={inc.id}
               onPress={() => handleTapIncident(inc.id)}
               activeOpacity={0.8}
               style={{
                 backgroundColor: '#0D1424',
-                marginBottom: 12,
-                borderRadius: 16,
                 borderWidth: 1,
-                borderColor: '#1E293B',
-                padding: 14,
+                borderColor: '#1B2944',
+                borderRadius: 9,
+                padding: 12,
+                marginBottom: 8,
                 flexDirection: 'row',
                 alignItems: 'center',
               }}
@@ -185,9 +174,10 @@ export default function NearbyScreen() {
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
                   <LocationIcon size={12} color="#64748B" style={{ marginRight: 4 }} />
                   <Text style={{ color: '#94A3B8', fontSize: 11 }}>
-                    {inc.peopleTotal ?? 2} people · {inc.injured ?? 1} injured
+                    {inc.peopleTotal === undefined ? 'People unknown' : `${inc.peopleTotal} ${inc.peopleTotal === 1 ? 'person' : 'people'}`} · {inc.injured === undefined ? 'injuries unknown' : `${inc.injured} injured`}
                   </Text>
                 </View>
+                <Text style={{ color: '#52617A', fontSize: 10, marginTop: 4 }}>{ageLabel(inc.updatedAtS)} · local packet</Text>
               </View>
 
               {/* Severity chip */}
@@ -199,11 +189,19 @@ export default function NearbyScreen() {
         })}
 
         {displayedList.length === 0 && (
-          <View style={{ padding: 24, backgroundColor: '#0D1424', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', alignItems: 'center' }}>
+          <View style={{ padding: 24, backgroundColor: '#0D1424', borderRadius: 9, borderWidth: 1, borderColor: '#1E293B', alignItems: 'center' }}>
             <Text style={{ color: '#94A3B8', fontSize: 13 }}>No incident packets match this filter.</Text>
           </View>
         )}
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function ageLabel(updatedAtS: number) {
+  const age = Math.max(0, Math.round(Date.now() / 1000) - updatedAtS);
+  if (age < 60) return 'just now';
+  if (age < 3600) return `${Math.floor(age / 60)}m ago`;
+  if (age >= 7 * 86_400) return 'over 7d old';
+  return `${Math.floor(age / 3600)}h ago`;
 }

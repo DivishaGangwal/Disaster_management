@@ -44,6 +44,8 @@ class AndroidRadioBridgeModule : Module() {
   private val writeQueues = ConcurrentHashMap<String, ArrayDeque<PendingWrite>>()
   private val activeWrites = ConcurrentHashMap<String, PendingWrite>()
   private val sessionTimeouts = ConcurrentHashMap<String, Runnable>()
+  private val sessionRecordsAccepted = ConcurrentHashMap<String, Int>()
+  private val sessionBytesTransferred = ConcurrentHashMap<String, Int>()
   private val classicSockets = ConcurrentHashMap<String, BluetoothSocket>()
   private var classicServer: BluetoothServerSocket? = null
   private var classicReceiverRegistered = false
@@ -174,11 +176,12 @@ class AndroidRadioBridgeModule : Module() {
         "bluetoothAdvertise" to if (Build.VERSION.SDK_INT >= 31) permission(Manifest.permission.BLUETOOTH_ADVERTISE) else "granted",
         "bluetoothConnect" to if (Build.VERSION.SDK_INT >= 31) permission(Manifest.permission.BLUETOOTH_CONNECT) else "granted",
         "location" to permission(Manifest.permission.ACCESS_FINE_LOCATION), "notifications" to if (Build.VERSION.SDK_INT >= 33) permission(Manifest.permission.POST_NOTIFICATIONS) else "granted",
-        "microphone" to permission(Manifest.permission.RECORD_AUDIO), "foregroundService" to "granted"
+        "microphone" to permission(Manifest.permission.RECORD_AUDIO),
+        "foregroundService" to if (Build.VERSION.SDK_INT >= 28) permission(Manifest.permission.FOREGROUND_SERVICE) else "granted"
       ),
       "batteryPercent" to battery.takeIf { it in 0..100 },
       "batteryTemperatureC" to batteryTemperatureTenths?.takeIf { it != Int.MIN_VALUE }?.div(10.0),
-      "batteryOptimisationRestricted" to false,
+      "batteryOptimisationRestricted" to !context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName),
       "thermalThrottled" to thermal, "simulated" to false, "observedAtMs" to System.currentTimeMillis()
     )
   }
@@ -238,7 +241,7 @@ class AndroidRadioBridgeModule : Module() {
     pendingSessions.forEach { (_, promise) -> promise.reject("E_RELAY_STOPPED", "Relay stopped before the session opened", null) }; pendingSessions.clear()
     activeWrites.forEach { (_, write) -> write.promise.reject("E_RELAY_STOPPED", "Relay stopped before the record was written", null) }; activeWrites.clear()
     writeQueues.values.forEach { queue -> while (queue.isNotEmpty()) queue.removeFirst().promise.reject("E_RELAY_STOPPED", "Relay stopped before the record was written", null) }; writeQueues.clear()
-    sessionTimeouts.values.forEach(mainHandler::removeCallbacks); sessionTimeouts.clear(); negotiatedMtu.clear(); sessionPeers.clear(); serverDevices.clear()
+    sessionTimeouts.values.forEach(mainHandler::removeCallbacks); sessionTimeouts.clear(); negotiatedMtu.clear(); sessionPeers.clear(); serverDevices.clear(); sessionRecordsAccepted.clear(); sessionBytesTransferred.clear()
     advertisingConfirmed = false; classicFallbackAttempted = false; relayRunning = false
     unregisterStopReceiver()
     context.stopService(Intent(context, RelayForegroundService::class.java)); relayState("stopped", "relay stopped")
@@ -752,7 +755,7 @@ class AndroidRadioBridgeModule : Module() {
     sessionTimeouts.remove(sessionId)?.let(mainHandler::removeCallbacks)
   }
 
-  private fun recordSent(sessionId: String, packetId: String, byteCount: Int) = emit(mapOf("kind" to "record-sent", "sessionId" to sessionId, "peerToken" to (sessionPeers[sessionId] ?: ""), "packetId" to packetId, "byteCount" to byteCount, "atMs" to System.currentTimeMillis()))
+  private fun recordSent(sessionId: String, packetId: String, byteCount: Int) { accountSent(sessionId, byteCount); emit(mapOf("kind" to "record-sent", "sessionId" to sessionId, "peerToken" to (sessionPeers[sessionId] ?: ""), "packetId" to packetId, "byteCount" to byteCount, "atMs" to System.currentTimeMillis())) }
 
   @SuppressLint("MissingPermission")
   private fun closeSession(sessionId: String) { cancelSessionTimeout(sessionId); pendingSessions.remove(sessionId)?.reject("E_SESSION_CLOSED", "Session closed before setup completed", null); failWrites(sessionId, "E_SESSION_CLOSED", "Session closed before the record was written"); try { classicSockets.remove(sessionId)?.close() } catch (_: Exception) {}; clientGatts.remove(sessionId)?.run { disconnect(); close() }; serverDevices.remove(sessionId)?.let { gattServer?.cancelConnection(it) }; closeFromNative(sessionId, "complete") }
@@ -787,9 +790,10 @@ class AndroidRadioBridgeModule : Module() {
     clientGatts.remove(sessionId)?.run { disconnect(); close() }
     closeFromNative(sessionId, "error")
   }
-  private fun closeFromNative(sessionId: String, reason: String) { cancelSessionTimeout(sessionId); negotiatedMtu.remove(sessionId); val peer = sessionPeers.remove(sessionId) ?: return; emit(mapOf("kind" to "session-closed", "sessionId" to sessionId, "peerToken" to peer, "reason" to reason, "recordsAccepted" to 0, "bytesTransferred" to 0, "atMs" to System.currentTimeMillis())) }
+  private fun closeFromNative(sessionId: String, reason: String) { cancelSessionTimeout(sessionId); negotiatedMtu.remove(sessionId); val recordsAccepted = sessionRecordsAccepted.remove(sessionId) ?: 0; val bytesTransferred = sessionBytesTransferred.remove(sessionId) ?: 0; val peer = sessionPeers.remove(sessionId) ?: return; emit(mapOf("kind" to "session-closed", "sessionId" to sessionId, "peerToken" to peer, "reason" to reason, "recordsAccepted" to recordsAccepted, "bytesTransferred" to bytesTransferred, "atMs" to System.currentTimeMillis())) }
   private fun sessionEvent(id: String, peer: String, local: Boolean) = emit(mapOf("kind" to "session", "sessionId" to id, "peerToken" to peer, "phase" to "establish", "initiatedLocally" to local, "atMs" to System.currentTimeMillis()))
-  private fun recordReceived(id: String, peer: String, bytes: ByteArray) = emit(mapOf("kind" to "record-received-native", "sessionId" to id, "peerToken" to peer, "transport" to if (selectedMode == "classic") "tier1-classic" else "tier1-ble", "bytesBase64" to Base64.encodeToString(bytes, Base64.NO_WRAP), "atMs" to System.currentTimeMillis()))
+  private fun recordReceived(id: String, peer: String, bytes: ByteArray) { sessionRecordsAccepted.merge(id, 1, Int::plus); sessionBytesTransferred.merge(id, bytes.size, Int::plus); emit(mapOf("kind" to "record-received-native", "sessionId" to id, "peerToken" to peer, "transport" to if (selectedMode == "classic") "tier1-classic" else "tier1-ble", "bytesBase64" to Base64.encodeToString(bytes, Base64.NO_WRAP), "atMs" to System.currentTimeMillis())) }
+  private fun accountSent(sessionId: String, bytes: Int) { sessionBytesTransferred.merge(sessionId, bytes, Int::plus) }
   private fun relayState(state: String, detail: String) = emit(mapOf("kind" to "relay-state-changed", "state" to state, "detail" to detail, "atMs" to System.currentTimeMillis()))
   private fun transportError(code: String, message: String, recoverable: Boolean) = emit(mapOf("kind" to "error", "code" to code, "message" to message, "recoverable" to recoverable, "atMs" to System.currentTimeMillis()))
   private fun emit(body: Map<String, Any?>) = sendEvent("onTransportEvent", body)

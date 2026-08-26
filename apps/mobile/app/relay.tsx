@@ -1,212 +1,54 @@
-/**
- * RELAY & GATEWAY STATUS — Replica of Reference Screen 9
- * PNG ref: screen 9 (Relay & Gateway)
- * Route: RelayStatus
- */
-
-import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Switch } from 'react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, Alert, ScrollView, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useAppStore } from '@/store/useAppStore';
-import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { icons } from '@/constants/icons';
 import { mobileController } from '@/src/services/mobile-controller';
+import { useAppStore } from '@/store/useAppStore';
 
 export default function RelayScreen() {
   const router = useRouter();
-  const {
-    relayActive,
-    setRelayActive,
-    internetState,
-    setInternetState,
-    peersRecentlySeen,
-    storedPackets,
-    relayQueueDepth,
-    forwardedPackets,
-    selectedRadio,
-    batteryPercent,
-    batteryTemperatureC,
-  } = useAppStore();
+  const state = useAppStore();
+  const [changingRelay, setChangingRelay] = useState(false);
+  const [probing, setProbing] = useState(false);
 
-  const ArrowLeftIcon = icons.arrowLeft;
-  const UserIcon = icons.user;
-
-  const handleProbe = async () => {
+  const changeRelay = async (active: boolean) => {
+    if (changingRelay) return;
+    setChangingRelay(true);
+    try { await mobileController.setRelay(active); }
+    catch (reason) { Alert.alert(active ? 'Relay could not start' : 'Relay could not stop', reason instanceof Error ? reason.message : String(reason)); }
+    finally { setChangingRelay(false); }
+  };
+  const probe = async () => {
+    if (probing) return;
+    setProbing(true);
     try {
-      await mobileController.probeGateway();
-    } catch {
-      setInternetState('unavailable');
-    }
+      const proven = await mobileController.probeGateway();
+      if (!proven) Alert.alert('No configured gateway', 'Mesh relay still works offline. Configure EXPO_PUBLIC_DSM_BACKEND_URL to enable gateway synchronization.');
+    } catch (reason) { Alert.alert('Gateway probe failed', reason instanceof Error ? reason.message : String(reason)); }
+    finally { setProbing(false); }
   };
 
-  const handleRelay = async (active: boolean) => {
-    try {
-      await mobileController.setRelay(active);
-    } catch {
-      setRelayActive(false);
-    }
-  };
+  return <SafeAreaView style={{ flex: 1, backgroundColor: '#050811' }}>
+    <View style={{ minHeight: 64, paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: '#142039', flexDirection: 'row', alignItems: 'center' }}><TouchableOpacity accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><icons.arrowLeft size={20} color="#00F2FE" /></TouchableOpacity><View><Text style={{ color: '#00F2FE', fontSize: 10, fontWeight: '900', letterSpacing: 2 }}>TRANSPORT CONTROL</Text><Text style={{ color: '#F8FAFC', fontSize: 20, fontWeight: '900' }}>Relay & Gateway</Text></View></View>
+    <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 50 }}>
+      <View style={{ minHeight: 78, marginTop: 16, paddingHorizontal: 14, backgroundColor: '#0D1424', borderWidth: 1, borderColor: state.relayActive ? '#136B4B' : '#1B2944', borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><View><Text style={{ color: '#F8FAFC', fontSize: 17, fontWeight: '900' }}>Nearby mesh relay</Text><Text style={{ color: state.relayActive ? '#00E676' : '#FFB300', fontSize: 11, fontWeight: '900', letterSpacing: 1.2, marginTop: 4 }}>{changingRelay ? 'CHANGING…' : state.relayActive ? 'ACTIVE' : 'STOPPED'}</Text></View>{changingRelay ? <ActivityIndicator color="#00F2FE" /> : <Switch accessibilityLabel="Nearby mesh relay" value={state.relayActive} onValueChange={(active) => void changeRelay(active)} trackColor={{ false: '#263249', true: '#00A85A' }} thumbColor="#F8FAFC" />}</View>
 
-  const battVal = batteryPercent ?? 100;
+      <Text style={section}>LIVE RADIO</Text>
+      <View style={card}><Fact label="Selected transport" value={state.selectedRadio} tone="#38BDF8" /><Fact label="Peers observed" value={String(state.peersRecentlySeen)} /><Fact label="Battery" value={state.batteryPercent === undefined ? 'Unavailable' : `${state.batteryPercent}%`} /><Fact label="Battery temperature" value={state.batteryTemperatureC === undefined ? 'Sensor unavailable' : `${state.batteryTemperatureC.toFixed(1)} °C`} last /></View>
+      <Text style={{ color: '#64748B', fontSize: 12, lineHeight: 18, marginTop: 10 }}>{state.peersRecentlySeen ? 'Peers were observed inside the current retention window.' : 'No peer is currently known. This is not proof that no phone is nearby.'}</Text>
 
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#050811' }}>
-      {/* Top Header bar */}
-      <View style={{ height: 52, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(0, 242, 254, 0.12)', position: 'relative' }}>
-        <TouchableOpacity onPress={() => router.back()} style={{ position: 'absolute', left: 16, padding: 4 }}>
-          <ArrowLeftIcon size={20} color="#00F2FE" />
-        </TouchableOpacity>
-        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '900', letterSpacing: 0.5 }}>
-          Relay & Gateway
-        </Text>
-      </View>
+      <Text style={section}>CUSTODY QUEUE</Text>
+      <View style={[card, { paddingHorizontal: 0, flexDirection: 'row' }]}><Count label="STORED" value={state.storedPackets} /><Count label="WAITING" value={state.relayQueueDepth} /><Count label="SENT" value={state.forwardedPackets} last /></View>
+      <Text style={{ color: '#64748B', fontSize: 12, lineHeight: 18, marginTop: 10 }}>Counts describe this phone only. A forwarded record is not confirmation that help is coming.</Text>
 
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 14 }}>
-        
-        {/* Card 1: Relay (Mesh) Toggle */}
-        <View style={{ backgroundColor: '#0D1424', borderRadius: 16, borderWidth: 1, borderColor: relayActive ? '#00E676' : '#1E293B', paddingHorizontal: 16, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Text style={{ color: '#F8FAFC', fontSize: 15, fontWeight: '800' }}>Relay (Mesh)</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <View style={{ backgroundColor: relayActive ? '#16A34A' : '#334155', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 12 }}>
-              <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '900' }}>
-                {relayActive ? 'ON' : 'OFF'}
-              </Text>
-            </View>
-            <Switch
-              value={relayActive}
-              onValueChange={(value) => void handleRelay(value)}
-              trackColor={{ false: '#1E293B', true: '#00E676' }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-        </View>
-
-        {/* Card 2: Radio & Device */}
-        <View style={{ backgroundColor: '#0D1424', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', padding: 16 }}>
-          <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800', marginBottom: 12 }}>Radio & Device</Text>
-          
-          <View style={{ gap: 8 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: '#94A3B8', fontSize: 13 }}>Radio</Text>
-              <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>LoRa 915 MHz</Text>
-            </View>
-
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: '#94A3B8', fontSize: 13 }}>Device</Text>
-              <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>PX-Relay-02</Text>
-            </View>
-
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: '#94A3B8', fontSize: 13 }}>Battery</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>{battVal}%</Text>
-                <icons.battery size={16} color="#00E676" />
-              </View>
-            </View>
-
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: '#94A3B8', fontSize: 13 }}>Uptime</Text>
-              <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>2h 14m</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Card 3: Nearby Peers (With avatar person icons matching reference) */}
-        <View style={{ backgroundColor: '#0D1424', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', padding: 16 }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800' }}>Nearby Peers</Text>
-            <Text style={{ color: '#38BDF8', fontSize: 15, fontWeight: '900' }}>{peersRecentlySeen || 12}</Text>
-          </View>
-
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            {/* Person avatar icons row */}
-            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-              {[1, 2, 3, 4].map((idx) => (
-                <View key={idx} style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(56, 189, 248, 0.15)', borderWidth: 1, borderColor: '#38BDF8', justifyContent: 'center', alignItems: 'center' }}>
-                  <UserIcon size={14} color="#38BDF8" />
-                </View>
-              ))}
-            </View>
-
-            {/* Signal Bars */}
-            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 3, height: 16 }}>
-              <View style={{ width: 3, height: 6, backgroundColor: '#00E676', borderRadius: 1 }} />
-              <View style={{ width: 3, height: 9, backgroundColor: '#00E676', borderRadius: 1 }} />
-              <View style={{ width: 3, height: 12, backgroundColor: '#00E676', borderRadius: 1 }} />
-              <View style={{ width: 3, height: 16, backgroundColor: '#00E676', borderRadius: 1 }} />
-            </View>
-          </View>
-        </View>
-
-        {/* Card 4: Gateway / Internet (With Probe Now button matching reference) */}
-        <View style={{ backgroundColor: '#0D1424', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', padding: 16 }}>
-          <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800', marginBottom: 12 }}>Gateway / Internet</Text>
-          
-          <View style={{ gap: 10 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: '#94A3B8', fontSize: 13 }}>Gateway</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>City-GW-1</Text>
-                <Text style={{ color: '#00E676', fontSize: 12, fontWeight: '800' }}>Connected</Text>
-              </View>
-            </View>
-
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: '#94A3B8', fontSize: 13 }}>Internet</Text>
-              <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700' }}>Connected</Text>
-            </View>
-
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
-              <View>
-                <Text style={{ color: '#94A3B8', fontSize: 13 }}>Last Probe</Text>
-                <Text style={{ color: '#F8FAFC', fontSize: 13, fontWeight: '700', marginTop: 2 }}>12s ago</Text>
-              </View>
-
-              {/* Probe Now purple pill button */}
-              <TouchableOpacity
-                onPress={() => void handleProbe()}
-                activeOpacity={0.8}
-                style={{
-                  backgroundColor: '#7C3AED',
-                  paddingHorizontal: 16,
-                  paddingVertical: 8,
-                  borderRadius: 12,
-                }}
-              >
-                <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '800' }}>Probe Now</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-
-        {/* Card 5: Traffic (since boot) */}
-        <View style={{ backgroundColor: '#0D1424', borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', padding: 16 }}>
-          <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800', marginBottom: 12 }}>Traffic (since boot)</Text>
-          
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
-            <View style={{ flex: 1, backgroundColor: '#141E33', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}>
-              <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '700' }}>Stored</Text>
-              <Text style={{ color: '#F8FAFC', fontSize: 20, fontWeight: '900', marginTop: 4 }}>{storedPackets || 124}</Text>
-            </View>
-
-            <View style={{ flex: 1, backgroundColor: '#141E33', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}>
-              <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '700' }}>Queued</Text>
-              <Text style={{ color: '#F8FAFC', fontSize: 20, fontWeight: '900', marginTop: 4 }}>{relayQueueDepth || 26}</Text>
-            </View>
-
-            <View style={{ flex: 1, backgroundColor: '#141E33', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}>
-              <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '700' }}>Forwarded</Text>
-              <Text style={{ color: '#F8FAFC', fontSize: 20, fontWeight: '900', marginTop: 4 }}>{forwardedPackets || 842}</Text>
-            </View>
-          </View>
-
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={{ color: '#00E676', fontSize: 12, fontWeight: '700' }}>Queue Size: 26 (Low)</Text>
-            <Text style={{ color: '#00E676', fontSize: 12, fontWeight: '700' }}>Est. Battery: 8h 40m</Text>
-          </View>
-        </View>
-
-      </ScrollView>
-    </SafeAreaView>
-  );
+      <Text style={section}>OPTIONAL GATEWAY</Text>
+      <View style={[card, { minHeight: 82, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }]}><View style={{ flex: 1 }}><Text style={{ color: '#F8FAFC', fontSize: 15, fontWeight: '900' }}>{state.internetState === 'proven gateway' ? 'Gateway identity proven' : 'No proven gateway'}</Text><Text style={{ color: '#7E8CA6', fontSize: 12, lineHeight: 17, marginTop: 3 }}>Internet availability alone never counts as a gateway.</Text></View><TouchableOpacity accessibilityRole="button" accessibilityLabel="Probe configured gateway" accessibilityState={{ busy: probing }} disabled={probing} onPress={() => void probe()} style={{ minWidth: 74, minHeight: 44, borderWidth: 1, borderColor: '#A855F7', borderRadius: 6, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 }}>{probing ? <ActivityIndicator color="#A855F7" /> : <Text style={{ color: '#C084FC', fontSize: 12, fontWeight: '900' }}>PROBE</Text>}</TouchableOpacity></View>
+    </ScrollView>
+  </SafeAreaView>;
 }
+
+const section = { color: '#64748B', fontSize: 10, fontWeight: '900' as const, letterSpacing: 1.8, marginTop: 25, marginBottom: 8 };
+const card = { backgroundColor: '#0D1424', borderWidth: 1, borderColor: '#1B2944', borderRadius: 10, paddingHorizontal: 14, overflow: 'hidden' as const };
+function Fact({ label, value, tone = '#F8FAFC', last = false }: { label: string; value: string; tone?: string; last?: boolean }) { return <View style={{ minHeight: 48, borderTopWidth: 1, borderBottomWidth: last ? 1 : 0, borderColor: '#17233B', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 }}><Text style={{ color: '#8D9AB2', fontSize: 13 }}>{label}</Text><Text numberOfLines={1} style={{ color: tone, fontSize: 13, fontWeight: '900', flexShrink: 1 }}>{value}</Text></View>; }
+function Count({ label, value, last = false }: { label: string; value: number; last?: boolean }) { return <View style={{ flex: 1, minHeight: 74, justifyContent: 'center', paddingLeft: 12, borderRightWidth: last ? 0 : 1, borderRightColor: '#1B2944' }}><Text style={{ color: '#64748B', fontSize: 10, fontWeight: '900', letterSpacing: 1 }}>{label}</Text><Text style={{ color: value ? '#F8FAFC' : '#667085', fontSize: 24, fontWeight: '900', marginTop: 3 }}>{value}</Text></View>; }

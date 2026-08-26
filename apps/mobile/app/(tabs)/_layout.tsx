@@ -1,13 +1,12 @@
 import { Tabs } from 'expo-router';
 import { icons } from '@/constants/icons';
-import { View } from 'react-native';
 import React from 'react';
 import { useAppStore } from '@/store/useAppStore';
 
 /**
  * Tab layout — 4 tabs: Home, Map, Nearby, Profile
- * Restyled for Style 4 — Futuristic Emergency Tech.
- * Glass dark bar with neon pink-cyan active tab indicators.
+ * Tactical navigation: the active state is conveyed by color and label,
+ * without wrapping every icon in another decorative pill.
  * Role-dependent: Home tab is hidden for Responder role.
  */
 export default function TabLayout() {
@@ -22,8 +21,8 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: '#080D1A',
-          borderTopColor: 'rgba(0, 242, 254, 0.2)',
+          backgroundColor: '#070C16',
+          borderTopColor: '#1B2944',
           borderTopWidth: 1,
           height: 68,
           paddingBottom: 10,
@@ -32,10 +31,9 @@ export default function TabLayout() {
         tabBarActiveTintColor: '#00F2FE',
         tabBarInactiveTintColor: '#64748B',
         tabBarLabelStyle: {
-          fontSize: 10,
+          fontSize: 11,
           fontWeight: '800',
-          letterSpacing: 1,
-          textTransform: 'uppercase',
+          letterSpacing: .3,
           marginTop: 2,
         },
       }}
@@ -45,56 +43,32 @@ export default function TabLayout() {
         options={{
           title: 'Home',
           href: role === 'responder' ? null : undefined,
-          tabBarIcon: ({ color, focused }) => (
-            <View style={[
-              { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
-              focused && { backgroundColor: 'rgba(0, 242, 254, 0.15)', borderWidth: 1, borderColor: '#00F2FE' },
-            ]}>
-              <HomeIcon size={20} color={focused ? '#00F2FE' : color} />
-            </View>
-          ),
+          tabBarAccessibilityLabel: 'Home',
+          tabBarIcon: ({ color, focused }) => <HomeIcon size={22} color={focused ? '#00F2FE' : color} />,
         }}
       />
       <Tabs.Screen
         name="map"
         options={{
           title: 'Map',
-          tabBarIcon: ({ color, focused }) => (
-            <View style={[
-              { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
-              focused && { backgroundColor: 'rgba(0, 242, 254, 0.15)', borderWidth: 1, borderColor: '#00F2FE' },
-            ]}>
-              <MapIcon size={20} color={focused ? '#00F2FE' : color} />
-            </View>
-          ),
+          tabBarAccessibilityLabel: 'Operational map',
+          tabBarIcon: ({ color, focused }) => <MapIcon size={22} color={focused ? '#00F2FE' : color} />,
         }}
       />
       <Tabs.Screen
         name="nearby"
         options={{
           title: 'Nearby',
-          tabBarIcon: ({ color, focused }) => (
-            <View style={[
-              { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
-              focused && { backgroundColor: 'rgba(147, 51, 234, 0.15)', borderWidth: 1, borderColor: '#9333EA' },
-            ]}>
-              <NearbyIcon size={20} color={focused ? '#C084FC' : color} />
-            </View>
-          ),
+          tabBarAccessibilityLabel: 'Nearby incidents',
+          tabBarIcon: ({ color, focused }) => <NearbyIcon size={22} color={focused ? '#C084FC' : color} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color, focused }) => (
-            <View style={[
-              { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
-              focused && { backgroundColor: 'rgba(0, 242, 254, 0.15)', borderWidth: 1, borderColor: '#00F2FE' },
-            ]}>
-              <ProfileIcon size={20} color={focused ? '#00F2FE' : color} />
-            </View>
-          ),
+          tabBarAccessibilityLabel: 'Profile and offline data',
+          tabBarIcon: ({ color, focused }) => <ProfileIcon size={22} color={focused ? '#00F2FE' : color} />,
         }}
       />
     </Tabs>

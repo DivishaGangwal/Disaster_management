@@ -26,7 +26,7 @@ export default function DiagnosticsScreen() {
     <View style={styles.header}>
       <TouchableOpacity accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} style={styles.iconButton}><ArrowLeftIcon size={20} color="#00F2FE" /></TouchableOpacity>
       <View style={styles.headerCopy}><Text style={styles.eyebrow}>SYSTEM DIAGNOSTICS</Text><Text style={styles.headerTitle}>Queue Ledger</Text></View>
-      <TouchableOpacity accessibilityRole="button" onPress={() => void Share.share({ title: 'Disaster SOS Mesh diagnostics', message: JSON.stringify(diagnosticEvents, null, 2) })} style={styles.exportButton}><Text style={styles.exportText}>EXPORT</Text></TouchableOpacity>
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Export diagnostic event ledger" onPress={() => void Share.share({ title: 'Disaster SOS Mesh diagnostics', message: JSON.stringify(diagnosticEvents, null, 2) })} style={styles.exportButton}><Text style={styles.exportText}>EXPORT</Text></TouchableOpacity>
     </View>
     <FlatList
       data={filtered}
@@ -41,7 +41,7 @@ export default function DiagnosticsScreen() {
           <Summary label="PEERS" value={peersRecentlySeen} />
         </View>
         <Text style={styles.refreshNote}>{latestAt ? `Refreshed from runtime event ${formatTime(latestAt)}` : 'Waiting for the first runtime event'} · queue epoch {queueEpoch}</Text>
-        <FlatList horizontal data={FILTERS} keyExtractor={(item) => item} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters} renderItem={({ item }) => <TouchableOpacity onPress={() => setFilter(item)} style={[styles.filter, filter === item && styles.filterActive]}><Text style={[styles.filterText, filter === item && styles.filterTextActive]}>{item === 'wavepx' ? 'WAVEPX' : item.toUpperCase()}</Text></TouchableOpacity>} />
+        <FlatList horizontal data={FILTERS} keyExtractor={(item) => item} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters} renderItem={({ item }) => <TouchableOpacity accessibilityRole="radio" accessibilityState={{ selected: filter === item }} accessibilityLabel={`Show ${item} diagnostic events`} onPress={() => setFilter(item)} style={[styles.filter, filter === item && styles.filterActive]}><Text style={[styles.filterText, filter === item && styles.filterTextActive]}>{item === 'wavepx' ? 'WAVEPX' : item.toUpperCase()}</Text></TouchableOpacity>} />
         <View style={styles.listHeading}><Text style={styles.listTitle}>RUNTIME EVENTS</Text><Text style={styles.listCount}>{filtered.length} shown</Text></View>
       </>}
       ListEmptyComponent={<Text style={styles.empty}>No matching events yet. Keep relay active on both phones and watch for peer, session, inventory, transfer, or error events here.</Text>}
@@ -87,31 +87,31 @@ const styles = StyleSheet.create({
   headerCopy: { flex: 1, marginLeft: 4 },
   eyebrow: { color: '#00F2FE', fontSize: 10, fontWeight: '800', letterSpacing: 1.8 },
   headerTitle: { color: '#F8FAFC', fontSize: 18, fontWeight: '900' },
-  exportButton: { minHeight: 40, borderRadius: 12, justifyContent: 'center', paddingHorizontal: 14, borderWidth: 1, borderColor: '#00F2FE', backgroundColor: 'rgba(0, 242, 254, 0.1)' },
+  exportButton: { minHeight: 40, borderRadius: 4, justifyContent: 'center', paddingHorizontal: 14, borderWidth: 1, borderColor: '#00F2FE' },
   exportText: { color: '#00F2FE', fontSize: 11, fontWeight: '900', letterSpacing: 1 },
   content: { padding: 20, paddingBottom: 60 },
-  summary: { flexDirection: 'row', backgroundColor: '#0D1424', borderRadius: 18, borderWidth: 1, borderColor: '#1E293B', overflow: 'hidden' },
+  summary: { flexDirection: 'row', backgroundColor: '#0D1424', borderWidth: 1, borderColor: '#1B2944', borderRadius: 10, overflow: 'hidden' },
   summaryCell: { flex: 1, minHeight: 72, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderRightColor: '#1E293B' },
   summaryLabel: { color: '#64748B', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
   summaryValue: { marginTop: 4, color: '#F8FAFC', fontSize: 22, fontWeight: '900' },
   green: { color: '#00E676' }, red: { color: '#FF0055' },
   refreshNote: { marginTop: 10, color: '#64748B', fontSize: 11, lineHeight: 16 },
   filters: { gap: 8, paddingVertical: 14 },
-  filter: { minHeight: 36, borderRadius: 12, justifyContent: 'center', paddingHorizontal: 14, borderWidth: 1, borderColor: '#1E293B', backgroundColor: '#0D1424' },
-  filterActive: { borderColor: '#00F2FE', backgroundColor: 'rgba(0, 242, 254, 0.15)' },
+  filter: { minHeight: 38, borderRadius: 3, justifyContent: 'center', paddingHorizontal: 14, borderBottomWidth: 1, borderColor: '#26334C' },
+  filterActive: { borderColor: '#00F2FE' },
   filterText: { color: '#64748B', fontSize: 11, fontWeight: '800', letterSpacing: .7 },
   filterTextActive: { color: '#00F2FE' },
   listHeading: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
   listTitle: { color: '#00F2FE', fontSize: 11, fontWeight: '800', letterSpacing: 1 },
   listCount: { color: '#64748B', fontSize: 11 },
-  event: { marginBottom: 10, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', borderLeftWidth: 4, borderLeftColor: '#00E676', backgroundColor: '#0D1424' },
-  eventFailed: { borderLeftColor: '#FF0055' },
+  event: { marginBottom: 9, padding: 13, backgroundColor: '#0D1424', borderWidth: 1, borderColor: '#18243B', borderRadius: 8 },
+  eventFailed: { borderColor: '#6D1B37', backgroundColor: '#160B16' },
   eventTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   transport: { color: '#00F2FE', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
   time: { color: '#64748B', fontSize: 11, fontVariant: ['tabular-nums'] },
-  eventName: { marginTop: 6, color: '#F8FAFC', fontSize: 14, fontWeight: '800', textTransform: 'uppercase' },
+  eventName: { marginTop: 6, color: '#F8FAFC', fontSize: 14, fontWeight: '800' },
   detail: { marginTop: 4, color: '#94A3B8', fontSize: 12, lineHeight: 18 },
   ids: { marginTop: 8, gap: 3 },
   id: { color: '#64748B', fontSize: 10, fontFamily: 'monospace' },
-  empty: { padding: 20, color: '#94A3B8', fontSize: 13, lineHeight: 20, borderRadius: 16, borderWidth: 1, borderColor: '#1E293B', backgroundColor: '#0D1424' },
+  empty: { padding: 16, color: '#94A3B8', fontSize: 13, lineHeight: 20, backgroundColor: '#0D1424', borderWidth: 1, borderColor: '#1B2944', borderRadius: 8 },
 });

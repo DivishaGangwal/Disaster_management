@@ -20,20 +20,24 @@ export default function RootLayout() {
   const setRuntimeError = useAppStore((state) => state.setRuntimeError);
 
   useEffect(() => {
+    if (!isLoggedIn) return;
     void mobileController.initialize(role).catch((reason: unknown) => setRuntimeError(reason instanceof Error ? reason.message : String(reason)));
-  }, [role, setRuntimeError]);
+  }, [isLoggedIn, role, setRuntimeError]);
 
   useEffect(() => {
-    void mobileController.startGatewaySync();
+    if (isLoggedIn) void mobileController.startGatewaySync();
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void mobileController.startGatewaySync();
+      if (state === 'active' && isLoggedIn) {
+        void mobileController.refreshPermissionStatus().catch((reason: unknown) => setRuntimeError(reason instanceof Error ? reason.message : String(reason)));
+        void mobileController.startGatewaySync();
+      }
       else mobileController.stopGatewaySync();
     });
     return () => {
       subscription.remove();
       mobileController.stopGatewaySync();
     };
-  }, []);
+  }, [isLoggedIn, setRuntimeError]);
 
   // Entry flow navigation guard
   useEffect(() => {
@@ -62,6 +66,7 @@ export default function RootLayout() {
         <Stack.Screen name="login" options={{ animation: 'fade' }} />
         <Stack.Screen name="readiness" options={{ animation: 'fade' }} />
         <Stack.Screen name="sos/composer" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="sos/active" />
         <Stack.Screen name="responder/detail" />
         <Stack.Screen name="resource/detail" />
         <Stack.Screen name="relay" />
