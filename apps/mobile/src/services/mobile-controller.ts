@@ -67,6 +67,7 @@ class MobileController {
   private gatewaySyncGeneration = 0;
   private refreshTimer?: ReturnType<typeof setTimeout>;
   private database?: Awaited<ReturnType<typeof openMobileRepositories>>['database'];
+  private roleReconfiguration: Promise<AppRuntime> | undefined;
 
   async initialize(role: UserRole = useAppStore.getState().role) {
     if (this.runtime) return this.runtime;
@@ -77,6 +78,16 @@ class MobileController {
   }
 
   async reconfigureRole(role: UserRole) {
+    const previous = this.roleReconfiguration ?? Promise.resolve(undefined);
+    const task = previous.catch(() => undefined).then(() => this.performRoleReconfiguration(role));
+    this.roleReconfiguration = task;
+    try { return await task; }
+    finally { if (this.roleReconfiguration === task) this.roleReconfiguration = undefined; }
+  }
+
+  private async performRoleReconfiguration(role: UserRole) {
+    if (this.runtime?.engine.profile.role === role) return this.runtime;
+    const resumeRelay = this.runtime?.relay.isRunning ?? false;
     this.stopGatewaySync();
     await this.stopWavePxListening();
     this.removeWavePxFrameListener?.();
@@ -90,7 +101,10 @@ class MobileController {
     this.refreshTimer = undefined;
     if (this.runtime?.relay.isRunning) await this.runtime.stopRelay();
     this.runtime = undefined;
-    return this.initialize(role);
+    const runtime = await this.initialize(role);
+    if (resumeRelay && !runtime.relay.isRunning) await runtime.startRelay();
+    await this.refresh(runtime);
+    return runtime;
   }
 
   /** Deletes this phone's operational SQLite history after explicit UI confirmation. */
@@ -358,6 +372,15 @@ class MobileController {
     return report.permissions;
   }
 
+  /** Pull-to-refresh seam for the Nearby surface: permissions, relay presence, peers, packets, chats and incidents. */
+  async refreshNearby() {
+    const runtime = await this.initialize();
+    await this.refreshPermissionStatus();
+    await runtime.engine.maintain(Date.now());
+    if (runtime.relay.isRunning) await runtime.relay.refreshAdvertisement();
+    await this.refresh(runtime);
+  }
+
   private applyCapabilityReport(report: CapabilityReport, adapterKind: TransportKind) {
     const state = useAppStore.getState();
     state.setTransportMode(report.simulated ? 'SIMULATED' : 'native');
@@ -525,10 +548,16 @@ class MobileController {
     });
     const result = await runtime.engine.createLocal(packet);
     if (!result.validation.ok || result.storeOutcome !== 'inserted') throw new Error(result.validation.ok ? 'Message could not be saved.' : result.validation.reason);
-    if (!runtime.relay.isRunning) await runtime.startRelay();
-    await runtime.relay.refreshAdvertisement();
+    let relayWarning: string | undefined;
+    try {
+      if (!runtime.relay.isRunning) await runtime.startRelay();
+      await runtime.relay.refreshAdvertisement();
+    } catch (reason) {
+      relayWarning = reason instanceof Error ? reason.message : String(reason);
+      useAppStore.getState().setRuntimeError(`Message saved, but relay is unavailable: ${relayWarning}`);
+    }
     await this.refresh(runtime);
-    return result;
+    return { ...result, ...(relayWarning ? { relayWarning } : {}) };
   }
 
   async refreshOfflineMap() {
@@ -587,9 +616,10 @@ class MobileController {
   async refresh(runtime?: AppRuntime) {
     runtime ??= await this.initialize();
     const state = useAppStore.getState();
-    const [storedPackets, relayable] = await Promise.all([
+    const [storedPackets, relayable, allStoredPackets] = await Promise.all([
       runtime.engine.packets.count(),
       runtime.engine.packets.listRelayable(64),
+      runtime.engine.packets.listAll(),
     ]);
     const events = runtime.engine.events.recent(100);
     const forwardedPackets = new Set(events
@@ -629,7 +659,11 @@ class MobileController {
     })).sort((a, b) => b.lastSeenAtMs - a.lastSeenAtMs);
     if (JSON.stringify(state.runtimePeers) !== JSON.stringify(runtimePeers)) state.setRuntimePeers(runtimePeers);
 
-    const chatPackets = (await runtime.engine.packets.listAll())
+    const receiptPacketIds = new Set(allStoredPackets
+      .filter((stored) => stored.packet.header.type === MessageType.LINK_RECEIPT)
+      .map((stored) => stringValue((stored.packet.payload as Record<string, unknown>)['forPacketId']))
+      .filter((packetId): packetId is string => Boolean(packetId)));
+    const chatPackets = allStoredPackets
       .filter((stored) => stored.packet.header.type === MessageType.MESH_CHAT)
       .map((stored) => {
         const payload = stored.packet.payload as Record<string, unknown>;
@@ -642,6 +676,8 @@ class MobileController {
           text: String(payload['text'] ?? ''),
           ...(chatLocation(payload['location']) ? { location: chatLocation(payload['location']) } : {}),
           createdAtS: stored.packet.header.createdAt,
+          hopCount: stored.packet.header.hopCount,
+          receiptObserved: receiptPacketIds.has(stored.packet.header.packetId),
           outgoing: payload['senderNodeToken'] === runtime.engine.nodeToken,
         };
       })
@@ -657,7 +693,12 @@ class MobileController {
       }
     }
 
-    const newIncidents = runtime.engine.incidents.list().map((incident) => ({
+    const responderTypes: ReadonlySet<number> = new Set([MessageType.RESPONDER_ASSIGNED, MessageType.RESPONDER_ACCEPTED, MessageType.RESPONDER_DECLINED, MessageType.RESPONDER_EN_ROUTE, MessageType.RESPONDER_ARRIVED, MessageType.RESOLVED]);
+    const newIncidents = runtime.engine.incidents.list().map((incident) => {
+      const responderHops = allStoredPackets
+        .filter((stored) => responderTypes.has(stored.packet.header.type) && String((stored.packet.payload as Record<string, unknown>)['incidentId'] ?? '') === incident.incidentId)
+        .map((stored) => stored.packet.header.hopCount);
+      return {
       id: incident.incidentId,
       category: incident.category,
       severity: incident.severity,
@@ -665,6 +706,7 @@ class MobileController {
       ...(incident.peopleTotal !== undefined ? { peopleTotal: incident.peopleTotal } : {}),
       ...(incident.injured !== undefined ? { injured: incident.injured } : {}),
       ...(incident.responderRef ? { responderRef: incident.responderRef } : {}),
+      ...(responderHops.length ? { maxResponderHopCount: Math.max(...responderHops) } : {}),
       delivery: {
         ...(incident.delivery.responderSeenAtS !== undefined ? { responderSeenAtS: incident.delivery.responderSeenAtS } : {}),
         ...(incident.delivery.assignedAtS !== undefined ? { assignedAtS: incident.delivery.assignedAtS } : {}),
@@ -674,7 +716,7 @@ class MobileController {
         ...(incident.delivery.resolvedAtS !== undefined ? { resolvedAtS: incident.delivery.resolvedAtS } : {}),
       },
       updatedAtS: incident.updatedAtS,
-    }));
+    }; });
     if (JSON.stringify(state.runtimeIncidents) !== JSON.stringify(newIncidents)) {
       state.setRuntimeIncidents(newIncidents);
     }

@@ -32,8 +32,9 @@ export default function MeshChatScreen() {
     if (sending || !draft.trim()) return;
     setSending(true);
     try {
-      await mobileController.sendMeshChat(peerToken, draft);
+      const result = await mobileController.sendMeshChat(peerToken, draft);
       setDraft('');
+      if (result.relayWarning) Alert.alert('Message saved for later relay', 'The message is safely stored on this phone, but Bluetooth relay is not currently available. Pull down on Nearby or start Relay when access is restored.');
       requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
     } catch (reason) {
       setRuntimeError(reason instanceof Error ? reason.message : String(reason));
@@ -44,7 +45,8 @@ export default function MeshChatScreen() {
     if (sending) return;
     setSending(true);
     try {
-      await mobileController.sendMeshLocation(peerToken);
+      const result = await mobileController.sendMeshLocation(peerToken);
+      if (result.relayWarning) Alert.alert('Location saved for later relay', 'The location message is stored on this phone, but Bluetooth relay is not currently available.');
       requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
     } catch (reason) {
       Alert.alert('Location not shared', reason instanceof Error ? reason.message : String(reason));
@@ -71,7 +73,7 @@ export default function MeshChatScreen() {
               {!message.outgoing && <Text style={{ color: '#00F2FE', fontSize: 10, fontWeight: '800', marginBottom: 4 }}>{message.senderLabel ?? `Peer ${shortToken(message.senderNodeToken)}`}</Text>}
               <Text style={{ color: '#F8FAFC', fontSize: 14, lineHeight: 20 }}>{message.text}</Text>
               {message.location && <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${message.senderLabel ?? 'shared'} location on map`} onPress={() => openSharedLocation(message.senderNodeToken)} style={{ marginTop: 9, minHeight: 38, borderRadius: 9, backgroundColor: 'rgba(0,242,254,.12)', borderWidth: 1, borderColor: 'rgba(0,242,254,.35)', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 }}><MapPin size={15} color="#00F2FE" /><Text style={{ color: '#00F2FE', fontSize: 11, fontWeight: '900', marginLeft: 6 }}>OPEN PERSISTED MAP PIN</Text></TouchableOpacity>}
-              <Text style={{ color: message.outgoing ? '#C4B5FD' : '#64748B', fontSize: 9, marginTop: 5, alignSelf: 'flex-end' }}>{message.outgoing ? 'saved to mesh' : 'received'} · {message.packetId.slice(0, 6)}</Text>
+              <Text style={{ color: message.outgoing ? '#C4B5FD' : '#64748B', fontSize: 9, marginTop: 5, alignSelf: 'flex-end' }}>{message.outgoing ? (message.receiptObserved ? 'another phone stored it' : 'saved · awaiting peer receipt') : hopEvidence(message.hopCount)} · {message.packetId.slice(0, 6)}</Text>
             </View>
           ))}
         </ScrollView>
@@ -86,3 +88,4 @@ export default function MeshChatScreen() {
 }
 
 function shortToken(token: string) { return token.length <= 8 ? token : `${token.slice(0, 4)}…${token.slice(-4)}`; }
+function hopEvidence(hopCount: number) { return hopCount >= 2 ? `received through ${hopCount} mesh hops` : hopCount === 1 ? 'received in one hop' : 'received locally'; }

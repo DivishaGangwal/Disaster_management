@@ -10,7 +10,7 @@ export type SelectedRadio = 'simulated' | 'BLE' | 'Bluetooth Classic';
 export type OfflinePackStatus = 'checking' | 'downloading' | 'ready' | 'not-downloaded' | 'error';
 export type ResponderWorkflowState = 'pending' | 'accepted' | 'declined' | 'en-route' | 'arrived' | 'resolved';
 export interface RuntimeIncidentDelivery { responderSeenAtS?: number; assignedAtS?: number; acceptedAtS?: number; enRouteAtS?: number; arrivedAtS?: number; resolvedAtS?: number; }
-export interface RuntimeIncident { id: string; category: number; severity: number; state: string; peopleTotal?: number; injured?: number; responderRef?: string; delivery: RuntimeIncidentDelivery; updatedAtS: number; }
+export interface RuntimeIncident { id: string; category: number; severity: number; state: string; peopleTotal?: number; injured?: number; responderRef?: string; maxResponderHopCount?: number; delivery: RuntimeIncidentDelivery; updatedAtS: number; }
 export interface RuntimeMapObject { objectId: string; kind: string; label: string; state?: number; latE7?: number; lonE7?: number; asOfS: number; provenance: string; }
 export interface RuntimeDiagnostic {
   category: string;
@@ -42,7 +42,7 @@ export interface ReceivedPacketSummary {
 }
 export interface RuntimePeer { peerToken: string; lastSeenAtMs: number; rssi?: number; sessionsCompleted: number; sessionsFailed: number; }
 export interface MeshChatLocation { latE7: number; lonE7: number; accuracyM?: number; ageS?: number; }
-export interface MeshChatMessage { packetId: string; conversationId: string; senderNodeToken: string; recipientNodeToken: string; senderLabel?: string; text: string; location?: MeshChatLocation; createdAtS: number; outgoing: boolean; }
+export interface MeshChatMessage { packetId: string; conversationId: string; senderNodeToken: string; recipientNodeToken: string; senderLabel?: string; text: string; location?: MeshChatLocation; createdAtS: number; hopCount: number; receiptObserved: boolean; outgoing: boolean; }
 
 interface AppState {
   // Profile & role

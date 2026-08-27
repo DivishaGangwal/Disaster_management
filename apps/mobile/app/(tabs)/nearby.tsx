@@ -4,13 +4,14 @@
  * Route: Nearby (tab)
  */
 
-import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Alert, RefreshControl, View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAppStore, type RuntimeIncident } from '@/store/useAppStore';
 import { icons } from '@/constants/icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MessageCircle, Users } from 'lucide-react-native';
+import { mobileController } from '@/src/services/mobile-controller';
 
 const categoryInfo = [
   { label: 'Medical Emergency', iconKey: 'catMedical' as const },
@@ -36,11 +37,26 @@ export default function NearbyScreen() {
 
   const [activeFilter, setActiveFilter] = useState<'all' | 'priority'>('all');
   const [sortOrder, setSortOrder] = useState<'high-to-low' | 'low-to-high'>('high-to-low');
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastRefreshedAtMs, setLastRefreshedAtMs] = useState<number>();
 
   const ShieldIcon = icons.shield;
   const AlertIcon = icons.alert;
   const FilterIcon = icons.filter;
   const LocationIcon = icons.location;
+  const people = useMemo(() => {
+    const byToken = new Map(runtimePeers.map((peer) => [peer.peerToken, { ...peer, recentlySeen: true }]));
+    for (const message of meshChatMessages) {
+      const peerToken = message.outgoing ? message.recipientNodeToken : message.senderNodeToken;
+      if (!peerToken || byToken.has(peerToken)) continue;
+      byToken.set(peerToken, { peerToken, lastSeenAtMs: 0, sessionsCompleted: 0, sessionsFailed: 0, recentlySeen: false });
+    }
+    return [...byToken.values()].sort((left, right) => {
+      const leftUnread = unreadCount(meshChatMessages, lastReadChatAtSByPeer, left.peerToken);
+      const rightUnread = unreadCount(meshChatMessages, lastReadChatAtSByPeer, right.peerToken);
+      return rightUnread - leftUnread || Number(right.recentlySeen) - Number(left.recentlySeen) || right.lastSeenAtMs - left.lastSeenAtMs;
+    });
+  }, [lastReadChatAtSByPeer, meshChatMessages, runtimePeers]);
 
   const handleTapIncident = (incidentId: string) => {
     setSelectedIncidentId(incidentId);
@@ -73,6 +89,17 @@ export default function NearbyScreen() {
     router.push({ pathname: '/chat/[peerToken]', params: { peerToken } });
   };
 
+  const refreshEverything = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await mobileController.refreshNearby();
+      setLastRefreshedAtMs(Date.now());
+    } catch (reason) {
+      Alert.alert('Nearby refresh failed', reason instanceof Error ? reason.message : String(reason));
+    } finally { setRefreshing(false); }
+  };
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#050811' }}>
       <View style={{ minHeight: 64, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: '#142039' }}>
@@ -81,15 +108,21 @@ export default function NearbyScreen() {
         <AlertIcon size={20} color="#FFB300" />
       </View>
 
-      <ScrollView style={{ flex: 1, padding: 20 }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: 20, flexGrow: 1 }}
+        alwaysBounceVertical
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refreshEverything()} tintColor="#00F2FE" colors={['#00F2FE', '#A855F7']} progressBackgroundColor="#0D1424" />}
+      >
         <View style={{ marginBottom: 24 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
             <Users size={16} color="#00F2FE" />
             <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '900', marginLeft: 8 }}>Recently seen people</Text>
           </View>
-          {runtimePeers.map((peer) => (
+          {lastRefreshedAtMs !== undefined && <Text accessibilityLiveRegion="polite" style={{ color: '#64748B', fontSize: 10, marginBottom: 10 }}>Updated {new Date(lastRefreshedAtMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</Text>}
+          {people.map((peer) => (
             (() => {
-              const unread = meshChatMessages.filter((message) => !message.outgoing && message.senderNodeToken === peer.peerToken && message.createdAtS > (lastReadChatAtSByPeer[peer.peerToken] ?? 0)).length;
+              const unread = unreadCount(meshChatMessages, lastReadChatAtSByPeer, peer.peerToken);
               const knownName = [...meshChatMessages].reverse().find((message) => message.senderNodeToken === peer.peerToken && message.senderLabel)?.senderLabel;
               return (
             <TouchableOpacity
@@ -103,14 +136,14 @@ export default function NearbyScreen() {
               <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,242,254,.12)', alignItems: 'center', justifyContent: 'center' }}><Users size={18} color="#00F2FE" /></View>
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800' }}>{knownName ?? `Mesh peer ${shortToken(peer.peerToken)}`}</Text>
-                <Text style={{ color: unread ? '#00F2FE' : '#64748B', fontSize: 11, marginTop: 3, fontWeight: unread ? '800' : '400' }}>{unread ? `${unread} new message${unread === 1 ? '' : 's'} · ` : ''}{peerAge(peer.lastSeenAtMs)} · {peer.sessionsCompleted} completed sessions</Text>
+                <Text style={{ color: unread ? '#00F2FE' : '#64748B', fontSize: 11, marginTop: 3, fontWeight: unread ? '800' : '400' }}>{unread ? `${unread} new message${unread === 1 ? '' : 's'} · ` : ''}{peer.recentlySeen ? `${peerAge(peer.lastSeenAtMs)} · ${peer.sessionsCompleted} completed sessions` : 'Offline conversation · will relay when reachable'}</Text>
               </View>
               <View><MessageCircle size={21} color={unread ? '#00F2FE' : '#C084FC'} />{unread > 0 && <View style={{ position: 'absolute', right: -7, top: -7, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, backgroundColor: '#FF0055', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '900' }}>{unread > 9 ? '9+' : unread}</Text></View>}</View>
             </TouchableOpacity>
               );
             })()
           ))}
-          {runtimePeers.length === 0 && (
+          {people.length === 0 && (
             <View style={{ padding: 16, borderWidth: 1, borderColor: '#1E293B', borderRadius: 9, backgroundColor: '#0D1424' }}>
               <Text style={{ color: '#94A3B8', fontSize: 12 }}>No peers observed yet. Keep relay mode on; people appear after Bluetooth discovery.</Text>
             </View>
@@ -249,6 +282,9 @@ function ageLabel(updatedAtS: number) {
 }
 
 function shortToken(token: string) { return token.length <= 8 ? token : `${token.slice(0, 4)}…${token.slice(-4)}`; }
+function unreadCount(messages: ReturnType<typeof useAppStore.getState>['meshChatMessages'], readAt: Record<string, number>, peerToken: string) {
+  return messages.filter((message) => !message.outgoing && message.senderNodeToken === peerToken && message.createdAtS > (readAt[peerToken] ?? 0)).length;
+}
 function peerAge(lastSeenAtMs: number) {
   const seconds = Math.max(0, Math.round((Date.now() - lastSeenAtMs) / 1000));
   if (seconds < 60) return 'seen just now';

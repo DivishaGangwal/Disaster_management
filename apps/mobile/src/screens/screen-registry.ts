@@ -121,10 +121,12 @@ export const SCREENS: readonly ScreenSpec[] = [
     mustShow: [
       'selected recently observed peer identity',
       'unread-message signal on the nearby person card',
+      'pull-to-refresh for permissions, relay presence, peers, packets, chats and incidents',
       'bounded plaintext message composer',
       'sender display name with mesh-ID fallback',
       'deliberate GPS location share that opens and persists as a map marker',
       'locally saved outgoing and received conversation history',
+      'peer-storage receipt state and truthful one-hop versus multi-hop arrival evidence',
       'truthful saved-to-mesh wording, never guaranteed delivery',
       'visible warning that prototype messages are not end-to-end encrypted',
     ],

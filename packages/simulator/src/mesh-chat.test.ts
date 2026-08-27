@@ -32,6 +32,7 @@ test('addressed chat is validated, stored, and carried across an intermediate me
   assert.equal(decoded.ok, true);
   if (decoded.ok) {
     assert.equal(decoded.packet.header.type, MessageType.MESH_CHAT);
+    assert.ok(decoded.packet.header.hopCount >= 2, `recipient should observe multi-hop evidence, got ${decoded.packet.header.hopCount}`);
     assert.equal((decoded.packet.payload as Record<string, unknown>)['recipientNodeToken'], 'cccc0003');
     assert.equal((decoded.packet.payload as Record<string, unknown>)['text'], 'Shared a location');
     assert.deepEqual((decoded.packet.payload as Record<string, unknown>)['location'], { source: 1, latE7: 261440000, lonE7: 916860000, accuracyM: 12, ageS: 2 });

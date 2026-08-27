@@ -43,6 +43,9 @@ The Android command compiled the Expo application and the autolinked `dsm-androi
 - Offline mesh chat carries the sender's bounded display name and supports deliberate GPS location messages. Shared locations open on the map and are rebuilt from the durable packet log after restart.
 - Diagnostics provides a confirmed local-history reset for stored packets, prior SOS/chat views, shared-location markers, peers and received files. It only clears this phone and cannot recall packets already relayed elsewhere.
 - The responder flow now emits a self-assignment before accept/decline, enforces the active responder runtime role, prevents duplicate button submissions, and projects accept, decline, en-route, arrival and resolution evidence back into the SOS owner's timeline. Nearby person cards show persisted unread-chat counts.
+- Pulling down on Nearby refreshes permission state, relay presence advertisement, stored peer observations, packet-derived incidents, conversations and unread indicators without requiring internet.
+- Nearby retains conversation cards after a peer is no longer recently observable, prioritises unread conversations, labels offline reachability truthfully, and runs packet/peer maintenance before each manual refresh.
+- Role changes retain the stable device identity and SQLite packet custody and now resume an already-running relay after rebuilding the runtime. Chat separates durable local save from a peer storage receipt, survives relay-start failure without reporting the saved message as lost, and displays packet hop-count evidence without claiming full route knowledge.
 
 ## Explicitly deferred or unmeasured
 
