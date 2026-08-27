@@ -78,16 +78,16 @@ class MobileController {
     finally { this.initializing = undefined; }
   }
 
-  async reconfigureRole(role: UserRole) {
+  async reconfigureRole(role: UserRole, force = false) {
     const previous = this.roleReconfiguration ?? Promise.resolve(undefined);
-    const task = previous.catch(() => undefined).then(() => this.performRoleReconfiguration(role));
+    const task = previous.catch(() => undefined).then(() => this.performRoleReconfiguration(role, force));
     this.roleReconfiguration = task;
     try { return await task; }
     finally { if (this.roleReconfiguration === task) this.roleReconfiguration = undefined; }
   }
 
-  private async performRoleReconfiguration(role: UserRole) {
-    if (this.runtime?.engine.profile.role === role) return this.runtime;
+  private async performRoleReconfiguration(role: UserRole, force = false) {
+    if (!force && this.runtime?.engine.profile.role === role) return this.runtime;
     const resumeRelay = this.runtime?.relay.isRunning ?? false;
     this.stopGatewaySync();
     await this.stopWavePxListening();
@@ -121,7 +121,9 @@ class MobileController {
       }
     });
     useAppStore.getState().clearOperationalHistory();
-    await this.reconfigureRole(useAppStore.getState().role);
+    // Rebuild even when the role is unchanged so the runtime drops any
+    // in-memory projection that was derived from the deleted packet history.
+    await this.reconfigureRole(useAppStore.getState().role, true);
   }
 
   /** Stop every foreground/background capability before logout or teardown. */
@@ -593,7 +595,10 @@ class MobileController {
     if (normalized && !/^https?:\/\/[^\s]+$/i.test(normalized)) throw new Error('Enter a complete http:// or https:// backend address.');
     useAppStore.getState().setGatewayBaseUrl(normalized);
     useAppStore.getState().setInternetState('untested');
-    await this.reconfigureRole(useAppStore.getState().role);
+    // The gateway client captures its base URL when the runtime is created.
+    // Rebuild even when the role is unchanged so migrated or edited URLs take
+    // effect before the live identity probe runs.
+    await this.reconfigureRole(useAppStore.getState().role, true);
     if (normalized) return this.probeGateway();
     return false;
   }
