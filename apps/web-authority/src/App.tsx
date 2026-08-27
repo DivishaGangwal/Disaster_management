@@ -8,13 +8,11 @@ import { PublishWorkspace } from './PublishWorkspace';
 import { DataInspector } from './DataInspector';
 import { isCentre, isOperationallyUsable, operationalVerdict } from './operational-status';
 import type { Campaign, DecodedMapOperation, GatewayAudit, Incident, OperatorSession, Overview, PacketStreamItem, RegionalRecord, Responder, SectionKey } from './types';
-import { selectWavePxCampaign, wavePxCampaigns } from './wavepx-selection';
 
 const NAV: readonly { key: SectionKey; label: string; note: string }[] = [
   { key: 'coordinate', label: 'Coordinate', note: 'Incidents + response' },
   { key: 'publish', label: 'Publish', note: 'Centres + mesh state' },
   { key: 'campaigns', label: 'Campaign + WavePX', note: 'Create, inspect + transmit' },
-  { key: 'wavepx', label: 'WavePX station', note: 'Direct audio workspace' },
   { key: 'network', label: 'Packet network', note: 'Mesh + gateway + radio' },
 ];
 
@@ -67,7 +65,7 @@ export function App() {
       <header className="topbar"><div><span className="jurisdiction">National platform · Mumbai command</span><h1>{NAV.find((item) => item.key === section)?.label}</h1></div><div className="top-actions"><LiveClock /><span className="operator-label">{session.operatorLabel}</span><span className="deployment">{DEPLOYMENT.regionCode}</span><button className="button ghost" onClick={() => void refresh()}>Refresh</button><button className="button ghost" onClick={() => { api.signOut(); setSession(undefined); }}>Sign out</button></div></header>
       {overview && <Metrics overview={overview} packets={packets} records={records} gateways={gatewayAudit} />}
       {notice && <div className={notice.error ? 'notice error' : 'notice'} role={notice.error ? 'alert' : 'status'} aria-live={notice.error ? 'assertive' : 'polite'}>{notice.text}<button aria-label="Dismiss status message" onClick={() => setNotice(undefined)}>×</button></div>}
-      <div className={section === 'publish' ? 'workspace workspace-map' : 'workspace'}>{loading ? <Loading /> : section === 'coordinate' ? <CoordinateV2 incidents={incidents} responders={responders} records={records} packets={packets} gatewayAudit={gatewayAudit} onAssign={(r, i) => perform('Responder assignment', () => api.assign(r, i))} onResponderAction={(r, action) => perform(`Responder ${action}`, () => api.updateResponder(r, action))} /> : section === 'publish' ? <PublishWorkspace records={records} packets={packets} onPublish={(id, state) => perform('Mesh publication', () => api.updateRecord(id, state))} onUpsert={(input) => perform(input.objectId ? 'Centre movement publication' : 'Temporary centre publication', () => api.upsertCentre(input))} /> : section === 'campaigns' ? <CampaignWorkspaceV2 campaigns={campaigns} incidents={incidents} records={records} perform={perform} onRefresh={refresh} onOpenStation={() => setSection('wavepx')} /> : section === 'wavepx' ? <WavePxWorkspace campaigns={campaigns} onRefresh={refresh} /> : <PacketNetwork packets={packets} gatewayAudit={gatewayAudit} />}</div>
+      <div className={section === 'publish' ? 'workspace workspace-map' : 'workspace'}>{loading ? <Loading /> : section === 'coordinate' ? <CoordinateV2 incidents={incidents} responders={responders} records={records} packets={packets} gatewayAudit={gatewayAudit} onAssign={(r, i) => perform('Responder assignment', () => api.assign(r, i))} onResponderAction={(r, action) => perform(`Responder ${action}`, () => api.updateResponder(r, action))} /> : section === 'publish' ? <PublishWorkspace records={records} packets={packets} onPublish={(id, state) => perform('Mesh publication', () => api.updateRecord(id, state))} onUpsert={(input) => perform(input.objectId ? 'Centre movement publication' : 'Temporary centre publication', () => api.upsertCentre(input))} /> : section === 'campaigns' ? <CampaignWorkspaceV2 campaigns={campaigns} incidents={incidents} records={records} perform={perform} onRefresh={refresh} /> : <PacketNetwork packets={packets} gatewayAudit={gatewayAudit} />}</div>
     </main>
   </div>;
 }
@@ -212,7 +210,7 @@ function CampaignWorkspace({ campaigns, incidents, records, onRefresh, perform }
   return <Page title="Campaign operations" meta="Approve exact canonical bytes, verify the audio artifact, schedule it, then record export or playback."><CampaignFlow campaign={selected} /><div className="campaign-grid"><CampaignComposer campaigns={campaigns} selected={selected} incidents={incidents} records={records} onSelect={setSelectedId} onCreate={(input) => perform('Campaign draft', () => api.createCampaign(input))} onUpdate={(id, input) => perform('Campaign revision', () => api.updateCampaign(id, input))} /><section className="panel approval-panel"><PanelHead title="Approval and hand-off" aside={selected?.campaignId ?? 'Select a campaign'} />{selected ? <CampaignApproval campaign={selected} onAction={(state) => perform(`Move campaign to ${state}`, () => api.transitionCampaign(selected.campaignId, state))} onPrepare={() => perform('Acoustic program preparation', () => api.prepareBroadcast(selected.campaignId))} /> : <Empty text="Create a campaign draft to begin." />}</section><section className="panel broadcast-panel"><div className="panel-head broadcast-head"><h3>Verified broadcast station</h3><label><span className="sr-only">Approved campaign</span><select value={broadcastCampaign?.campaignId ?? ''} onChange={(event) => setBroadcastId(event.target.value)}><option value="" disabled>Select approved campaign</option>{approvedCampaigns.map((campaign) => <option value={campaign.campaignId} key={campaign.campaignId}>{campaign.title} · {flowName(campaign.state)}</option>)}</select></label></div><BroadcastConsole campaign={broadcastCampaign} onRefresh={onRefresh} /></section></div></Page>;
 }
 
-function CampaignWorkspaceV2({ campaigns, incidents, records, perform, onRefresh, onOpenStation }: { campaigns: Campaign[]; incidents: Incident[]; records: RegionalRecord[]; perform: (label: string, action: () => Promise<unknown>) => Promise<void>; onRefresh: () => Promise<void>; onOpenStation: () => void }) {
+function CampaignWorkspaceV2({ campaigns, incidents, records, perform, onRefresh }: { campaigns: Campaign[]; incidents: Incident[]; records: RegionalRecord[]; perform: (label: string, action: () => Promise<unknown>) => Promise<void>; onRefresh: () => Promise<void> }) {
   const [selectedId, setSelectedId] = useState(campaigns[0]?.campaignId ?? '');
   const [view, setView] = useState<'register' | 'new' | 'edit'>('register');
   const selected = campaigns.find((campaign) => campaign.campaignId === selectedId) ?? campaigns[0];
@@ -242,7 +240,7 @@ function CampaignWorkspaceV2({ campaigns, incidents, records, perform, onRefresh
       </section>
       <section className="campaign-focus">
         {selected ? <>
-          <header className="campaign-focus-header"><div><State value={selected.state} /><h3>{selected.title}</h3><p>{selected.summary}</p></div><div className="focus-actions"><button className="button secondary" onClick={() => setView('edit')}>Update message</button>{selected.broadcastProgram && <button className="button ghost" onClick={onOpenStation}>Open full WavePX station</button>}</div></header>
+          <header className="campaign-focus-header"><div><State value={selected.state} /><h3>{selected.title}</h3><p>{selected.summary}</p></div><div className="focus-actions"><button className="button secondary" onClick={() => setView('edit')}>Update message</button></div></header>
           <CampaignFlow campaign={selected} />
           <CampaignPacketPreview campaign={selected} />
           <CampaignApproval campaign={selected} onAction={(state) => perform(campaignActionLabel(state), () => api.transitionCampaign(selected.campaignId, state))} onPrepare={() => perform('Create WavePX audio program', () => prepare(selected))} />
@@ -259,27 +257,6 @@ function CampaignWorkspaceV2({ campaigns, incidents, records, perform, onRefresh
   </section>;
 }
 
-function WavePxWorkspace({ campaigns, onRefresh }: { campaigns: Campaign[]; onRefresh: () => Promise<void> }) {
-  const prepared = wavePxCampaigns(campaigns);
-  const [selectedId, setSelectedId] = useState('');
-  const selected = selectWavePxCampaign(prepared, selectedId);
-
-  return <section className="wavepx-workspace">
-    <header className="wavepx-header">
-      <div><span className="wavepx-kicker">Tier 2 acoustic link</span><h2>WavePX station</h2><p>Play, export, or recover the exact audio artifact prepared from an approved packet.</p></div>
-      <label><span>Prepared artifact</span><select value={selected?.campaignId ?? ''} onChange={(event) => setSelectedId(event.target.value)} disabled={prepared.length === 0}><option value="" disabled>{prepared.length === 0 ? 'No prepared artifacts' : 'Select artifact'}</option>{prepared.map((campaign) => <option value={campaign.campaignId} key={campaign.campaignId}>{campaign.title} · {flowName(campaign.state)}</option>)}</select></label>
-    </header>
-    {selected ? <>
-      <div className="wavepx-summary" aria-label="Selected WavePX artifact">
-        <span><small>Campaign</small><strong>{selected.title}</strong></span>
-        <span><small>State</small><State value={selected.state} /></span>
-        <span><small>Program</small><code>{selected.broadcastProgram?.programId}</code></span>
-        <span><small>Frames</small><strong>{selected.broadcastProgram?.playbackFramesBase64.length ?? 0}</strong></span>
-      </div>
-      <BroadcastConsole campaign={selected} onRefresh={onRefresh} />
-    </> : <Empty text="Prepare a WavePX program from an approved campaign, then return here to transmit or decode it." />}
-  </section>;
-}
 function CampaignFlow({ campaign }: { campaign?: Campaign }) {
   const steps = [
     { label: 'Compose', states: ['draft'] },
@@ -309,7 +286,7 @@ function CampaignPacketPreview({ campaign }: { campaign: Campaign }) {
 const REGION_CENTRE = { lat: 19.09, lon: 72.85 };
 
 function CampaignComposer({ campaigns, selected, initialEditing = false, incidents, records, onCreate, onUpdate, onSelect }: { campaigns: Campaign[]; selected?: Campaign; initialEditing?: boolean; incidents: Incident[]; records: RegionalRecord[]; onCreate: (input: CampaignDraftInput) => void; onUpdate: (id: string, input: CampaignDraftInput) => void; onSelect: (id: string) => void }) {
-  const [title, setTitle] = useState('Mumbai flood safety alert'); const [summary, setSummary] = useState('Move to higher ground and follow district authority instructions.'); const [severity, setSeverity] = useState(2); const [dataType, setDataType] = useState<'official-alert' | 'regional-record' | 'check-in'>('official-alert'); const [objectId, setObjectId] = useState(records[0]?.objectId ?? '');
+  const [title, setTitle] = useState(''); const [summary, setSummary] = useState(''); const [severity, setSeverity] = useState(2); const [dataType, setDataType] = useState<'official-alert' | 'regional-record' | 'check-in'>('official-alert'); const [objectId, setObjectId] = useState(records[0]?.objectId ?? '');
   const [category, setCategory] = useState(2); const [instruction, setInstruction] = useState(2); const [profile, setProfile] = useState<'audible-fast' | 'audible-normal' | 'ultrasound-normal'>('audible-normal'); const [editingId, setEditingId] = useState('');
   const [point, setPoint] = useState<{ lat: number; lon: number } | null>(REGION_CENTRE); const [radiusM, setRadiusM] = useState(5000);
   const carriesPoint = dataType === 'official-alert' && point !== null;

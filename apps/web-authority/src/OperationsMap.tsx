@@ -61,13 +61,13 @@ export function OperationsMap({ incidents, records, gateways, selected, onSelect
           osm: {
             type: 'raster',
             tiles: [
-              'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-              'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-              'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+              'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+              'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+              'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
             ],
             tileSize: 256,
             maxzoom: 19,
-            attribution: '© OpenStreetMap contributors © CARTO',
+            attribution: '© OpenStreetMap contributors',
           },
         },
         layers: [
@@ -80,6 +80,10 @@ export function OperationsMap({ incidents, records, gateways, selected, onSelect
       minZoom: 7,
       maxZoom: 17,
       attributionControl: false,
+      // Zoom anchors on the map's current center rather than the cursor/touch
+      // point, so markers move predictably instead of sliding toward the pointer.
+      scrollZoom: { around: 'center' },
+      touchZoomRotate: { around: 'center' },
     });
     map.current = instance;
     setCreated(true);
@@ -109,7 +113,7 @@ export function OperationsMap({ incidents, records, gateways, selected, onSelect
       const coordinates = feature.geometry.coordinates as [number, number];
       entry.properties = properties;
       entry.coordinates = coordinates;
-      entry.element.className = 'ops-map-marker marker-' + properties.featureType + ' status-' + properties.status;
+      entry.element.className = 'maplibregl-marker ops-map-marker marker-' + properties.featureType + ' status-' + properties.status;
       entry.element.classList.toggle('selected', properties.id === selected);
       entry.element.setAttribute('aria-label', properties.label + ': ' + properties.subtitle);
       entry.element.title = properties.label + ' — ' + properties.subtitle;
@@ -150,7 +154,16 @@ export function OperationsMap({ incidents, records, gateways, selected, onSelect
   }, [data, ready]);
 
   useEffect(() => {
-    operationMarkers.current.forEach((entry, id) => entry.element.classList.toggle('selected', id === selected));
+    operationMarkers.current.forEach((entry, id) => {
+      const isSelected = id === selected;
+      entry.element.classList.toggle('selected', isSelected);
+      if (!isSelected) return;
+      // One-shot pulse on selection change only (not on the periodic data
+      // refresh, which retoggles .selected on every update() call).
+      entry.element.classList.remove('pulse');
+      void entry.element.offsetWidth;
+      entry.element.classList.add('pulse');
+    });
   }, [selected]);
 
   useEffect(() => {
@@ -174,7 +187,7 @@ export function OperationsMap({ incidents, records, gateways, selected, onSelect
     if (selected === initialSelection.current) return;
     initialSelection.current = selected;
     const feature = data.features.find((item) => item.properties?.id === selected);
-    if (feature?.geometry.type === 'Point') map.current.easeTo({ center: feature.geometry.coordinates as [number, number], zoom: Math.max(map.current.getZoom(), 7.2), duration: 450 });
+    if (feature?.geometry.type === 'Point') map.current.easeTo({ center: feature.geometry.coordinates as [number, number], zoom: Math.max(map.current.getZoom(), 14), duration: 700 });
   }, [selected, data, ready]);
 
   const toggle = (filter: Filter) => setFilters((current) => { const next = new Set(current); next.has(filter) ? next.delete(filter) : next.add(filter); return next; });

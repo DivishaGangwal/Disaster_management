@@ -440,7 +440,9 @@ textarea {
 }
 
 .ops-map-marker {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 44px;
   height: 44px;
   padding: 0;
@@ -487,6 +489,14 @@ textarea {
 .ops-map-marker:focus-visible small,
 .ops-map-marker.selected small { display: block; }
 .ops-map-marker.selected { outline: 3px solid #132c3a; outline-offset: 3px; }
+
+@keyframes ops-marker-pulse {
+  0% { box-shadow: 0 3px 10px #102b3a38, 0 0 0 0 rgba(19, 44, 58, .55); }
+  60% { box-shadow: 0 3px 10px #102b3a38, 0 0 0 16px rgba(19, 44, 58, 0); }
+  100% { box-shadow: 0 3px 10px #102b3a38, 0 0 0 0 rgba(19, 44, 58, 0); }
+}
+
+.ops-map-marker.pulse { animation: ops-marker-pulse 900ms ease-out; }
 .ops-map-marker.marker-incident { width: 48px; height: 48px; }
 .ops-map-marker.marker-gateway { background: var(--atlas-blue); }
 .ops-map-marker.status-critical,
