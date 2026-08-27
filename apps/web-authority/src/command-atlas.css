@@ -520,6 +520,7 @@ textarea {
   gap: 5px;
   max-width: calc(100% - 82px);
   flex-wrap: wrap;
+  z-index: 5;
 }
 
 .map-toolbar button {
@@ -1152,7 +1153,7 @@ textarea {
 .packet-impact-grid dd { margin: 2px 0 0; color: var(--atlas-ink); font-size: .75rem; font-weight: 700; overflow-wrap: anywhere; }
 .packet-impact-grid ul { margin: 0; padding: 0; display: grid; gap: 8px; list-style: none; }
 .packet-impact-grid li,
-.no-map-impact { padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; background: #edf5ef; border-inline-start: 3px solid var(--atlas-green); }
+.no-map-impact { padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; background: #edf5ef; border: 1px solid var(--atlas-line); }
 .packet-impact-grid li b,
 .no-map-impact b { color: var(--atlas-ink); font-size: .76rem; }
 .packet-impact-grid li small,
@@ -1685,7 +1686,9 @@ textarea {
   }
 }
 
-/* Stress-safe interaction targets: compact visual chrome with a full 44px hit area. */
-:where(.button, .nav-item, input, select, summary, .mode-tabs button, .campaign-list button, .map-toolbar button, .notice button) {
+/* Stress-safe interaction targets: compact visual chrome with a full 44px hit area.
+   Not :where() - these need real specificity to win over the base min-height
+   rules for .button, .map-toolbar button, and input/select declared earlier. */
+.button, .nav-item, input, select, summary, .mode-tabs button, .campaign-list button, .map-toolbar button, .notice button {
   min-height: 44px;
 }
