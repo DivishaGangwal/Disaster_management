@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-08-26. This is an implementation report, not a real-device certification.
+Updated 2026-08-27. This is an implementation report, not a real-device certification.
 
 The file-by-file implementation record for this pass is in
 [IMPLEMENTATION-CHANGES-2026-08-23.md](IMPLEMENTATION-CHANGES-2026-08-23.md).
@@ -8,7 +8,7 @@ The file-by-file implementation record for this pass is in
 ## Verified in this pass
 
 ```text
-npm test                                      89/89 passing
+npm test                                      93/93 passing
 npm run build                                 strict TypeScript build passing
 npm run typecheck --workspace @dsm/mobile     passing
 npm run web:build                             passing
@@ -38,6 +38,14 @@ The Android command compiled the Expo application and the autolinked `dsm-androi
 - Safety check-in campaigns composed on the website, decoded by the WavePX phone receiver, and answered through Tier 1 Bluetooth mesh plus an optional gateway; automated acceptance evidence enforces the one-way Tier 2 boundary.
 - One national deployment contract shared by backend, web and Android, with Mumbai (`IN-MH`) as the current operational region and matching baseline object IDs, labels, coordinates and states.
 - Truthful delivery semantics. A direct receipt means another phone stored a copy; it does not mean rescue is coming. Neither mobile nor web claims to follow a packet globally after it leaves an observed device.
+- “People on the mesh” peer list and addressed chat: outgoing messages are validated and saved to SQLite before relay, incoming conversations are rebuilt from the packet log after restart, gateway upload is disabled, and a deterministic three-phone simulation proves store-carry-forward delivery through an intermediate node.
+- Minimal direct offline guidance across map, resource detail and responder incident surfaces. Users can select two map points or navigate from live GPS to a selected operational object; distance and bearing update locally, and the UI explicitly says the line is not a verified road route.
+- Offline mesh chat carries the sender's bounded display name and supports deliberate GPS location messages. Shared locations open on the map and are rebuilt from the durable packet log after restart.
+- Diagnostics provides a confirmed local-history reset for stored packets, prior SOS/chat views, shared-location markers, peers and received files. It only clears this phone and cannot recall packets already relayed elsewhere.
+- The responder flow now emits a self-assignment before accept/decline, enforces the active responder runtime role, prevents duplicate button submissions, and projects accept, decline, en-route, arrival and resolution evidence back into the SOS owner's timeline. Nearby person cards show persisted unread-chat counts.
+- Pulling down on Nearby refreshes permission state, relay presence advertisement, stored peer observations, packet-derived incidents, conversations and unread indicators without requiring internet.
+- Nearby retains conversation cards after a peer is no longer recently observable, prioritises unread conversations, labels offline reachability truthfully, and runs packet/peer maintenance before each manual refresh.
+- Role changes retain the stable device identity and SQLite packet custody and now resume an already-running relay after rebuilding the runtime. Chat separates durable local save from a peer storage receipt, survives relay-start failure without reporting the saved message as lost, and displays packet hop-count evidence without claiming full route knowledge.
 
 ## Explicitly deferred or unmeasured
 
@@ -45,5 +53,6 @@ The Android command compiled the Expo application and the autolinked `dsm-androi
 - No physical Android or website-speaker-to-phone WavePX trial was possible in this environment. Range, success rate, background survival, battery cost and manufacturer behaviour are therefore unmeasured.
 - Mumbai seed records are development data, not an official facility registry.
 - The prototype has strict parsing and integrity checks, but not production identity verification or end-to-end cryptographic authority.
+- Mesh chat is bounded plaintext in this prototype, not end-to-end encrypted; relay phones can retain chat packets until expiry, and physical two-phone chat remains part of the unmeasured Android radio trial.
 
 See [FEATURE-MATRIX.md](FEATURE-MATRIX.md) for the complete remaining list and [WEB-CONSOLE.md](WEB-CONSOLE.md) for the operator flow.

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { icons } from '@/constants/icons';
@@ -14,6 +14,8 @@ export default function ProfileScreen() {
   const [showViews, setShowViews] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [gatewayUrl, setGatewayUrl] = useState(state.gatewayBaseUrl);
+  const [savingGateway, setSavingGateway] = useState(false);
   useEffect(() => { void mobileController.refreshOfflineMap(); }, []);
 
   const downloadMap = async () => {
@@ -33,6 +35,16 @@ export default function ProfileScreen() {
     router.replace('/login');
   };
 
+  const saveGateway = async () => {
+    if (savingGateway) return;
+    setSavingGateway(true);
+    try {
+      const proven = await mobileController.configureGatewayBaseUrl(gatewayUrl);
+      Alert.alert(proven ? 'Gateway connected' : 'Gateway saved', proven ? 'This phone can upload SOS locations and receive website map updates.' : gatewayUrl.trim() ? 'The address is saved, but its backend identity could not be proven yet.' : 'Gateway synchronization is disabled; Bluetooth mesh continues offline.');
+    } catch (reason) { Alert.alert('Gateway not saved', reason instanceof Error ? reason.message : String(reason)); }
+    finally { setSavingGateway(false); }
+  };
+
   const progress = state.offlinePackStatus === 'ready' ? 100 : state.offlinePackProgress;
   return <SafeAreaView style={{ flex: 1, backgroundColor: '#050811' }}>
     <View style={{ minHeight: 64, paddingHorizontal: 18, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#142039' }}><Text style={{ color: '#9333EA', fontSize: 10, fontWeight: '900', letterSpacing: 2 }}>LOCAL IDENTITY + DATA</Text><Text style={{ color: '#F8FAFC', fontSize: 22, fontWeight: '900', marginTop: 1 }}>Profile</Text></View>
@@ -47,9 +59,15 @@ export default function ProfileScreen() {
       {showViews && <View style={{ backgroundColor: '#0A1220', borderWidth: 1, borderTopWidth: 0, borderColor: '#1B2944', borderBottomLeftRadius: 10, borderBottomRightRadius: 10, paddingVertical: 6 }}>{operatingViews.map((view) => <TouchableOpacity key={view} accessibilityRole="radio" accessibilityState={{ selected: state.selectedRegion === view }} onPress={() => { state.setSelectedRegion(view); setShowViews(false); }} style={{ minHeight: 44, justifyContent: 'center', paddingLeft: 18 }}><Text style={{ color: state.selectedRegion === view ? '#00F2FE' : '#A9B5C9', fontSize: 14, fontWeight: state.selectedRegion === view ? '900' : '600' }}>{state.selectedRegion === view ? '●  ' : '○  '}{view}</Text></TouchableOpacity>)}</View>}
 
       <View style={{ marginTop: 12, padding: 14, backgroundColor: '#0D1424', borderWidth: 1, borderColor: '#1B2944', borderRadius: 10 }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}><View style={{ flex: 1 }}><Text style={rowTitle}>Mumbai offline basemap</Text><Text style={rowDetail}>mumbai-v1 covers the full operational region; area focus does not change the downloaded pack.</Text></View><TouchableOpacity accessibilityRole="button" accessibilityLabel="Download or refresh Mumbai offline map" accessibilityState={{ busy: downloading }} disabled={downloading} onPress={() => void downloadMap()} style={{ width: 48, height: 48, alignItems: 'center', justifyContent: 'center' }}>{downloading ? <ActivityIndicator color="#00F2FE" /> : <icons.download size={22} color="#00F2FE" />}</TouchableOpacity></View>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}><View style={{ flex: 1 }}><Text style={rowTitle}>Mumbai offline basemap</Text><Text style={rowDetail}>mumbai-v2 covers the full operational region; area focus does not change the downloaded pack.</Text></View><TouchableOpacity accessibilityRole="button" accessibilityLabel="Download or refresh Mumbai offline map" accessibilityState={{ busy: downloading }} disabled={downloading} onPress={() => void downloadMap()} style={{ width: 48, height: 48, alignItems: 'center', justifyContent: 'center' }}>{downloading ? <ActivityIndicator color="#00F2FE" /> : <icons.download size={22} color="#00F2FE" />}</TouchableOpacity></View>
         <View style={{ height: 3, backgroundColor: '#162038', marginTop: 14 }}><View style={{ height: 3, width: `${progress}%`, backgroundColor: state.offlinePackStatus === 'error' ? '#FF456F' : '#00E676' }} /></View>
         <Text style={{ color: '#64748B', fontSize: 11, marginTop: 7 }}>{packStatus(state.offlinePackStatus, progress)} · {formatBytes(state.offlinePackBytes)} stored</Text>
+      </View>
+
+      <View style={{ marginTop: 12, padding: 14, backgroundColor: '#0D1424', borderWidth: 1, borderColor: '#1B2944', borderRadius: 10 }}>
+        <Text style={rowTitle}>Website gateway</Text><Text style={rowDetail}>Use 10.0.2.2 for the Android emulator, or this computer's LAN address for a physical phone.</Text>
+        <TextInput accessibilityLabel="Coordination backend address" autoCapitalize="none" autoCorrect={false} keyboardType="url" value={gatewayUrl} onChangeText={setGatewayUrl} placeholder="http://10.0.2.2:8787" placeholderTextColor="#52617A" style={{ minHeight: 46, marginTop: 10, borderRadius: 7, borderWidth: 1, borderColor: '#263653', color: '#F8FAFC', paddingHorizontal: 12 }} />
+        <TouchableOpacity accessibilityRole="button" accessibilityState={{ busy: savingGateway }} disabled={savingGateway} onPress={() => void saveGateway()} style={{ minHeight: 44, marginTop: 9, borderRadius: 7, backgroundColor: '#087E8B', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '900' }}>{savingGateway ? 'TESTING…' : 'SAVE & TEST GATEWAY'}</Text></TouchableOpacity>
       </View>
 
       <Text style={sectionLabel}>SYSTEM</Text>

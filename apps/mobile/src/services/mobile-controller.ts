@@ -11,6 +11,7 @@ import {
   ArrivalEvidence,
   CheckinStatus,
   DEPLOYMENT,
+  FIELD_LIMITS,
   GATEWAY,
   ResolutionOutcome,
   ReplyCapability,
@@ -25,7 +26,7 @@ import {
   type TransportKind,
   type DiagnosticEvent,
 } from '@dsm/contracts';
-import { buildCheckinResponse, buildResponderState, buildSosCancel, buildSosCreate, buildSosUpdate, decodePacket, floatToE7, newNodeToken, newSourceId, toEpochS } from '@dsm/codec';
+import { buildCheckinResponse, buildMeshChat, buildResponderState, buildSosCancel, buildSosCreate, buildSosUpdate, decodePacket, floatToE7, newNodeToken, newSourceId, toEpochS } from '@dsm/codec';
 import { MemoryEventSink } from '@dsm/store';
 import { createNativeTransport, createNativeWavePxAudioInput, requestNativeWavePxPermission } from '@dsm/android-radio-bridge';
 import { HttpGatewayClient } from '@dsm/gateway-client';
@@ -66,6 +67,8 @@ class MobileController {
   private gatewaySyncInFlight?: Promise<boolean>;
   private gatewaySyncGeneration = 0;
   private refreshTimer?: ReturnType<typeof setTimeout>;
+  private database?: Awaited<ReturnType<typeof openMobileRepositories>>['database'];
+  private roleReconfiguration: Promise<AppRuntime> | undefined;
 
   async initialize(role: UserRole = useAppStore.getState().role) {
     if (this.runtime) return this.runtime;
@@ -76,6 +79,16 @@ class MobileController {
   }
 
   async reconfigureRole(role: UserRole) {
+    const previous = this.roleReconfiguration ?? Promise.resolve(undefined);
+    const task = previous.catch(() => undefined).then(() => this.performRoleReconfiguration(role));
+    this.roleReconfiguration = task;
+    try { return await task; }
+    finally { if (this.roleReconfiguration === task) this.roleReconfiguration = undefined; }
+  }
+
+  private async performRoleReconfiguration(role: UserRole) {
+    if (this.runtime?.engine.profile.role === role) return this.runtime;
+    const resumeRelay = this.runtime?.relay.isRunning ?? false;
     this.stopGatewaySync();
     await this.stopWavePxListening();
     this.removeWavePxFrameListener?.();
@@ -89,7 +102,26 @@ class MobileController {
     this.refreshTimer = undefined;
     if (this.runtime?.relay.isRunning) await this.runtime.stopRelay();
     this.runtime = undefined;
-    return this.initialize(role);
+    const runtime = await this.initialize(role);
+    if (resumeRelay && !runtime.relay.isRunning) await runtime.startRelay();
+    await this.refresh(runtime);
+    return runtime;
+  }
+
+  /** Deletes this phone's operational SQLite history after explicit UI confirmation. */
+  async clearLocalOperationalHistory() {
+    await this.initialize();
+    const database = this.database;
+    if (!database) throw new Error('Local database is not ready.');
+    this.stopGatewaySync();
+    if (this.runtime?.relay.isRunning) await this.runtime.stopRelay();
+    await database.withExclusiveTransactionAsync(async (transaction) => {
+      for (const table of ['observations', 'packets', 'seen_packets', 'fragments', 'peers', 'assembled_files', 'map_objects']) {
+        await transaction.runAsync(`DELETE FROM ${table}`);
+      }
+    });
+    useAppStore.getState().clearOperationalHistory();
+    await this.reconfigureRole(useAppStore.getState().role);
   }
 
   /** Stop every foreground/background capability before logout or teardown. */
@@ -138,6 +170,7 @@ class MobileController {
 
   private async create(role: UserRole) {
     const repositories = await openMobileRepositories();
+    this.database = repositories.database;
     // Fast perceived launch: paint whatever the persisted mirror already
     // holds before the (potentially slower) packet-log replay below runs.
     const persistedMapObjects = await repositories.mapObjects.list();
@@ -175,7 +208,7 @@ class MobileController {
     }, new PackResolver(MUMBAI_CONTENT_PACK));
     const report = await runtime.getCapabilities();
     if (report.batteryPercent !== undefined) runtime.engine.setBatteryBand(batteryBand(report.batteryPercent));
-    const backendBaseUrl = (process.env.EXPO_PUBLIC_DSM_BACKEND_URL || '').replace(/\/$/, '');
+    const backendBaseUrl = useAppStore.getState().gatewayBaseUrl.trim().replace(/\/$/, '');
     if (backendBaseUrl) {
       runtime.attachGateway(new GatewaySynchronizer({
         engine: runtime.engine,
@@ -340,6 +373,15 @@ class MobileController {
     return report.permissions;
   }
 
+  /** Pull-to-refresh seam for the Nearby surface: permissions, relay presence, peers, packets, chats and incidents. */
+  async refreshNearby() {
+    const runtime = await this.initialize();
+    await this.refreshPermissionStatus();
+    await runtime.engine.maintain(Date.now());
+    if (runtime.relay.isRunning) await runtime.relay.refreshAdvertisement();
+    await this.refresh(runtime);
+  }
+
   private applyCapabilityReport(report: CapabilityReport, adapterKind: TransportKind) {
     const state = useAppStore.getState();
     state.setTransportMode(report.simulated ? 'SIMULATED' : 'native');
@@ -422,22 +464,34 @@ class MobileController {
   }
 
   async responderTransition(action: 'accepted' | 'declined' | 'en-route' | 'arrived' | 'resolved') {
-    const runtime = await this.initialize('responder');
-    const incidentId = useAppStore.getState().selectedIncidentId;
+    const state = useAppStore.getState();
+    if (state.role !== 'responder') throw new Error('Switch this phone to the Responder role before changing an incident.');
+    let runtime = await this.initialize('responder');
+    if (runtime.engine.profile.role !== 'responder') runtime = await this.reconfigureRole('responder');
+    const incidentId = state.selectedIncidentId;
     if (!incidentId) throw new Error('Select a locally stored incident first');
-    this.sequence += 1;
+    const incident = runtime.engine.incidents.view(incidentId);
+    if (!incident) throw new Error('This SOS is not available in the responder packet store. Keep relay active and retry after it arrives.');
+    if (incident.state === 'cancelled' || incident.state === 'resolved') throw new Error(`This SOS is already ${incident.state}.`);
     const assignmentId = `ASG-${incidentId}`.slice(0, 32);
     const responderRef = runtime.engine.localSourceId.slice(0, 16);
+    if ((action === 'accepted' || action === 'declined') && incident.state === 'active') {
+      this.sequence += 1;
+      const assignment = buildResponderState(context(runtime), MessageType.RESPONDER_ASSIGNED, incidentId, this.sequence, { assignmentId, responderRef, dispatcherLabel: 'Local mesh self-assignment' });
+      const assigned = await runtime.engine.createLocal(assignment);
+      if (!assigned.validation.ok || assigned.storeOutcome !== 'inserted') throw new Error(assigned.validation.ok ? 'Assignment packet could not be saved.' : assigned.validation.reason);
+    }
+    this.sequence += 1;
     const type = action === 'accepted' ? MessageType.RESPONDER_ACCEPTED : action === 'declined' ? MessageType.RESPONDER_DECLINED : action === 'en-route' ? MessageType.RESPONDER_EN_ROUTE : action === 'arrived' ? MessageType.RESPONDER_ARRIVED : MessageType.RESOLVED;
     const responderLocation = action === 'en-route' ? await bestEffortLocation() : undefined;
     const payload = action === 'accepted' ? { assignmentId, responderRef }
       : action === 'declined' ? { assignmentId, responderRef, reasonCode: 0 }
-        : action === 'arrived' ? { evidence: ArrivalEvidence.DECLARED }
+        : action === 'arrived' ? { assignmentId, responderRef, evidence: ArrivalEvidence.DECLARED }
           : action === 'resolved' ? { resolverRef: responderRef, outcome: ResolutionOutcome.ASSISTED_ON_SITE, terminalRetentionS: 86_400 }
-            : responderLocation ? { location: responderLocation } : {};
+            : { assignmentId, responderRef, ...(responderLocation ? { location: responderLocation } : {}) };
     const packet = buildResponderState(context(runtime), type, incidentId, this.sequence, payload);
     const result = await runtime.engine.createLocal(packet);
-    if (!result.validation.ok) throw new Error(result.validation.reason);
+    if (!result.validation.ok || result.storeOutcome !== 'inserted') throw new Error(result.validation.ok ? 'Responder update could not be saved.' : result.validation.reason);
     if (!runtime.relay.isRunning) await runtime.startRelay();
     await runtime.relay.refreshAdvertisement();
     await this.refresh(runtime);
@@ -468,6 +522,46 @@ class MobileController {
     return bestEffortLocation();
   }
 
+  /** Persists a bounded chat packet before starting/opportunistically refreshing relay. */
+  async sendMeshChat(recipientNodeToken: string, text: string) {
+    return this.sendMeshChatPayload(recipientNodeToken, text);
+  }
+
+  async sendMeshLocation(recipientNodeToken: string) {
+    const location = await bestEffortLocation();
+    if (!location) throw new Error('A recent GPS fix is required before sharing your location.');
+    return this.sendMeshChatPayload(recipientNodeToken, 'Shared a location', location);
+  }
+
+  private async sendMeshChatPayload(recipientNodeToken: string, text: string, location?: Readonly<Record<string, unknown>>) {
+    const runtime = await this.initialize();
+    const body = text.trim();
+    if (!/^[A-Za-z0-9_.:-]{1,32}$/.test(recipientNodeToken)) throw new Error('That peer is no longer valid.');
+    if (!body) throw new Error('Type a message first.');
+    if (new TextEncoder().encode(body).length > FIELD_LIMITS.MESH_CHAT_TEXT_BYTES) throw new Error(`Message must be ${FIELD_LIMITS.MESH_CHAT_TEXT_BYTES} UTF-8 bytes or fewer so it fits one Bluetooth record.`);
+    const conversationId = conversationIdFor(runtime.engine.nodeToken, recipientNodeToken);
+    const packet = buildMeshChat(context(runtime), conversationId, {
+      senderNodeToken: runtime.engine.nodeToken,
+      recipientNodeToken,
+      senderLabel: useAppStore.getState().userName?.trim().slice(0, 32) || 'Mesh user',
+      text: body,
+      ...(location ? { location } : {}),
+    });
+    const result = await runtime.engine.createLocal(packet);
+    if (!result.validation.ok || result.storeOutcome !== 'inserted') throw new Error(result.validation.ok ? 'Message could not be saved.' : result.validation.reason);
+    let relayWarning: string | undefined;
+    try {
+      if (!runtime.relay.isRunning) await runtime.startRelay();
+      await runtime.relay.refreshAdvertisement();
+      await runtime.relay.syncPeerNow(recipientNodeToken);
+    } catch (reason) {
+      relayWarning = reason instanceof Error ? reason.message : String(reason);
+      useAppStore.getState().setRuntimeError(`Message saved, but relay is unavailable: ${relayWarning}`);
+    }
+    await this.refresh(runtime);
+    return { ...result, ...(relayWarning ? { relayWarning } : {}) };
+  }
+
   async refreshOfflineMap() {
     const state = useAppStore.getState();
     state.setOfflinePackStatus('checking');
@@ -492,6 +586,16 @@ class MobileController {
 
   async probeGateway() {
     return this.syncGateway(true);
+  }
+
+  async configureGatewayBaseUrl(value: string) {
+    const normalized = value.trim().replace(/\/$/, '');
+    if (normalized && !/^https?:\/\/[^\s]+$/i.test(normalized)) throw new Error('Enter a complete http:// or https:// backend address.');
+    useAppStore.getState().setGatewayBaseUrl(normalized);
+    useAppStore.getState().setInternetState('untested');
+    await this.reconfigureRole(useAppStore.getState().role);
+    if (normalized) return this.probeGateway();
+    return false;
   }
 
   private async syncGateway(showProbing: boolean): Promise<boolean> {
@@ -524,9 +628,10 @@ class MobileController {
   async refresh(runtime?: AppRuntime) {
     runtime ??= await this.initialize();
     const state = useAppStore.getState();
-    const [storedPackets, relayable] = await Promise.all([
+    const [storedPackets, relayable, allStoredPackets] = await Promise.all([
       runtime.engine.packets.count(),
       runtime.engine.packets.listRelayable(64),
+      runtime.engine.packets.listAll(),
     ]);
     const events = runtime.engine.events.recent(100);
     const forwardedPackets = new Set(events
@@ -552,10 +657,45 @@ class MobileController {
       });
     }
 
-    const peersCount = (await runtime.engine.peers.list(Date.now())).length;
+    const peers = await runtime.engine.peers.list(Date.now());
+    const peersCount = peers.length;
     if (state.peersRecentlySeen !== peersCount) {
       state.setPeersRecentlySeen(peersCount);
     }
+    const runtimePeers = peers.map((peer) => ({
+      peerToken: peer.peerToken,
+      lastSeenAtMs: peer.lastSeenAtMs,
+      ...(peer.rssi !== undefined ? { rssi: peer.rssi } : {}),
+      sessionsCompleted: peer.sessionsCompleted,
+      sessionsFailed: peer.sessionsFailed,
+    })).sort((a, b) => b.lastSeenAtMs - a.lastSeenAtMs);
+    if (JSON.stringify(state.runtimePeers) !== JSON.stringify(runtimePeers)) state.setRuntimePeers(runtimePeers);
+
+    const receiptPacketIds = new Set(allStoredPackets
+      .filter((stored) => stored.packet.header.type === MessageType.LINK_RECEIPT)
+      .map((stored) => stringValue((stored.packet.payload as Record<string, unknown>)['forPacketId']))
+      .filter((packetId): packetId is string => Boolean(packetId)));
+    const chatPackets = allStoredPackets
+      .filter((stored) => stored.packet.header.type === MessageType.MESH_CHAT)
+      .map((stored) => {
+        const payload = stored.packet.payload as Record<string, unknown>;
+        return {
+          packetId: stored.packet.header.packetId,
+          conversationId: String(payload['conversationId'] ?? stored.packet.streamId ?? ''),
+          senderNodeToken: String(payload['senderNodeToken'] ?? ''),
+          recipientNodeToken: String(payload['recipientNodeToken'] ?? ''),
+          ...(stringValue(payload['senderLabel']) ? { senderLabel: stringValue(payload['senderLabel']) } : {}),
+          text: String(payload['text'] ?? ''),
+          ...(chatLocation(payload['location']) ? { location: chatLocation(payload['location']) } : {}),
+          createdAtS: stored.packet.header.createdAt,
+          hopCount: stored.packet.header.hopCount,
+          receiptObserved: receiptPacketIds.has(stored.packet.header.packetId),
+          outgoing: payload['senderNodeToken'] === runtime.engine.nodeToken,
+        };
+      })
+      .filter((message) => message.senderNodeToken === runtime.engine.nodeToken || message.recipientNodeToken === runtime.engine.nodeToken)
+      .sort((a, b) => a.createdAtS - b.createdAtS || a.packetId.localeCompare(b.packetId));
+    if (JSON.stringify(state.meshChatMessages) !== JSON.stringify(chatPackets)) state.setMeshChatMessages(chatPackets);
 
     const incidentId = state.activeIncidentId;
     if (incidentId) {
@@ -565,14 +705,30 @@ class MobileController {
       }
     }
 
-    const newIncidents = runtime.engine.incidents.list().map((incident) => ({
+    const responderTypes: ReadonlySet<number> = new Set([MessageType.RESPONDER_ASSIGNED, MessageType.RESPONDER_ACCEPTED, MessageType.RESPONDER_DECLINED, MessageType.RESPONDER_EN_ROUTE, MessageType.RESPONDER_ARRIVED, MessageType.RESOLVED]);
+    const newIncidents = runtime.engine.incidents.list().map((incident) => {
+      const responderHops = allStoredPackets
+        .filter((stored) => responderTypes.has(stored.packet.header.type) && String((stored.packet.payload as Record<string, unknown>)['incidentId'] ?? '') === incident.incidentId)
+        .map((stored) => stored.packet.header.hopCount);
+      return {
       id: incident.incidentId,
       category: incident.category,
       severity: incident.severity,
+      state: incident.state,
       ...(incident.peopleTotal !== undefined ? { peopleTotal: incident.peopleTotal } : {}),
       ...(incident.injured !== undefined ? { injured: incident.injured } : {}),
+      ...(incident.responderRef ? { responderRef: incident.responderRef } : {}),
+      ...(responderHops.length ? { maxResponderHopCount: Math.max(...responderHops) } : {}),
+      delivery: {
+        ...(incident.delivery.responderSeenAtS !== undefined ? { responderSeenAtS: incident.delivery.responderSeenAtS } : {}),
+        ...(incident.delivery.assignedAtS !== undefined ? { assignedAtS: incident.delivery.assignedAtS } : {}),
+        ...(incident.delivery.acceptedAtS !== undefined ? { acceptedAtS: incident.delivery.acceptedAtS } : {}),
+        ...(incident.delivery.enRouteAtS !== undefined ? { enRouteAtS: incident.delivery.enRouteAtS } : {}),
+        ...(incident.delivery.arrivedAtS !== undefined ? { arrivedAtS: incident.delivery.arrivedAtS } : {}),
+        ...(incident.delivery.resolvedAtS !== undefined ? { resolvedAtS: incident.delivery.resolvedAtS } : {}),
+      },
       updatedAtS: incident.updatedAtS,
-    }));
+    }; });
     if (JSON.stringify(state.runtimeIncidents) !== JSON.stringify(newIncidents)) {
       state.setRuntimeIncidents(newIncidents);
     }
@@ -636,6 +792,7 @@ function batteryBand(percent?: number): number {
 }
 
 function context(runtime: AppRuntime) { return { sourceId: runtime.engine.localSourceId, sourceClass: runtime.sourceClass, nowS: toEpochS(Date.now()) }; }
+function conversationIdFor(a: string, b: string) { return `chat:${[a, b].sort().join(':')}`; }
 function boundedSeverity(value: number) { return Math.max(0, Math.min(3, Math.trunc(value))) as 0 | 1 | 2 | 3; }
 function boundedCategory(value: number) { return Math.max(0, Math.min(7, Math.trunc(value))); }
 async function stableValue(key: string, create: () => string) { const existing = await AsyncStorage.getItem(key); if (existing) return existing; const value = create(); await AsyncStorage.setItem(key, value); return value; }
@@ -664,6 +821,20 @@ async function currentPositionWithTimeout() {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function chatLocation(value: unknown) {
+  if (!value || typeof value !== 'object') return undefined;
+  const location = value as Record<string, unknown>;
+  const latE7 = location['latE7'];
+  const lonE7 = location['lonE7'];
+  if (typeof latE7 !== 'number' || typeof lonE7 !== 'number') return undefined;
+  return {
+    latE7,
+    lonE7,
+    ...(typeof location['accuracyM'] === 'number' ? { accuracyM: location['accuracyM'] } : {}),
+    ...(typeof location['ageS'] === 'number' ? { ageS: location['ageS'] } : {}),
+  };
 }
 
 function jsonSafePayload(value: unknown): unknown {

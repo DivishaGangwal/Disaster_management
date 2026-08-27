@@ -254,6 +254,15 @@ export interface ResourceRequestPayload {
   readonly linkedIncidentId?: StreamId;
 }
 
+/** Bounded prototype chat. Content is authenticated only by packet integrity, not encrypted. */
+export interface MeshChatPayload {
+  readonly conversationId: StreamId;
+  readonly senderNodeToken: string;
+  readonly recipientNodeToken: string;
+  readonly senderLabel?: string;
+  readonly text: string;
+}
+
 // --- Cached-content family ---------------------------------------------------
 
 export interface CacheCatalogPayload {
@@ -395,6 +404,7 @@ export type AnyPayload =
   | CheckinCampaignPayload
   | CheckinResponsePayload
   | ResourceRequestPayload
+  | MeshChatPayload
   | CacheCatalogPayload
   | ContentActivatePayload
   | RecordUpsertPayload
@@ -406,4 +416,3 @@ export type AnyPayload =
   | InventoryPayload
   | PacketRequestPayload
   | NetworkStatusObservationPayload;
-

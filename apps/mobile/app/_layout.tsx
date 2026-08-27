@@ -72,6 +72,7 @@ export default function RootLayout() {
         <Stack.Screen name="relay" />
         <Stack.Screen name="tier2" />
         <Stack.Screen name="diagnostics" />
+        <Stack.Screen name="chat/[peerToken]" />
       </Stack>
     </View>
   );

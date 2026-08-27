@@ -128,6 +128,7 @@ export interface UpsertResponderMarkerOp extends MarkerOpBase {
 export interface UpsertPeerMarkerOp extends MarkerOpBase {
   readonly kind: 'upsert-peer-marker';
   readonly peerToken: string;
+  readonly fallbackLabel?: string;
 }
 
 export interface SetIncidentStateOp extends MapOperationBase {

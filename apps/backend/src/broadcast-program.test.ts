@@ -238,9 +238,31 @@ test('campaign composer emits distinct canonical alert, regional, and check-in p
     assert.equal(regional.packetPreview.bytesHex.length, regional.packetPreview.totalBytes * 2);
     assert.notEqual(alert.packetId, regional.packetId);
     assert.notEqual(checkin.packetId, regional.packetId);
+    assert.equal(new Set([alert.campaignId, regional.campaignId, checkin.campaignId]).size, 3, 'rapid campaign creation must not overwrite an earlier type');
     assert.ok(alert.preview.totalTier2Bytes > 0);
     assert.ok(regional.preview.totalTier2Bytes > 0);
     assert.ok(checkin.preview.totalTier2Bytes > 0);
+
+    for (const source of [alert, regional, checkin]) {
+      let prepared = operations.transitionCampaign(source.campaignId, 'validated');
+      prepared = operations.transitionCampaign(prepared.campaignId, 'approved');
+      prepared = operations.transitionCampaign(prepared.campaignId, 'broadcaster-ready');
+      prepared = operations.prepareBroadcastProgram(prepared.campaignId);
+      const recovered = operations.verifyBroadcastReception(
+        prepared.campaignId,
+        prepared.broadcastProgram!.uniqueFramesBase64,
+        'All campaign types receiver',
+        'tier2-direct',
+      );
+      assert.equal(recovered.decodeResult?.passed, true, `${source.dataType} must pass exact WavePX recovery`);
+      assert.equal(recovered.decodeResult?.canonicalMatch, true, `${source.dataType} must rebuild canonical bytes`);
+      assert.equal(recovered.decodeResult?.reassembledPacketId, source.packetId, `${source.dataType} must preserve packet identity`);
+      assert.deepEqual(
+        recovered.decodeResult?.decodedMessage?.payload,
+        source.packetPreview.payload,
+        `${source.dataType} must expose every recovered payload field`,
+      );
+    }
     await backend.close();
   } finally {
     rmSync(directory, { recursive: true, force: true });

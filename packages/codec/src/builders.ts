@@ -49,6 +49,8 @@ export function budgetClassFor(messageType: number, severity: number): ClassBudg
     case MessageType.CHECKIN_CAMPAIGN:
     case MessageType.CHECKIN_RESPONSE:
       return 'MEDIUM';
+    case MessageType.MESH_CHAT:
+      return 'LOW_MEDIUM';
     case MessageType.FILE_MANIFEST:
     case MessageType.FILE_FRAGMENT:
     case MessageType.NETWORK_STATUS_OBSERVATION:
@@ -264,6 +266,17 @@ export function buildResourceRequest(
   payload: Readonly<Record<string, unknown>>,
 ): EncodedPacket {
   return build(ctx, MessageType.RESOURCE_REQUEST, { requestId, ...payload }, { streamId: requestId });
+}
+
+export function buildMeshChat(
+  ctx: BuildContext,
+  conversationId: StreamId,
+  payload: Readonly<Record<string, unknown>>,
+): EncodedPacket {
+  return build(ctx, MessageType.MESH_CHAT, { conversationId, ...payload }, {
+    streamId: conversationId,
+    flags: Flags.RECEIPT_REQUESTED,
+  });
 }
 
 export function buildFileManifest(

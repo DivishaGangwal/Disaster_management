@@ -165,6 +165,24 @@ export function toMapOperations(packet: Packet, transport: TransportKind, nowS: 
       }
       return ops;
     }
+    case MessageType.MESH_CHAT: {
+      const peerToken = str(p['senderNodeToken']);
+      const loc = p['location'] as Record<string, unknown> | undefined;
+      const latE7 = num(loc?.['latE7']);
+      const lonE7 = num(loc?.['lonE7']);
+      if (!peerToken || latE7 === undefined || lonE7 === undefined) return [];
+      return [{
+        ...base,
+        kind: 'upsert-peer-marker',
+        peerToken,
+        latE7,
+        lonE7,
+        ...(num(loc?.['accuracyM']) !== undefined ? { accuracyM: num(loc?.['accuracyM'])! } : {}),
+        locationAtS: packet.header.createdAt - (num(loc?.['ageS']) ?? 0),
+        locationSource: num(loc?.['source']) ?? 0,
+        ...(str(p['senderLabel']) ? { fallbackLabel: `${str(p['senderLabel'])!}'s shared location` } : {}),
+      } as MapOperation];
+    }
     case MessageType.RECORD_TOMBSTONE: {
       const objectId = str(p['objectId']);
       if (!objectId) return [];

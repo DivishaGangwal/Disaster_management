@@ -209,6 +209,15 @@ const RESOURCE_REQUEST: FieldMap = {
   linkedIncidentId: 7,
 };
 
+const MESH_CHAT: FieldMap = {
+  conversationId: 1,
+  senderNodeToken: 2,
+  recipientNodeToken: 3,
+  senderLabel: 4,
+  text: 5,
+  location: 6,
+};
+
 const CACHE_CATALOG: FieldMap = { bundles: 1 };
 const CONTENT_ACTIVATE: FieldMap = { bundleId: 1, objectId: 2, opcode: 3, fallbackText: 4 };
 const RECORD_UPSERT: FieldMap = { bundleId: 1, objectId: 2, recordVersion: 3, fields: 4 };
@@ -287,6 +296,7 @@ export const FIELD_MAP_BY_TYPE: Readonly<Record<number, FieldMap>> = {
   [MessageType.CHECKIN_CAMPAIGN]: CHECKIN_CAMPAIGN,
   [MessageType.CHECKIN_RESPONSE]: CHECKIN_RESPONSE,
   [MessageType.RESOURCE_REQUEST]: RESOURCE_REQUEST,
+  [MessageType.MESH_CHAT]: MESH_CHAT,
   [MessageType.CACHE_CATALOG]: CACHE_CATALOG,
   [MessageType.CONTENT_ACTIVATE]: CONTENT_ACTIVATE,
   [MessageType.RECORD_UPSERT]: RECORD_UPSERT,

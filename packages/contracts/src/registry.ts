@@ -54,6 +54,8 @@ export const MessageType = {
 
   // --- Request family 0x80 --------------------------------------------------
   RESOURCE_REQUEST: 0x80,
+  /** Person-to-person, store-carry-forward text addressed to one mesh node. */
+  MESH_CHAT: 0x81,
 
   // --- Cached-content family 0x90 -------------------------------------------
   CACHE_CATALOG: 0x90,
@@ -189,6 +191,7 @@ export const DEFAULT_PRIORITY: Readonly<Record<MessageTypeCode, PriorityValue>> 
   [MessageType.CHECKIN_CAMPAIGN]: Priority.CHECKIN,
   [MessageType.CHECKIN_RESPONSE]: Priority.CHECKIN,
   [MessageType.RESOURCE_REQUEST]: Priority.OPERATIONAL,
+  [MessageType.MESH_CHAT]: Priority.GENERAL_UPDATE,
   [MessageType.CACHE_CATALOG]: Priority.GENERAL_UPDATE,
   [MessageType.CONTENT_ACTIVATE]: Priority.GENERAL_UPDATE,
   [MessageType.RECORD_UPSERT]: Priority.GENERAL_UPDATE,

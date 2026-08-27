@@ -9,7 +9,9 @@ import { mobileController } from '@/src/services/mobile-controller';
 /** Required ActiveSos route: keeps local, peer, and responder evidence distinct. */
 export default function ActiveSosScreen() {
   const router = useRouter();
-  const { activeIncidentId, activeSosSavedAtMs, distinctPeerReceipts, relayActive, internetState } = useAppStore();
+  const { activeIncidentId, activeSosSavedAtMs, distinctPeerReceipts, relayActive, internetState, runtimeIncidents } = useAppStore();
+  const incident = runtimeIncidents.find((item) => item.id === activeIncidentId);
+  const delivery = incident?.delivery;
 
   const handleCancel = () => {
     Alert.alert('Cancel SOS', 'Create a cancellation packet for this SOS?', [
@@ -44,7 +46,12 @@ export default function ActiveSosScreen() {
         <View style={{ backgroundColor: '#0D1424', borderWidth: 1, borderColor: '#1B2944', borderRadius: 10, padding: 14 }}>
           <TimelineStep completed label="Saved on this phone" detail={`${activeSosSavedAtMs ? new Date(activeSosSavedAtMs).toLocaleString() : 'Stored time unavailable'} · ${activeIncidentId ?? 'Local incident ID unavailable'}`} />
           <TimelineStep completed={distinctPeerReceipts > 0} label={distinctPeerReceipts > 0 ? `${distinctPeerReceipts} distinct peer receipt${distinctPeerReceipts === 1 ? '' : 's'}` : 'No peer receipt observed yet'} detail={distinctPeerReceipts > 0 ? 'A nearby phone reported storing a copy.' : 'The app will continue opportunistic relay while relay mode is active.'} />
-          <TimelineStep label="Responder acknowledgement not observed" detail="This remains unknown until a valid responder-state packet is received." />
+          <TimelineStep completed={delivery?.responderSeenAtS !== undefined} label={delivery?.responderSeenAtS ? 'Responder saw this SOS' : 'Responder acknowledgement not observed'} detail={delivery?.responderSeenAtS ? `A responder lifecycle packet returned at ${formatTime(delivery.responderSeenAtS)}.` : 'This remains unknown until a valid responder-state packet is received.'} />
+          {incident?.maxResponderHopCount !== undefined && <TimelineStep completed label={incident.maxResponderHopCount >= 2 ? 'Multi-hop responder return observed' : 'Direct or single-hop responder return observed'} detail={incident.maxResponderHopCount >= 2 ? `A responder packet arrived with hop count ${incident.maxResponderHopCount}. This proves relay traversal, but not a complete route history.` : 'The returned responder packet carried one hop or less; no multi-hop path is proven.'} />}
+          <TimelineStep completed={delivery?.acceptedAtS !== undefined} label={delivery?.acceptedAtS ? 'Responder accepted' : incident?.state === 'active' && delivery?.assignedAtS ? 'Responder declined; SOS remains open' : 'No responder acceptance observed'} detail={delivery?.acceptedAtS ? `Accepted at ${formatTime(delivery.acceptedAtS)}${incident?.responderRef ? ` · responder ${shortId(incident.responderRef)}` : ''}.` : delivery?.assignedAtS ? 'The assignment returned to the available incident queue.' : 'Acceptance and a nearby-device receipt are separate facts.'} />
+          <TimelineStep completed={delivery?.enRouteAtS !== undefined} label={delivery?.enRouteAtS ? 'Responder en route' : 'Responder not marked en route'} detail={delivery?.enRouteAtS ? `En-route update received at ${formatTime(delivery.enRouteAtS)}.` : 'Waiting for an explicit responder update.'} />
+          <TimelineStep completed={delivery?.arrivedAtS !== undefined} label={delivery?.arrivedAtS ? 'Responder arrived' : 'Arrival not observed'} detail={delivery?.arrivedAtS ? `Arrival declared at ${formatTime(delivery.arrivedAtS)}.` : 'Arrival is never inferred from message delivery.'} />
+          <TimelineStep completed={delivery?.resolvedAtS !== undefined} label={delivery?.resolvedAtS ? 'SOS resolved' : 'Resolution not observed'} detail={delivery?.resolvedAtS ? `Resolution packet received at ${formatTime(delivery.resolvedAtS)}.` : 'The SOS remains active until a valid resolution or cancellation packet arrives.'} />
           <TimelineStep label="Gateway acknowledgement not observed" detail={internetState === 'proven gateway' ? 'A gateway is proven, but this screen has no backend acknowledgement for this SOS.' : 'No proven gateway is available; Bluetooth relay remains independent.'} />
           <TimelineStep label={relayActive ? 'Relay retry is active' : 'Relay is stopped'} detail={relayActive ? 'The phone will retry opportunistically when peers are observed.' : 'Start relay from Relay & Gateway to continue nearby delivery attempts.'} last />
         </View>
@@ -76,3 +83,6 @@ function TimelineStep({ completed = false, label, detail, last = false }: { comp
     </View>
   );
 }
+
+function formatTime(atS: number) { return new Date(atS * 1000).toLocaleString(); }
+function shortId(value: string) { return value.length > 12 ? `${value.slice(0, 6)}…${value.slice(-4)}` : value; }

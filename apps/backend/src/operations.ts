@@ -378,7 +378,16 @@ export class OperationsService {
   }
 
   createCampaign(input: CampaignCreateInput): CampaignRecord {
-    const campaignId = `CMP-MUM-${Date.now().toString(36).toUpperCase()}`;
+    // Date.now() alone collides when more than one campaign is created in one
+    // millisecond. Keep the existing wire length (official alerts sit close to
+    // their payload ceiling), but advance the compact handle until it is unused
+    // in this single authority store instead of silently replacing a campaign.
+    let campaignHandle = Date.now();
+    let campaignId = `CMP-MUM-${campaignHandle.toString(36).toUpperCase()}`;
+    while (this.store.campaigns.has(campaignId)) {
+      campaignHandle += 1;
+      campaignId = `CMP-MUM-${campaignHandle.toString(36).toUpperCase()}`;
+    }
     const campaign = this.buildCampaign({
       campaignId,
       campaignVersion: 1,

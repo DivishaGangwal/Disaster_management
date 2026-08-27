@@ -583,6 +583,7 @@ Relays must not rewrite incident meaning, identity, severity, or payload. They m
 | Cached content | `RECORD_TOMBSTONE` | Removes or invalidates a cached record |
 | Cached content | `CACHE_INVALIDATE` | Marks a bundle/version unsafe or obsolete |
 | Campaign | `CHECKIN_CAMPAIGN` | Activates a cached response form that creates Tier 1 packets |
+| Communication | `MESH_CHAT` | Bounded plaintext addressed chat carried and persisted by Tier 1 |
 | Network | `HELLO_CAPABILITY` | Protocol, PHY, storage, battery, role, and gateway capability |
 | Network | `INVENTORY` | Compact list/digest of available packets |
 | Network | `PACKET_REQUEST` | Requests missing packet IDs/fragments |

@@ -100,16 +100,35 @@ export const SCREENS: readonly ScreenSpec[] = [
       'stale markers are visually stale and eventually withdrawn',
       'detail sheet: source category, last update, location quality, state, action',
       'a LIST equivalent for accessibility and low-performance devices',
+      'two-point direct offline guidance with distance, bearing, and truthful non-road-route wording',
     ],
     status: 'partial',
   },
   {
     route: 'NearbyIncidents',
-    title: 'Nearby incidents',
+    title: 'People on the mesh and nearby incidents',
     requirements: ['ROL-006', 'ROL-007', 'MAP-011'],
     mustShow: [
       'General Public: the configured MINIMAL public view only',
       'Responder: sort by severity ONLY',
+    ],
+    status: 'complete',
+  },
+  {
+    route: 'MeshChat',
+    title: 'Offline person-to-person mesh chat',
+    requirements: ['OFF-001', 'REL-001', 'DEC-022'],
+    mustShow: [
+      'selected recently observed peer identity',
+      'unread-message signal on the nearby person card',
+      'pull-to-refresh for permissions, relay presence, peers, packets, chats and incidents',
+      'bounded plaintext message composer',
+      'sender display name with mesh-ID fallback',
+      'deliberate GPS location share that opens and persists as a map marker',
+      'locally saved outgoing and received conversation history',
+      'peer-storage receipt state and truthful one-hop versus multi-hop arrival evidence',
+      'truthful saved-to-mesh wording, never guaranteed delivery',
+      'visible warning that prototype messages are not end-to-end encrypted',
     ],
     status: 'complete',
   },
@@ -119,6 +138,7 @@ export const SCREENS: readonly ScreenSpec[] = [
     requirements: ['OFF-007', 'ROL-007'],
     mustShow: [
       'accept or decline',
+      'self-assignment before acceptance or decline so the incident state machine remains valid',
       'mark en route',
       'last-known location and its uncertainty',
       'latest incident update and timeline',
@@ -203,4 +223,4 @@ export const SCREENS: readonly ScreenSpec[] = [
 ];
 
 /** Guard used by the boundary check: no screen may silently disappear. */
-export const REQUIRED_SCREEN_COUNT = 12;
+export const REQUIRED_SCREEN_COUNT = 13;

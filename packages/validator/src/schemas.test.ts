@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { MessageType } from '@dsm/contracts';
+import { FIELD_LIMITS, MessageType } from '@dsm/contracts';
 import { validateSchema } from './schemas.js';
 
 test('no message type accepts a completely empty payload', () => {
@@ -44,4 +44,10 @@ test('session control still requires its identifying fields', () => {
     validateSchema(MessageType.HELLO_CAPABILITY, { nodeToken: 'aabb0011', protocolMin: 1, protocolMax: 1 }).ok,
     true,
   );
+});
+
+test('mesh chat text is bounded to what one Bluetooth record can actually carry', () => {
+  const base = { conversationId: 'chat:aaaa0001:bbbb0002', senderNodeToken: 'aaaa0001', recipientNodeToken: 'bbbb0002', senderLabel: 'Asha' };
+  assert.equal(validateSchema(MessageType.MESH_CHAT, { ...base, text: 'x'.repeat(FIELD_LIMITS.MESH_CHAT_TEXT_BYTES) }).ok, true);
+  assert.equal(validateSchema(MessageType.MESH_CHAT, { ...base, text: 'x'.repeat(FIELD_LIMITS.MESH_CHAT_TEXT_BYTES + 1) }).ok, false);
 });

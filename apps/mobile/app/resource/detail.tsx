@@ -14,7 +14,7 @@ import { e7ToFloat } from '@dsm/codec';
 
 export default function ResourceDetailScreen() {
   const router = useRouter();
-  const { mapObjects, selectedMapObjectId, setFocusMapObjectId } = useAppStore();
+  const { mapObjects, selectedMapObjectId, setFocusMapObjectId, setNavigationDestinationObjectId } = useAppStore();
   const object = mapObjects.find((item) => item.objectId === selectedMapObjectId);
 
   const ArrowLeftIcon = icons.arrowLeft;
@@ -90,7 +90,7 @@ export default function ResourceDetailScreen() {
               Alert.alert('No coordinate available', 'This object has no coordinate in its packet.');
               return;
             }
-            setFocusMapObjectId(object.objectId);
+            setNavigationDestinationObjectId(object.objectId);
             router.push('/(tabs)/map');
           }}
           activeOpacity={0.8}

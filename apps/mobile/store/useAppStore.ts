@@ -9,7 +9,8 @@ export type TransportMode = 'SIMULATED' | 'native';
 export type SelectedRadio = 'simulated' | 'BLE' | 'Bluetooth Classic';
 export type OfflinePackStatus = 'checking' | 'downloading' | 'ready' | 'not-downloaded' | 'error';
 export type ResponderWorkflowState = 'pending' | 'accepted' | 'declined' | 'en-route' | 'arrived' | 'resolved';
-export interface RuntimeIncident { id: string; category: number; severity: number; peopleTotal?: number; injured?: number; updatedAtS: number; }
+export interface RuntimeIncidentDelivery { responderSeenAtS?: number; assignedAtS?: number; acceptedAtS?: number; enRouteAtS?: number; arrivedAtS?: number; resolvedAtS?: number; }
+export interface RuntimeIncident { id: string; category: number; severity: number; state: string; peopleTotal?: number; injured?: number; responderRef?: string; maxResponderHopCount?: number; delivery: RuntimeIncidentDelivery; updatedAtS: number; }
 export interface RuntimeMapObject { objectId: string; kind: string; label: string; state?: number; latE7?: number; lonE7?: number; asOfS: number; provenance: string; }
 export interface RuntimeDiagnostic {
   category: string;
@@ -39,6 +40,9 @@ export interface ReceivedPacketSummary {
   payload: Record<string, unknown>;
   impacts: ReceivedPacketImpact[];
 }
+export interface RuntimePeer { peerToken: string; lastSeenAtMs: number; rssi?: number; sessionsCompleted: number; sessionsFailed: number; }
+export interface MeshChatLocation { latE7: number; lonE7: number; accuracyM?: number; ageS?: number; }
+export interface MeshChatMessage { packetId: string; conversationId: string; senderNodeToken: string; recipientNodeToken: string; senderLabel?: string; text: string; location?: MeshChatLocation; createdAtS: number; hopCount: number; receiptObserved: boolean; outgoing: boolean; }
 
 interface AppState {
   // Profile & role
@@ -62,10 +66,20 @@ interface AppState {
   // Network & relay
   internetState: InternetState;
   setInternetState: (s: InternetState) => void;
+  gatewayBaseUrl: string;
+  setGatewayBaseUrl: (value: string) => void;
   relayActive: boolean;
   setRelayActive: (v: boolean) => void;
   peersRecentlySeen: number;
   setPeersRecentlySeen: (n: number) => void;
+  runtimePeers: RuntimePeer[];
+  setRuntimePeers: (value: RuntimePeer[]) => void;
+  meshChatMessages: MeshChatMessage[];
+  setMeshChatMessages: (value: MeshChatMessage[]) => void;
+  selectedPeerToken?: string;
+  setSelectedPeerToken: (value?: string) => void;
+  lastReadChatAtSByPeer: Record<string, number>;
+  markChatRead: (peerToken: string, atS: number) => void;
 
   // Transport
   transportMode: TransportMode;
@@ -107,6 +121,8 @@ interface AppState {
   /** Object the Map screen should fly the camera to on next mount, then clear. */
   focusMapObjectId?: string;
   setFocusMapObjectId: (value?: string) => void;
+  navigationDestinationObjectId?: string;
+  setNavigationDestinationObjectId: (value?: string) => void;
 
   // Region
   selectedRegion: string;
@@ -126,6 +142,7 @@ interface AppState {
   setTier2Metrics: (value: Tier2Metrics) => void;
   receivedPackets: ReceivedPacketSummary[];
   addReceivedPacket: (value: ReceivedPacketSummary) => void;
+  clearOperationalHistory: () => void;
 
   // Language
   language: string;
@@ -166,10 +183,20 @@ export const useAppStore = create<AppState>()(
       // Network
       internetState: 'untested',
       setInternetState: (s) => set({ internetState: s }),
+      gatewayBaseUrl: process.env.EXPO_PUBLIC_DSM_BACKEND_URL ?? '',
+      setGatewayBaseUrl: (gatewayBaseUrl) => set({ gatewayBaseUrl }),
       relayActive: false,
       setRelayActive: (v) => set({ relayActive: v }),
       peersRecentlySeen: 0,
       setPeersRecentlySeen: (n) => set({ peersRecentlySeen: n }),
+      runtimePeers: [],
+      setRuntimePeers: (runtimePeers) => set({ runtimePeers }),
+      meshChatMessages: [],
+      setMeshChatMessages: (meshChatMessages) => set({ meshChatMessages }),
+      selectedPeerToken: undefined,
+      setSelectedPeerToken: (selectedPeerToken) => set({ selectedPeerToken }),
+      lastReadChatAtSByPeer: {},
+      markChatRead: (peerToken, atS) => set((state) => ({ lastReadChatAtSByPeer: { ...state.lastReadChatAtSByPeer, [peerToken]: Math.max(state.lastReadChatAtSByPeer[peerToken] ?? 0, atS) } })),
 
       // Transport
       transportMode: 'SIMULATED',
@@ -217,11 +244,13 @@ export const useAppStore = create<AppState>()(
       setSelectedMapObjectId: (selectedMapObjectId) => set({ selectedMapObjectId }),
       focusMapObjectId: undefined,
       setFocusMapObjectId: (focusMapObjectId) => set({ focusMapObjectId }),
+      navigationDestinationObjectId: undefined,
+      setNavigationDestinationObjectId: (navigationDestinationObjectId) => set({ navigationDestinationObjectId }),
 
       // Region
       selectedRegion: 'Mumbai Operational Region',
       setSelectedRegion: (r) => set({ selectedRegion: r }),
-      offlinePackVersion: 'mumbai-v1',
+      offlinePackVersion: 'mumbai-v2',
       offlinePackStatus: 'not-downloaded',
       setOfflinePackStatus: (s) => set({ offlinePackStatus: s }),
       offlinePackProgress: 0,
@@ -236,6 +265,21 @@ export const useAppStore = create<AppState>()(
       setTier2Metrics: (tier2Metrics) => set({ tier2Metrics }),
       receivedPackets: [],
       addReceivedPacket: (value) => set((state) => ({ receivedPackets: [value, ...state.receivedPackets.filter((item) => item.packetId !== value.packetId)].slice(0, 20) })),
+      clearOperationalHistory: () => set({
+        meshChatMessages: [],
+        runtimeIncidents: [],
+        mapObjects: [],
+        receivedPackets: [],
+        responderWorkflow: {},
+        activeIncidentId: undefined,
+        hasActiveSos: false,
+        activeSosSavedAtMs: undefined,
+        selectedIncidentId: undefined,
+        selectedMapObjectId: undefined,
+        focusMapObjectId: undefined,
+        navigationDestinationObjectId: undefined,
+        distinctPeerReceipts: 0,
+      }),
 
       // Language
       language: 'en',
@@ -253,13 +297,15 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'dsm-app-state',
-      version: 5,
+      version: 6,
       migrate: (persisted) => {
         const previous = persisted as Partial<AppState>;
         const staleRegion = !previous.selectedRegion || previous.selectedRegion.includes('Assam') || previous.selectedRegion.endsWith('DISTRICT');
         return {
           ...previous,
           responderWorkflow: previous.responderWorkflow ?? {},
+          selectedPeerToken: undefined,
+          lastReadChatAtSByPeer: previous.lastReadChatAtSByPeer ?? {},
           ...(staleRegion ? { selectedRegion: 'Mumbai Operational Region' } : {}),
         } as AppState;
       },
@@ -278,6 +324,8 @@ export const useAppStore = create<AppState>()(
         activeSosSavedAtMs: state.activeSosSavedAtMs,
         receivedPackets: state.receivedPackets,
         responderWorkflow: state.responderWorkflow,
+        lastReadChatAtSByPeer: state.lastReadChatAtSByPeer,
+        gatewayBaseUrl: state.gatewayBaseUrl,
       }),
     },
   ),

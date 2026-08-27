@@ -330,6 +330,10 @@ Fields include alert ID/version, category, severity, region/geofence, valid wind
 
 Fields include request ID, category, urgency, quantity band, people count, location state, time, expiry, and optional incident link. A request is not an authoritative resource location.
 
+#### MESH_CHAT
+
+Fields include a deterministic conversation ID, sender and recipient node tokens, an optional bounded sender label, and at most 120 UTF-8 bytes of text. Chat packets are stored durably, never uploaded by the gateway, and relayed opportunistically through Tier 1 only. The prototype does not encrypt chat content, so relay phones can retain plaintext until normal packet expiry. UI copy must say saved/received, never imply end-to-end delivery from local creation alone.
+
 ### File/data family
 
 #### FILE_MANIFEST

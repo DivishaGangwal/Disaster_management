@@ -93,6 +93,8 @@ export const MAX_PAYLOAD_BY_CLASS = {
 export const FIELD_LIMITS = {
   /** SOS short note, UTF-8 bytes (01-... SOS-003 "strict limits"). */
   SHORT_NOTE_BYTES: 120,
+  /** Leaves room for conversation, sender, recipient and label in one 244-byte BLE record. */
+  MESH_CHAT_TEXT_BYTES: 68,
   FALLBACK_TEXT_BYTES: 96,
   LABEL_BYTES: 48,
   LANGUAGE_TAG_BYTES: 8,

@@ -331,7 +331,7 @@ export class MapProjection {
             ...base,
             objectId: `PEER-${op.peerToken}`,
             kind: 'peer',
-            label: 'Participating phone',
+            label: op.fallbackLabel ?? 'Participating phone',
             ...(op.latE7 !== undefined ? { latE7: op.latE7 } : {}),
             ...(op.lonE7 !== undefined ? { lonE7: op.lonE7 } : {}),
             asOfS: op.locationAtS,

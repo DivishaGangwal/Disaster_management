@@ -1,7 +1,7 @@
-const { withAppBuildGradle } = require('@expo/config-plugins');
+const { withAndroidManifest, withAppBuildGradle } = require('@expo/config-plugins');
 
 module.exports = function withMonorepoFix(config) {
-  return withAppBuildGradle(config, (config) => {
+  config = withAppBuildGradle(config, (config) => {
     if (config.modResults.language === 'groovy') {
       let contents = config.modResults.contents;
       
@@ -21,6 +21,14 @@ module.exports = function withMonorepoFix(config) {
       }
       
       config.modResults.contents = contents;
+    }
+    return config;
+  });
+
+  return withAndroidManifest(config, (config) => {
+    const application = config.modResults.manifest.application?.[0];
+    if (application) {
+      application.$['android:usesCleartextTraffic'] = 'true';
     }
     return config;
   });
