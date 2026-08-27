@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "buildCommand": "npm run build && npm run web:build",
+  "outputDirectory": "apps/web-authority/dist",
+  "rewrites": [
+    { "source": "/health", "destination": "/api/index" },
+    { "source": "/gateway/:path*", "destination": "/api/index" },
+    { "source": "/incidents", "destination": "/api/index" },
+    { "source": "/incidents/:path*", "destination": "/api/index" },
+    { "source": "/api/:path*", "destination": "/api/index" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: disaster-sos-mesh
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build && npm run web:build
+    startCommand: node apps/backend/dist/main.js
+    envVars:
+      - key: NODE_VERSION
+        value: 22.5.0
+      - key: DSM_OPERATIONS_KEY
+        value: mumbai-operations-local
+      - key: DSM_DEMO_MODE
+        value: "true"
+      - key: DSM_DATABASE_PATH
+        value: ./data/mumbai-operations.sqlite
