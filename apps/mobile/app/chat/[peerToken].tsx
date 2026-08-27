@@ -14,6 +14,7 @@ export default function MeshChatScreen() {
   const runtimePeers = useAppStore((state) => state.runtimePeers);
   const setRuntimeError = useAppStore((state) => state.setRuntimeError);
   const setFocusMapObjectId = useAppStore((state) => state.setFocusMapObjectId);
+  const setNavigationDestinationObjectId = useAppStore((state) => state.setNavigationDestinationObjectId);
   const markChatRead = useAppStore((state) => state.markChatRead);
   const peerToken = typeof params.peerToken === 'string' ? params.peerToken : fallbackPeer ?? '';
   const [draft, setDraft] = useState('');
@@ -37,7 +38,9 @@ export default function MeshChatScreen() {
       if (result.relayWarning) Alert.alert('Message saved for later relay', 'The message is safely stored on this phone, but Bluetooth relay is not currently available. Pull down on Nearby or start Relay when access is restored.');
       requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
     } catch (reason) {
-      setRuntimeError(reason instanceof Error ? reason.message : String(reason));
+      const message = reason instanceof Error ? reason.message : String(reason);
+      setRuntimeError(message);
+      Alert.alert('Message not sent', message);
     } finally { setSending(false); }
   };
 
@@ -54,7 +57,8 @@ export default function MeshChatScreen() {
   };
 
   const openSharedLocation = (senderNodeToken: string) => {
-    setFocusMapObjectId(`PEER-${senderNodeToken}`);
+    setFocusMapObjectId(undefined);
+    setNavigationDestinationObjectId(`PEER-${senderNodeToken}`);
     router.push('/(tabs)/map');
   };
 
@@ -79,7 +83,7 @@ export default function MeshChatScreen() {
         </ScrollView>
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', padding: 12, borderTopWidth: 1, borderTopColor: '#142039', backgroundColor: '#070C16' }}>
           <TouchableOpacity accessibilityRole="button" accessibilityLabel="Share my current location" disabled={sending} onPress={() => void shareLocation()} style={{ width: 46, height: 46, borderRadius: 23, marginRight: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: sending ? '#253047' : '#12394A', borderWidth: 1, borderColor: '#00A8B5' }}><MapPin size={19} color="#00F2FE" /></TouchableOpacity>
-          <TextInput accessibilityLabel="Message" value={draft} onChangeText={setDraft} placeholder="Message this person…" placeholderTextColor="#52617A" multiline maxLength={120} style={{ flex: 1, minHeight: 46, maxHeight: 120, color: '#F8FAFC', backgroundColor: '#0D1424', borderWidth: 1, borderColor: '#263653', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 }} />
+          <TextInput accessibilityLabel="Message" value={draft} onChangeText={setDraft} placeholder="Message this person…" placeholderTextColor="#52617A" multiline maxLength={68} style={{ flex: 1, minHeight: 46, maxHeight: 120, color: '#F8FAFC', backgroundColor: '#0D1424', borderWidth: 1, borderColor: '#263653', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 }} />
           <TouchableOpacity accessibilityRole="button" accessibilityLabel="Send message" disabled={sending || !draft.trim()} onPress={send} style={{ width: 46, height: 46, borderRadius: 23, marginLeft: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: sending || !draft.trim() ? '#253047' : '#7C3AED' }}><Send size={19} color="#FFFFFF" /></TouchableOpacity>
         </View>
       </KeyboardAvoidingView>

@@ -164,7 +164,7 @@ const RULES: Readonly<Record<number, readonly Rule[]>> = {
     { kind: 'id', field: 'recipientNodeToken', maxBytes: 32 },
     { kind: 'text', field: 'senderLabel', maxBytes: 32 },
     { kind: 'required', field: 'text' },
-    { kind: 'text', field: 'text', maxBytes: 120 },
+    { kind: 'text', field: 'text', maxBytes: FIELD_LIMITS.MESH_CHAT_TEXT_BYTES },
     { kind: 'location', field: 'location' },
   ],
   [MessageType.FILE_MANIFEST]: [

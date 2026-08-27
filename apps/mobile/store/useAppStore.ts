@@ -66,6 +66,8 @@ interface AppState {
   // Network & relay
   internetState: InternetState;
   setInternetState: (s: InternetState) => void;
+  gatewayBaseUrl: string;
+  setGatewayBaseUrl: (value: string) => void;
   relayActive: boolean;
   setRelayActive: (v: boolean) => void;
   peersRecentlySeen: number;
@@ -181,6 +183,8 @@ export const useAppStore = create<AppState>()(
       // Network
       internetState: 'untested',
       setInternetState: (s) => set({ internetState: s }),
+      gatewayBaseUrl: process.env.EXPO_PUBLIC_DSM_BACKEND_URL ?? '',
+      setGatewayBaseUrl: (gatewayBaseUrl) => set({ gatewayBaseUrl }),
       relayActive: false,
       setRelayActive: (v) => set({ relayActive: v }),
       peersRecentlySeen: 0,
@@ -246,7 +250,7 @@ export const useAppStore = create<AppState>()(
       // Region
       selectedRegion: 'Mumbai Operational Region',
       setSelectedRegion: (r) => set({ selectedRegion: r }),
-      offlinePackVersion: 'mumbai-v1',
+      offlinePackVersion: 'mumbai-v2',
       offlinePackStatus: 'not-downloaded',
       setOfflinePackStatus: (s) => set({ offlinePackStatus: s }),
       offlinePackProgress: 0,
@@ -321,6 +325,7 @@ export const useAppStore = create<AppState>()(
         receivedPackets: state.receivedPackets,
         responderWorkflow: state.responderWorkflow,
         lastReadChatAtSByPeer: state.lastReadChatAtSByPeer,
+        gatewayBaseUrl: state.gatewayBaseUrl,
       }),
     },
   ),

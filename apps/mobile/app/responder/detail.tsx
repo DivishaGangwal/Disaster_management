@@ -25,7 +25,12 @@ export default function ResponderIncidentScreen() {
     try {
       await mobileController.responderTransition(next);
       if (selectedIncidentId) setResponderWorkflowState(selectedIncidentId, next);
-      Alert.alert('Status saved', `${msg}. The packet was saved locally and is eligible for relay.`);
+      if (next === 'accepted' && incidentMapObject?.latE7 !== undefined && incidentMapObject.lonE7 !== undefined) {
+        setNavigationDestinationObjectId(incidentMapObject.objectId);
+        router.replace('/(tabs)/map');
+      } else {
+        Alert.alert('Status saved', `${msg}. The packet was saved locally and is eligible for relay.`);
+      }
     } catch (reason) {
       Alert.alert('Status not saved', reason instanceof Error ? reason.message : String(reason));
     } finally { setTransitioning(false); }
@@ -114,7 +119,7 @@ export default function ResponderIncidentScreen() {
 
         <TouchableOpacity
           accessibilityRole="button"
-          accessibilityLabel="Navigate to this incident using direct offline guidance"
+          accessibilityLabel="Navigate from my location to this incident using roads"
           onPress={() => {
             if (!incidentMapObject || incidentMapObject.latE7 === undefined || incidentMapObject.lonE7 === undefined) {
               Alert.alert('No coordinate available', 'This incident does not include a usable location.');
@@ -126,7 +131,7 @@ export default function ResponderIncidentScreen() {
           style={{ minHeight: 50, marginBottom: 18, backgroundColor: '#00F2FE', borderRadius: 6, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 }}
         >
           <icons.navigation size={17} color="#050811" />
-          <Text style={{ color: '#050811', fontSize: 14, fontWeight: '900' }}>DIRECT OFFLINE GUIDANCE</Text>
+          <Text style={{ color: '#050811', fontSize: 14, fontWeight: '900' }}>ROUTE TO THIS PERSON</Text>
         </TouchableOpacity>
 
         {/* Section Title */}

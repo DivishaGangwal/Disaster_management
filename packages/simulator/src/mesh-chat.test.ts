@@ -42,3 +42,26 @@ test('addressed chat is validated, stored, and carried across an intermediate me
   assert.equal(marker?.latE7, 261440000);
   await scenario.stopAll();
 });
+
+test('a user-initiated peer sync delivers a newly queued chat without waiting for another gossip round', async () => {
+  const scenario = new Scenario('IN-DEMO-01', { latencyMs: 10, seed: 21 });
+  scenario.addNode({ name: 'sender', nodeToken: 'aaaa0001', sourceId: '1111111111111111', role: 'general-public' });
+  scenario.addNode({ name: 'recipient', nodeToken: 'bbbb0002', sourceId: '2222222222222222', role: 'general-public' });
+  scenario.link('sender', 'recipient');
+  await scenario.startAll();
+  await scenario.gossip(2, 100);
+
+  const packet = buildMeshChat(
+    { sourceId: '1111111111111111', sourceClass: SourceClass.GENERAL_PUBLIC, nowS: toEpochS(scenario.medium.clockMs) },
+    'chat:aaaa0001:bbbb0002',
+    { senderNodeToken: 'aaaa0001', recipientNodeToken: 'bbbb0002', senderLabel: 'Asha', text: 'Need water' },
+  );
+  await scenario.node('sender').engine.createLocal(packet);
+  await scenario.node('sender').relay.refreshAdvertisement();
+  const opened = await scenario.node('sender').relay.syncPeerNow('bbbb0002');
+  await scenario.advance(100);
+
+  assert.equal(opened, true);
+  assert.deepEqual(await scenario.holdersOf(packet.packetId), ['sender', 'recipient']);
+  await scenario.stopAll();
+});

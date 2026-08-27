@@ -260,31 +260,7 @@ export class RelayLoop {
             !this.connecting.has(event.nodeToken) &&
             event.summary.acceptingConnections
           ) {
-            this.connecting.add(event.nodeToken);
-            try {
-              const sessionId = await adapter.openSession(event.nodeToken);
-              this.sessions.set(
-                sessionId,
-                new SessionStateMachine(sessionId, event.nodeToken, true, now()),
-              );
-              await this.runSession(sessionId, event.nodeToken);
-            } catch (error) {
-              // Out of range or refused. Record it: repeatedly unreachable
-              // peers must lose reliability weight in the routing score.
-              engine.events.emit({
-                category: EventCategory.SESSION,
-                name: 'open-failed',
-                severity: 'warn',
-                atMs: now(),
-                peerToken: event.nodeToken,
-                reason: error instanceof Error ? error.message : String(error),
-              });
-              await this.recordPeerOutcome(event.nodeToken, false, now());
-            } finally {
-              // Cleared only once the attempt has fully settled, so the next
-              // advertisement cannot stack a second GATT client on the link.
-              this.connecting.delete(event.nodeToken);
-            }
+            await this.connectPeer(event.nodeToken);
           }
         }
         break;
@@ -415,6 +391,38 @@ export class RelayLoop {
 
       default:
         break;
+    }
+  }
+
+  /** User-initiated chat/location sends may immediately reconcile a recently seen peer. */
+  async syncPeerNow(peerToken: string): Promise<boolean> {
+    if (!this.running || this.sessions.size >= 2 || this.hasSessionWith(peerToken) || this.connecting.has(peerToken)) return false;
+    const known = await this.options.engine.peers.get(peerToken);
+    if (!known) return false;
+    return this.connectPeer(peerToken);
+  }
+
+  private async connectPeer(peerToken: string): Promise<boolean> {
+    const { engine, adapter, now } = this.options;
+    this.connecting.add(peerToken);
+    try {
+      const sessionId = await adapter.openSession(peerToken);
+      this.sessions.set(sessionId, new SessionStateMachine(sessionId, peerToken, true, now()));
+      await this.runSession(sessionId, peerToken);
+      return true;
+    } catch (error) {
+      engine.events.emit({
+        category: EventCategory.SESSION,
+        name: 'open-failed',
+        severity: 'warn',
+        atMs: now(),
+        peerToken,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      await this.recordPeerOutcome(peerToken, false, now());
+      return false;
+    } finally {
+      this.connecting.delete(peerToken);
     }
   }
 

@@ -11,6 +11,7 @@ import {
   ArrivalEvidence,
   CheckinStatus,
   DEPLOYMENT,
+  FIELD_LIMITS,
   GATEWAY,
   ResolutionOutcome,
   ReplyCapability,
@@ -207,7 +208,7 @@ class MobileController {
     }, new PackResolver(MUMBAI_CONTENT_PACK));
     const report = await runtime.getCapabilities();
     if (report.batteryPercent !== undefined) runtime.engine.setBatteryBand(batteryBand(report.batteryPercent));
-    const backendBaseUrl = (process.env.EXPO_PUBLIC_DSM_BACKEND_URL || '').replace(/\/$/, '');
+    const backendBaseUrl = useAppStore.getState().gatewayBaseUrl.trim().replace(/\/$/, '');
     if (backendBaseUrl) {
       runtime.attachGateway(new GatewaySynchronizer({
         engine: runtime.engine,
@@ -537,7 +538,7 @@ class MobileController {
     const body = text.trim();
     if (!/^[A-Za-z0-9_.:-]{1,32}$/.test(recipientNodeToken)) throw new Error('That peer is no longer valid.');
     if (!body) throw new Error('Type a message first.');
-    if (new TextEncoder().encode(body).length > 120) throw new Error('Message must be 120 bytes or fewer so it fits one Bluetooth record.');
+    if (new TextEncoder().encode(body).length > FIELD_LIMITS.MESH_CHAT_TEXT_BYTES) throw new Error(`Message must be ${FIELD_LIMITS.MESH_CHAT_TEXT_BYTES} UTF-8 bytes or fewer so it fits one Bluetooth record.`);
     const conversationId = conversationIdFor(runtime.engine.nodeToken, recipientNodeToken);
     const packet = buildMeshChat(context(runtime), conversationId, {
       senderNodeToken: runtime.engine.nodeToken,
@@ -552,6 +553,7 @@ class MobileController {
     try {
       if (!runtime.relay.isRunning) await runtime.startRelay();
       await runtime.relay.refreshAdvertisement();
+      await runtime.relay.syncPeerNow(recipientNodeToken);
     } catch (reason) {
       relayWarning = reason instanceof Error ? reason.message : String(reason);
       useAppStore.getState().setRuntimeError(`Message saved, but relay is unavailable: ${relayWarning}`);
@@ -584,6 +586,16 @@ class MobileController {
 
   async probeGateway() {
     return this.syncGateway(true);
+  }
+
+  async configureGatewayBaseUrl(value: string) {
+    const normalized = value.trim().replace(/\/$/, '');
+    if (normalized && !/^https?:\/\/[^\s]+$/i.test(normalized)) throw new Error('Enter a complete http:// or https:// backend address.');
+    useAppStore.getState().setGatewayBaseUrl(normalized);
+    useAppStore.getState().setInternetState('untested');
+    await this.reconfigureRole(useAppStore.getState().role);
+    if (normalized) return this.probeGateway();
+    return false;
   }
 
   private async syncGateway(showProbing: boolean): Promise<boolean> {
