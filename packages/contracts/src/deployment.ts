@@ -15,6 +15,7 @@ export const DEPLOYMENT = {
   contentPackId: 'PACK-IN-MH-MUM-OPS',
   contentPackVersion: 1,
   backendIdentity: 'dsm-coordination-v1',
+  productionBackendUrl: 'https://disaster-management-web-authority.vercel.app',
   defaultDatabaseFile: 'mumbai-operations.sqlite',
   developmentOperationsKey: 'mumbai-operations-local',
   languages: ['en', 'hi', 'mr'],

@@ -65,8 +65,8 @@ export default function ProfileScreen() {
       </View>
 
       <View style={{ marginTop: 12, padding: 14, backgroundColor: '#0D1424', borderWidth: 1, borderColor: '#1B2944', borderRadius: 10 }}>
-        <Text style={rowTitle}>Website gateway</Text><Text style={rowDetail}>Use 10.0.2.2 for the Android emulator, or this computer's LAN address for a physical phone.</Text>
-        <TextInput accessibilityLabel="Coordination backend address" autoCapitalize="none" autoCorrect={false} keyboardType="url" value={gatewayUrl} onChangeText={setGatewayUrl} placeholder="http://10.0.2.2:8787" placeholderTextColor="#52617A" style={{ minHeight: 46, marginTop: 10, borderRadius: 7, borderWidth: 1, borderColor: '#263653', color: '#F8FAFC', paddingHorizontal: 12 }} />
+        <Text style={rowTitle}>Website gateway</Text><Text style={rowDetail}>The production gateway is configured by default. Replace it only when testing a local backend.</Text>
+        <TextInput accessibilityLabel="Coordination backend address" autoCapitalize="none" autoCorrect={false} keyboardType="url" value={gatewayUrl} onChangeText={setGatewayUrl} placeholder="https://disaster-management-web-authority.vercel.app" placeholderTextColor="#52617A" style={{ minHeight: 46, marginTop: 10, borderRadius: 7, borderWidth: 1, borderColor: '#263653', color: '#F8FAFC', paddingHorizontal: 12 }} />
         <TouchableOpacity accessibilityRole="button" accessibilityState={{ busy: savingGateway }} disabled={savingGateway} onPress={() => void saveGateway()} style={{ minHeight: 44, marginTop: 9, borderRadius: 7, backgroundColor: '#087E8B', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '900' }}>{savingGateway ? 'TESTING…' : 'SAVE & TEST GATEWAY'}</Text></TouchableOpacity>
       </View>
 

@@ -2,6 +2,7 @@
   "name": "disaster-sos-mesh",
   "private": true,
   "version": "0.1.0",
+  "type": "module",
   "description": "Disaster SOS Mesh - offline-first Bluetooth mesh emergency communication (SIH hackathon prototype)",
   "license": "UNLICENSED",
   "workspaces": [

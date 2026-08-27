@@ -37,7 +37,7 @@ export class RoadRouter {
     } catch (reason) {
       const cached = cache[key];
       if (cached) return { ...cached, source: 'offline-cache' };
-      throw new Error(`A road route could not be calculated and this trip is not cached for offline use. ${messageOf(reason)}`);
+      throw new Error(`A road route could not be calculated, and no previously saved route is available for this trip. ${messageOf(reason)}`);
     }
   }
 }

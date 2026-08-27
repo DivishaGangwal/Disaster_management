@@ -275,6 +275,23 @@ export default function MapScreen() {
     setViewMode('map');
   }, [setNavigationDestinationObjectId]);
 
+  const showPointActions = useCallback((item: RuntimeMapObject) => {
+    const kind = kindLabel(normaliseKind(item.kind));
+    const coordinates = hasCoordinate(item)
+      ? `${e7ToFloat(item.latE7).toFixed(5)}, ${e7ToFloat(item.lonE7).toFixed(5)}`
+      : 'Location unavailable';
+    const state = item.state === undefined ? 'Status not reported' : `Status: ${String(item.state)}`;
+    Alert.alert(
+      item.label,
+      `${kind} · ${state}\n${coordinates}\nUpdated ${ageLabel(item.asOfS)}`,
+      [
+        { text: 'Details', onPress: () => openObject(item) },
+        ...(hasCoordinate(item) ? [{ text: 'Navigate', onPress: () => navigateToObject(item) }] : []),
+        { text: 'Cancel', style: 'cancel' },
+      ],
+    );
+  }, [navigateToObject, openObject]);
+
   const changeTravelMode = useCallback((mode: RoadTravelMode) => {
     setTravelMode(mode);
     if (navigationDestination && deviceLocation) void calculateRoadRoute(navigationDestination, navigationDestinationLabel, mode, deviceLocation);
@@ -328,7 +345,7 @@ export default function MapScreen() {
               <Camera ref={cameraRef} defaultSettings={{ centerCoordinate: MUMBAI_CENTRE, zoomLevel: REGION_ZOOM }} />
               {guidanceShape && <ShapeSource id="road-guidance" shape={guidanceShape}><LineLayer id="road-guidance-line" style={{ lineColor: '#00F2FE', lineWidth: 6, lineOpacity: 0.94 }} /></ShapeSource>}
               {navigationDestination && <GuidanceMarker point={navigationDestination} label="B" color="#FF2E93" />}
-              {visibleObjects.map((item) => <OperationalMarker key={item.objectId} item={item} onPress={() => navigateToObject(item)} />)}
+              {visibleObjects.map((item) => <OperationalMarker key={item.objectId} item={item} onPress={() => navigateToObject(item)} onLongPress={() => showPointActions(item)} />)}
               {deviceLocation && (
                 <MarkerView coordinate={[deviceLocation.lon, deviceLocation.lat]} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
                   <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Your current location, accurate to approximately ${deviceLocation.accuracyM} metres`} onPress={() => void requestAndLocate()} style={styles.gpsMarkerTouch}>
@@ -342,6 +359,7 @@ export default function MapScreen() {
               visibleObjects={visibleObjects}
               deviceLocation={deviceLocation}
               openObject={navigateToObject}
+              showPointActions={showPointActions}
               requestAndLocate={() => void requestAndLocate()}
             />
           )}
@@ -374,12 +392,13 @@ export default function MapScreen() {
           {selectingDestination && <View style={styles.selectionPrompt} pointerEvents="none"><Text style={styles.selectionPromptTitle}>Tap your destination</Text><Text style={styles.selectionPromptText}>The route always starts at your live GPS position.</Text></View>}
           {(routeStatus === 'loading' || routeStatus === 'waiting-location') && <View style={styles.routeLoading}><ActivityIndicator color={COLORS.route} /><Text style={styles.routeLoadingText}>{routeStatus === 'waiting-location' ? 'Waiting for your GPS position' : 'Following roads and paths'}</Text></View>}
           {roadRoute && <View style={styles.guidanceCard}>
-            <View style={{ flex: 1 }}><Text style={styles.guidanceEyebrow}>ROAD ROUTE · {roadRoute.source === 'offline-cache' ? 'OFFLINE CACHE' : 'CACHED FOR OFFLINE'}</Text><Text style={styles.guidanceTitle} numberOfLines={1}>{navigationDestinationLabel}</Text><Text style={styles.guidanceDetail}>{distanceLabel(roadRoute.distanceM)} · {etaLabel(roadRoute.durationS)} estimated · {travelMode === 'walking' ? 'walking' : 'driving'}</Text><View style={styles.travelModes}><TravelModeButton mode="walking" active={travelMode === 'walking'} onPress={changeTravelMode} /><TravelModeButton mode="driving" active={travelMode === 'driving'} onPress={changeTravelMode} /></View></View>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Stop offline guidance" onPress={clearGuidance} style={styles.stopGuidanceButton}><icons.close size={17} color="#FFFFFF" /></TouchableOpacity>
+            <View style={{ flex: 1 }}><Text style={styles.guidanceEyebrow}>ROAD ROUTE · {roadRoute.source === 'offline-cache' ? 'SAVED ROUTE' : 'LIVE ROUTE'}</Text><Text style={styles.guidanceTitle} numberOfLines={1}>{navigationDestinationLabel}</Text><Text style={styles.guidanceDetail}>{distanceLabel(roadRoute.distanceM)} · {etaLabel(roadRoute.durationS)} estimated · {travelMode === 'walking' ? 'walking' : 'driving'}</Text><View style={styles.travelModes}><TravelModeButton mode="walking" active={travelMode === 'walking'} onPress={changeTravelMode} /><TravelModeButton mode="driving" active={travelMode === 'driving'} onPress={changeTravelMode} /></View></View>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Stop guidance" onPress={clearGuidance} style={styles.stopGuidanceButton}><icons.close size={17} color="#FFFFFF" /></TouchableOpacity>
           </View>}
           {!roadRoute && routeStatus !== 'loading' && routeStatus !== 'waiting-location' && !selectingDestination && <View style={styles.mapSummary} pointerEvents="none">
             <Text style={styles.mapSummaryStrong}>{visibleObjects.length}</Text><Text style={styles.mapSummaryText}> visible on map</Text>
             {mapObjects.length > coordinateObjects.length && <Text style={styles.mapSummaryMuted}> · {mapObjects.length - coordinateObjects.length} list-only</Text>}
+            <Text style={styles.mapSummaryMuted}> · Tap to navigate · Hold for details</Text>
           </View>}
         </View>
       ) : (
@@ -413,11 +432,13 @@ function FilterBar({ filters, counts, onToggle }: { filters: FilterState; counts
   visibleObjects,
   deviceLocation,
   openObject,
+  showPointActions,
   requestAndLocate,
 }: {
   visibleObjects: (RuntimeMapObject & { latE7: number; lonE7: number })[];
   deviceLocation?: DeviceLocation;
   openObject: (item: RuntimeMapObject) => void;
+  showPointActions: (item: RuntimeMapObject) => void;
   requestAndLocate: () => void;
 }) {
   const minLon = 72.72;
@@ -459,6 +480,7 @@ function FilterBar({ filters, counts, onToggle }: { filters: FilterState; counts
             accessibilityRole="button"
             accessibilityLabel={`${kindLabel(kind)}: ${item.label}`}
             onPress={() => openObject(item)}
+            onLongPress={() => showPointActions(item)}
             style={[styles.tacticalMarkerTouch, pos]}
           >
             <View style={[styles.tacticalMarkerCircle, { backgroundColor: color }]}>
@@ -489,11 +511,11 @@ function FilterBar({ filters, counts, onToggle }: { filters: FilterState; counts
   );
 }
 
-function OperationalMarker({ item, onPress }: { item: RuntimeMapObject & { latE7: number; lonE7: number }; onPress: () => void }) {
+function OperationalMarker({ item, onPress, onLongPress }: { item: RuntimeMapObject & { latE7: number; lonE7: number }; onPress: () => void; onLongPress: () => void }) {
   const kind = normaliseKind(item.kind); const Icon = iconForObject(item); const color = colorForKind(kind);
   return (
     <MarkerView coordinate={[e7ToFloat(item.lonE7), e7ToFloat(item.latE7)]} anchor={{ x: 0.5, y: 1 }} allowOverlap>
-      <TouchableOpacity accessibilityRole="button" accessibilityLabel={`${kindLabel(kind)}: ${item.label}, updated ${ageLabel(item.asOfS)}`} onPress={onPress} activeOpacity={0.78} style={styles.markerTouch}>
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel={`${kindLabel(kind)}: ${item.label}, updated ${ageLabel(item.asOfS)}. Long press for details or navigation.`} onPress={onPress} onLongPress={onLongPress} delayLongPress={350} activeOpacity={0.78} style={styles.markerTouch}>
         <View style={[styles.marker, { backgroundColor: color }]}><Icon size={20} color="#FFFFFF" strokeWidth={2.6} /></View>
         <View style={[styles.markerPointer, { borderTopColor: color }]} />
       </TouchableOpacity>

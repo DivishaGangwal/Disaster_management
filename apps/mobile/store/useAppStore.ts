@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { Tier2Metrics } from '@dsm/contracts';
+import { DEPLOYMENT, type Tier2Metrics } from '@dsm/contracts';
 
 export type UserRole = 'general-public' | 'responder';
 export type InternetState = 'untested' | 'unavailable' | 'probing' | 'proven gateway';
@@ -183,7 +183,7 @@ export const useAppStore = create<AppState>()(
       // Network
       internetState: 'untested',
       setInternetState: (s) => set({ internetState: s }),
-      gatewayBaseUrl: process.env.EXPO_PUBLIC_DSM_BACKEND_URL ?? '',
+      gatewayBaseUrl: process.env.EXPO_PUBLIC_DSM_BACKEND_URL ?? DEPLOYMENT.productionBackendUrl,
       setGatewayBaseUrl: (gatewayBaseUrl) => set({ gatewayBaseUrl }),
       relayActive: false,
       setRelayActive: (v) => set({ relayActive: v }),
@@ -297,7 +297,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'dsm-app-state',
-      version: 6,
+      version: 7,
       migrate: (persisted) => {
         const previous = persisted as Partial<AppState>;
         const staleRegion = !previous.selectedRegion || previous.selectedRegion.includes('Assam') || previous.selectedRegion.endsWith('DISTRICT');
@@ -306,6 +306,7 @@ export const useAppStore = create<AppState>()(
           responderWorkflow: previous.responderWorkflow ?? {},
           selectedPeerToken: undefined,
           lastReadChatAtSByPeer: previous.lastReadChatAtSByPeer ?? {},
+          gatewayBaseUrl: previous.gatewayBaseUrl?.trim() || DEPLOYMENT.productionBackendUrl,
           ...(staleRegion ? { selectedRegion: 'Mumbai Operational Region' } : {}),
         } as AppState;
       },

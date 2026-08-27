@@ -30,3 +30,4 @@ data/*.sqlite-wal
 *.db
 *.db-wal
 *.db-shm
+.vercel
