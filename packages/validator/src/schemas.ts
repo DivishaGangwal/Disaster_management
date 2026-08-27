@@ -165,6 +165,7 @@ const RULES: Readonly<Record<number, readonly Rule[]>> = {
     { kind: 'text', field: 'senderLabel', maxBytes: 32 },
     { kind: 'required', field: 'text' },
     { kind: 'text', field: 'text', maxBytes: 120 },
+    { kind: 'location', field: 'location' },
   ],
   [MessageType.FILE_MANIFEST]: [
     { kind: 'required', field: 'fileId' },

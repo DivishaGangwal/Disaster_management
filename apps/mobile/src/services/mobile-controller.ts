@@ -66,6 +66,7 @@ class MobileController {
   private gatewaySyncInFlight?: Promise<boolean>;
   private gatewaySyncGeneration = 0;
   private refreshTimer?: ReturnType<typeof setTimeout>;
+  private database?: Awaited<ReturnType<typeof openMobileRepositories>>['database'];
 
   async initialize(role: UserRole = useAppStore.getState().role) {
     if (this.runtime) return this.runtime;
@@ -90,6 +91,22 @@ class MobileController {
     if (this.runtime?.relay.isRunning) await this.runtime.stopRelay();
     this.runtime = undefined;
     return this.initialize(role);
+  }
+
+  /** Deletes this phone's operational SQLite history after explicit UI confirmation. */
+  async clearLocalOperationalHistory() {
+    await this.initialize();
+    const database = this.database;
+    if (!database) throw new Error('Local database is not ready.');
+    this.stopGatewaySync();
+    if (this.runtime?.relay.isRunning) await this.runtime.stopRelay();
+    await database.withExclusiveTransactionAsync(async (transaction) => {
+      for (const table of ['observations', 'packets', 'seen_packets', 'fragments', 'peers', 'assembled_files', 'map_objects']) {
+        await transaction.runAsync(`DELETE FROM ${table}`);
+      }
+    });
+    useAppStore.getState().clearOperationalHistory();
+    await this.reconfigureRole(useAppStore.getState().role);
   }
 
   /** Stop every foreground/background capability before logout or teardown. */
@@ -138,6 +155,7 @@ class MobileController {
 
   private async create(role: UserRole) {
     const repositories = await openMobileRepositories();
+    this.database = repositories.database;
     // Fast perceived launch: paint whatever the persisted mirror already
     // holds before the (potentially slower) packet-log replay below runs.
     const persistedMapObjects = await repositories.mapObjects.list();
@@ -470,6 +488,16 @@ class MobileController {
 
   /** Persists a bounded chat packet before starting/opportunistically refreshing relay. */
   async sendMeshChat(recipientNodeToken: string, text: string) {
+    return this.sendMeshChatPayload(recipientNodeToken, text);
+  }
+
+  async sendMeshLocation(recipientNodeToken: string) {
+    const location = await bestEffortLocation();
+    if (!location) throw new Error('A recent GPS fix is required before sharing your location.');
+    return this.sendMeshChatPayload(recipientNodeToken, 'Shared a location', location);
+  }
+
+  private async sendMeshChatPayload(recipientNodeToken: string, text: string, location?: Readonly<Record<string, unknown>>) {
     const runtime = await this.initialize();
     const body = text.trim();
     if (!/^[A-Za-z0-9_.:-]{1,32}$/.test(recipientNodeToken)) throw new Error('That peer is no longer valid.');
@@ -481,6 +509,7 @@ class MobileController {
       recipientNodeToken,
       senderLabel: useAppStore.getState().userName?.trim().slice(0, 32) || 'Mesh user',
       text: body,
+      ...(location ? { location } : {}),
     });
     const result = await runtime.engine.createLocal(packet);
     if (!result.validation.ok || result.storeOutcome !== 'inserted') throw new Error(result.validation.ok ? 'Message could not be saved.' : result.validation.reason);
@@ -599,6 +628,7 @@ class MobileController {
           recipientNodeToken: String(payload['recipientNodeToken'] ?? ''),
           ...(stringValue(payload['senderLabel']) ? { senderLabel: stringValue(payload['senderLabel']) } : {}),
           text: String(payload['text'] ?? ''),
+          ...(chatLocation(payload['location']) ? { location: chatLocation(payload['location']) } : {}),
           createdAtS: stored.packet.header.createdAt,
           outgoing: payload['senderNodeToken'] === runtime.engine.nodeToken,
         };
@@ -715,6 +745,20 @@ async function currentPositionWithTimeout() {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function chatLocation(value: unknown) {
+  if (!value || typeof value !== 'object') return undefined;
+  const location = value as Record<string, unknown>;
+  const latE7 = location['latE7'];
+  const lonE7 = location['lonE7'];
+  if (typeof latE7 !== 'number' || typeof lonE7 !== 'number') return undefined;
+  return {
+    latE7,
+    lonE7,
+    ...(typeof location['accuracyM'] === 'number' ? { accuracyM: location['accuracyM'] } : {}),
+    ...(typeof location['ageS'] === 'number' ? { ageS: location['ageS'] } : {}),
+  };
 }
 
 function jsonSafePayload(value: unknown): unknown {

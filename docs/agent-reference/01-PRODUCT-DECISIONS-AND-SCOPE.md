@@ -728,6 +728,10 @@ An ordinary citizen-created packet must not receive absolute authority merely be
 
 The offline map is a core product surface, not a decorative screen. It shows:
 
+- direct offline point-to-point guidance using two selected coordinates or current GPS plus a selected operational object;
+- remaining geodesic distance and bearing without requiring a gateway;
+- explicit wording that this minimum mode is a straight-line direction, not a verified road, safe path, or turn-by-turn route;
+
 - the current user's last-known position;
 - SOS locations the user is permitted to see;
 - active responder locations/statuses when shared;

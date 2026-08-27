@@ -40,7 +40,8 @@ export interface ReceivedPacketSummary {
   impacts: ReceivedPacketImpact[];
 }
 export interface RuntimePeer { peerToken: string; lastSeenAtMs: number; rssi?: number; sessionsCompleted: number; sessionsFailed: number; }
-export interface MeshChatMessage { packetId: string; conversationId: string; senderNodeToken: string; recipientNodeToken: string; senderLabel?: string; text: string; createdAtS: number; outgoing: boolean; }
+export interface MeshChatLocation { latE7: number; lonE7: number; accuracyM?: number; ageS?: number; }
+export interface MeshChatMessage { packetId: string; conversationId: string; senderNodeToken: string; recipientNodeToken: string; senderLabel?: string; text: string; location?: MeshChatLocation; createdAtS: number; outgoing: boolean; }
 
 interface AppState {
   // Profile & role
@@ -115,6 +116,8 @@ interface AppState {
   /** Object the Map screen should fly the camera to on next mount, then clear. */
   focusMapObjectId?: string;
   setFocusMapObjectId: (value?: string) => void;
+  navigationDestinationObjectId?: string;
+  setNavigationDestinationObjectId: (value?: string) => void;
 
   // Region
   selectedRegion: string;
@@ -134,6 +137,7 @@ interface AppState {
   setTier2Metrics: (value: Tier2Metrics) => void;
   receivedPackets: ReceivedPacketSummary[];
   addReceivedPacket: (value: ReceivedPacketSummary) => void;
+  clearOperationalHistory: () => void;
 
   // Language
   language: string;
@@ -231,6 +235,8 @@ export const useAppStore = create<AppState>()(
       setSelectedMapObjectId: (selectedMapObjectId) => set({ selectedMapObjectId }),
       focusMapObjectId: undefined,
       setFocusMapObjectId: (focusMapObjectId) => set({ focusMapObjectId }),
+      navigationDestinationObjectId: undefined,
+      setNavigationDestinationObjectId: (navigationDestinationObjectId) => set({ navigationDestinationObjectId }),
 
       // Region
       selectedRegion: 'Mumbai Operational Region',
@@ -250,6 +256,21 @@ export const useAppStore = create<AppState>()(
       setTier2Metrics: (tier2Metrics) => set({ tier2Metrics }),
       receivedPackets: [],
       addReceivedPacket: (value) => set((state) => ({ receivedPackets: [value, ...state.receivedPackets.filter((item) => item.packetId !== value.packetId)].slice(0, 20) })),
+      clearOperationalHistory: () => set({
+        meshChatMessages: [],
+        runtimeIncidents: [],
+        mapObjects: [],
+        receivedPackets: [],
+        responderWorkflow: {},
+        activeIncidentId: undefined,
+        hasActiveSos: false,
+        activeSosSavedAtMs: undefined,
+        selectedIncidentId: undefined,
+        selectedMapObjectId: undefined,
+        focusMapObjectId: undefined,
+        navigationDestinationObjectId: undefined,
+        distinctPeerReceipts: 0,
+      }),
 
       // Language
       language: 'en',

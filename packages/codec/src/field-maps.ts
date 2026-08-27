@@ -215,6 +215,7 @@ const MESH_CHAT: FieldMap = {
   recipientNodeToken: 3,
   senderLabel: 4,
   text: 5,
+  location: 6,
 };
 
 const CACHE_CATALOG: FieldMap = { bundles: 1 };

@@ -8,7 +8,7 @@ The file-by-file implementation record for this pass is in
 ## Verified in this pass
 
 ```text
-npm test                                      90/90 passing
+npm test                                      93/93 passing
 npm run build                                 strict TypeScript build passing
 npm run typecheck --workspace @dsm/mobile     passing
 npm run web:build                             passing
@@ -39,6 +39,9 @@ The Android command compiled the Expo application and the autolinked `dsm-androi
 - One national deployment contract shared by backend, web and Android, with Mumbai (`IN-MH`) as the current operational region and matching baseline object IDs, labels, coordinates and states.
 - Truthful delivery semantics. A direct receipt means another phone stored a copy; it does not mean rescue is coming. Neither mobile nor web claims to follow a packet globally after it leaves an observed device.
 - “People on the mesh” peer list and addressed chat: outgoing messages are validated and saved to SQLite before relay, incoming conversations are rebuilt from the packet log after restart, gateway upload is disabled, and a deterministic three-phone simulation proves store-carry-forward delivery through an intermediate node.
+- Minimal direct offline guidance across map, resource detail and responder incident surfaces. Users can select two map points or navigate from live GPS to a selected operational object; distance and bearing update locally, and the UI explicitly says the line is not a verified road route.
+- Offline mesh chat carries the sender's bounded display name and supports deliberate GPS location messages. Shared locations open on the map and are rebuilt from the durable packet log after restart.
+- Diagnostics provides a confirmed local-history reset for stored packets, prior SOS/chat views, shared-location markers, peers and received files. It only clears this phone and cannot recall packets already relayed elsewhere.
 
 ## Explicitly deferred or unmeasured
 

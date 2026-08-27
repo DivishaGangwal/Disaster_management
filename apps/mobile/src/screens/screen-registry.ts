@@ -100,6 +100,7 @@ export const SCREENS: readonly ScreenSpec[] = [
       'stale markers are visually stale and eventually withdrawn',
       'detail sheet: source category, last update, location quality, state, action',
       'a LIST equivalent for accessibility and low-performance devices',
+      'two-point direct offline guidance with distance, bearing, and truthful non-road-route wording',
     ],
     status: 'partial',
   },
@@ -120,6 +121,8 @@ export const SCREENS: readonly ScreenSpec[] = [
     mustShow: [
       'selected recently observed peer identity',
       'bounded plaintext message composer',
+      'sender display name with mesh-ID fallback',
+      'deliberate GPS location share that opens and persists as a map marker',
       'locally saved outgoing and received conversation history',
       'truthful saved-to-mesh wording, never guaranteed delivery',
       'visible warning that prototype messages are not end-to-end encrypted',

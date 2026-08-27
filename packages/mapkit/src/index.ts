@@ -11,3 +11,4 @@ export * from './projection.js';
 export * from './packet-to-map.js';
 export * from './assam-pack.js';
 export * from './mumbai-pack.js';
+export * from './offline-guidance.js';

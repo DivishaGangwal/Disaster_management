@@ -10,13 +10,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Alert, DimensionValue, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import { Camera, MapView, MarkerView, type CameraRef } from '@maplibre/maplibre-react-native';
+import { Camera, LineLayer, MapView, MarkerView, ShapeSource, type CameraRef } from '@maplibre/maplibre-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { e7ToFloat } from '@dsm/codec';
 import { DEPLOYMENT } from '@dsm/contracts';
 import { icons } from '@/constants/icons';
 import { useAppStore, type RuntimeMapObject } from '@/store/useAppStore';
 import { MUMBAI_MAP_STYLE_URL } from '@/src/services/offline-map';
+import { directOfflineGuidance, type GuidancePoint } from '@dsm/mapkit';
 
 const MUMBAI_CENTRE: [number, number] = [DEPLOYMENT.map.centerLon, DEPLOYMENT.map.centerLat];
 const REGION_ZOOM = 10.2;
@@ -33,6 +34,7 @@ const MAP_KINDS = ['resource', 'hazard', 'incident', 'responder', 'peer', 'route
 type MapKind = (typeof MAP_KINDS)[number];
 type FilterState = Record<MapKind, boolean>;
 type GpsStatus = 'checking' | 'permission-needed' | 'searching' | 'tracking' | 'services-off' | 'error';
+type PointSelection = 'start' | 'destination';
 
 interface DeviceLocation { lat: number; lon: number; accuracyM: number; updatedAt: number; }
 
@@ -53,8 +55,13 @@ export default function MapScreen() {
   const [gpsStatus, setGpsStatus] = useState<GpsStatus>('checking');
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState(false);
+  const [navigationStart, setNavigationStart] = useState<GuidancePoint>();
+  const [navigationDestination, setNavigationDestination] = useState<GuidancePoint>();
+  const [navigationDestinationLabel, setNavigationDestinationLabel] = useState('Selected point');
+  const [pointSelection, setPointSelection] = useState<PointSelection>();
+  const [followGps, setFollowGps] = useState(false);
 
-  const { mapObjects, selectedRegion, setLocationEnabled, setSelectedMapObjectId, focusMapObjectId, setFocusMapObjectId } = useAppStore();
+  const { mapObjects, selectedRegion, setLocationEnabled, setSelectedMapObjectId, focusMapObjectId, setFocusMapObjectId, navigationDestinationObjectId, setNavigationDestinationObjectId } = useAppStore();
   const coordinateObjects = useMemo(() => mapObjects.filter(hasCoordinate), [mapObjects]);
   const visibleObjects = useMemo(() => coordinateObjects.filter((item) => filters[normaliseKind(item.kind)]), [coordinateObjects, filters]);
   const listObjects = useMemo(() => mapObjects.filter((item) => filters[normaliseKind(item.kind)]), [mapObjects, filters]);
@@ -63,6 +70,13 @@ export default function MapScreen() {
     for (const item of mapObjects) result[normaliseKind(item.kind)] += 1;
     return result;
   }, [mapObjects]);
+  const activeStart = followGps && deviceLocation ? { lat: deviceLocation.lat, lon: deviceLocation.lon } : navigationStart;
+  const guidance = useMemo(() => activeStart && navigationDestination ? directOfflineGuidance(activeStart, navigationDestination) : undefined, [activeStart, navigationDestination]);
+  const guidanceShape = useMemo(() => guidance ? ({
+    type: 'Feature' as const,
+    properties: {},
+    geometry: { type: 'LineString' as const, coordinates: guidance.coordinates.map(([lon, lat]) => [lon, lat]) },
+  }) : undefined, [guidance]);
 
   const applyLocation = useCallback((fix: Location.LocationObject) => {
     if (!mountedRef.current) return;
@@ -144,6 +158,62 @@ export default function MapScreen() {
     setFocusMapObjectId(undefined);
   }, [focusMapObjectId, mapObjects, setFocusMapObjectId]);
 
+  useEffect(() => {
+    if (!navigationDestinationObjectId) return;
+    const target = mapObjects.find((item) => item.objectId === navigationDestinationObjectId);
+    if (!target || !hasCoordinate(target)) {
+      setNavigationDestinationObjectId(undefined);
+      Alert.alert('No coordinate available', 'The selected map object cannot be used as a navigation destination.');
+      return;
+    }
+    if (!deviceLocation) return;
+    const start = { lat: deviceLocation.lat, lon: deviceLocation.lon };
+    const destination = { lat: e7ToFloat(target.latE7), lon: e7ToFloat(target.lonE7) };
+    setNavigationStart(start);
+    setNavigationDestination(destination);
+    setNavigationDestinationLabel(target.label);
+    setFollowGps(true);
+    setPointSelection(undefined);
+    setViewMode('map');
+    setNavigationDestinationObjectId(undefined);
+    cameraRef.current?.fitBounds(
+      [Math.max(start.lon, destination.lon), Math.max(start.lat, destination.lat)],
+      [Math.min(start.lon, destination.lon), Math.min(start.lat, destination.lat)],
+      [130, 52, 220, 52],
+      650,
+    );
+  }, [deviceLocation, mapObjects, navigationDestinationObjectId, setNavigationDestinationObjectId]);
+
+  const selectRoutePoints = useCallback(() => {
+    setNavigationStart(undefined);
+    setNavigationDestination(undefined);
+    setNavigationDestinationLabel('Selected point');
+    setFollowGps(false);
+    setPointSelection('start');
+    setViewMode('map');
+  }, []);
+
+  const clearGuidance = useCallback(() => {
+    setNavigationStart(undefined);
+    setNavigationDestination(undefined);
+    setPointSelection(undefined);
+    setFollowGps(false);
+  }, []);
+
+  const handleMapPress = useCallback((feature: GeoJSON.Feature) => {
+    if (!pointSelection || feature.geometry.type !== 'Point') return;
+    const [lon, lat] = feature.geometry.coordinates;
+    if (typeof lon !== 'number' || typeof lat !== 'number') return;
+    if (pointSelection === 'start') {
+      setNavigationStart({ lat, lon });
+      setPointSelection('destination');
+    } else {
+      setNavigationDestination({ lat, lon });
+      setNavigationDestinationLabel('Selected point');
+      setPointSelection(undefined);
+    }
+  }, [pointSelection]);
+
   const openObject = useCallback((item: RuntimeMapObject) => {
     setSelectedMapObjectId(item.objectId);
     router.push('/resource/detail');
@@ -187,6 +257,7 @@ export default function MapScreen() {
               mapStyle={MUMBAI_MAP_STYLE_URL}
               logoEnabled={false}
               attributionEnabled
+              onPress={handleMapPress}
               onDidFinishLoadingStyle={() => { setMapReady(true); setMapError(false); }}
               onDidFailLoadingMap={() => {
                 setMapReady(false);
@@ -194,6 +265,9 @@ export default function MapScreen() {
               }}
             >
               <Camera ref={cameraRef} defaultSettings={{ centerCoordinate: MUMBAI_CENTRE, zoomLevel: REGION_ZOOM }} />
+              {guidanceShape && <ShapeSource id="offline-guidance" shape={guidanceShape}><LineLayer id="offline-guidance-line" style={{ lineColor: '#00F2FE', lineWidth: 5, lineOpacity: 0.9, lineDasharray: [2, 1.4] }} /></ShapeSource>}
+              {activeStart && <GuidanceMarker point={activeStart} label="A" color="#00E676" />}
+              {navigationDestination && <GuidanceMarker point={navigationDestination} label="B" color="#FF2E93" />}
               {visibleObjects.map((item) => <OperationalMarker key={item.objectId} item={item} onPress={() => openObject(item)} />)}
               {deviceLocation && (
                 <MarkerView coordinate={[deviceLocation.lon, deviceLocation.lat]} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
@@ -230,15 +304,21 @@ export default function MapScreen() {
 
           <View style={styles.mapActions}>
             <TouchableOpacity accessibilityRole="button" accessibilityLabel="Frame all visible map features" onPress={fitVisible} style={styles.mapActionButton}><icons.layers size={21} color={COLORS.text} /></TouchableOpacity>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Select two points for direct offline guidance" onPress={selectRoutePoints} style={[styles.mapActionButton, pointSelection && styles.routeSelectingButton]}><icons.navigation size={21} color={pointSelection ? COLORS.background : COLORS.route} /></TouchableOpacity>
             <TouchableOpacity accessibilityRole="button" accessibilityLabel="Find and centre my location" onPress={() => void requestAndLocate()} style={[styles.mapActionButton, styles.locationButton]}>
               {gpsStatus === 'searching' || gpsStatus === 'checking' ? <ActivityIndicator color="#FFFFFF" size="small" /> : <icons.navigation size={22} color="#FFFFFF" fill="#FFFFFF" />}
             </TouchableOpacity>
           </View>
 
-          <View style={styles.mapSummary} pointerEvents="none">
+          {pointSelection && <View style={styles.selectionPrompt} pointerEvents="none"><Text style={styles.selectionPromptTitle}>{pointSelection === 'start' ? 'Tap route start' : 'Tap destination'}</Text><Text style={styles.selectionPromptText}>Both points stay on this phone.</Text></View>}
+          {guidance && <View style={styles.guidanceCard}>
+            <View style={{ flex: 1 }}><Text style={styles.guidanceEyebrow}>DIRECT OFFLINE GUIDANCE</Text><Text style={styles.guidanceTitle} numberOfLines={1}>{navigationDestinationLabel}</Text><Text style={styles.guidanceDetail}>{distanceLabel(guidance.distanceM)} · bearing {Math.round(guidance.initialBearingDeg)}° · straight line, not a verified road</Text></View>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Stop offline guidance" onPress={clearGuidance} style={styles.stopGuidanceButton}><icons.close size={17} color="#FFFFFF" /></TouchableOpacity>
+          </View>}
+          {!guidance && <View style={styles.mapSummary} pointerEvents="none">
             <Text style={styles.mapSummaryStrong}>{visibleObjects.length}</Text><Text style={styles.mapSummaryText}> visible on map</Text>
             {mapObjects.length > coordinateObjects.length && <Text style={styles.mapSummaryMuted}> · {mapObjects.length - coordinateObjects.length} list-only</Text>}
-          </View>
+          </View>}
         </View>
       ) : (
         <FlatList
@@ -359,6 +439,10 @@ function OperationalMarker({ item, onPress }: { item: RuntimeMapObject & { latE7
   );
 }
 
+function GuidanceMarker({ point, label, color }: { point: GuidancePoint; label: string; color: string }) {
+  return <MarkerView coordinate={[point.lon, point.lat]} anchor={{ x: 0.5, y: 0.5 }} allowOverlap><View style={[styles.guidanceMarker, { backgroundColor: color }]}><Text style={styles.guidanceMarkerText}>{label}</Text></View></MarkerView>;
+}
+
 function MapListRow({ item, onPress }: { item: RuntimeMapObject; onPress: () => void }) {
   const kind = normaliseKind(item.kind); const Icon = iconForObject(item); const color = colorForKind(kind);
   return (
@@ -385,6 +469,7 @@ function gpsTitle(status: GpsStatus) { switch (status) { case 'tracking': return
 function gpsDetail(status: GpsStatus, location?: DeviceLocation) { if (status === 'tracking' && location) return `Accuracy ±${location.accuracyM} m · updated ${ageLabel(Math.round(location.updatedAt / 1000))}`; if (status === 'permission-needed') return 'Tap the blue arrow to enable it'; if (status === 'services-off') return 'Enable GPS in Android settings'; if (status === 'error') return 'Tap the blue arrow to retry'; return 'Waiting for a reliable fix'; }
 function ageLabel(asOfS: number) { const age = Math.max(0, Math.round(Date.now() / 1000) - asOfS); if (age < 10) return 'just now'; if (age < 60) return `${age}s ago`; if (age < 3_600) return `${Math.floor(age / 60)}m ago`; if (age < 7 * 86_400) return `${Math.floor(age / 3_600)}h ago`; return 'over 7d old'; }
 function coordinateLabel(item: RuntimeMapObject & { latE7: number; lonE7: number }) { return `${e7ToFloat(item.latE7).toFixed(4)}, ${e7ToFloat(item.lonE7).toFixed(4)}`; }
+function distanceLabel(distanceM: number) { return distanceM < 1_000 ? `${Math.round(distanceM)} m` : `${(distanceM / 1_000).toFixed(1)} km`; }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: COLORS.background },
@@ -394,8 +479,11 @@ const styles = StyleSheet.create({
   filterBar: { maxHeight: 58, flexGrow: 0, backgroundColor: COLORS.background, borderBottomWidth: 1, borderBottomColor: COLORS.border }, filterContent: { paddingHorizontal: 14, paddingVertical: 9, gap: 8 }, filterChip: { minHeight: 38, paddingHorizontal: 12, borderRadius: 19, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, flexDirection: 'row', alignItems: 'center', gap: 6 }, filterLabel: { color: COLORS.muted, fontSize: 12, fontWeight: '700' }, countBadge: { minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, backgroundColor: COLORS.surfaceStrong, alignItems: 'center', justifyContent: 'center' }, countText: { color: COLORS.muted, fontSize: 10, fontWeight: '900' },
   mapContainer: { flex: 1, overflow: 'hidden' }, mapLoading: { position: 'absolute', top: '42%', alignSelf: 'center', flexDirection: 'row', gap: 10, alignItems: 'center', backgroundColor: COLORS.surface, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 9, borderWidth: 1, borderColor: COLORS.border }, mapLoadingText: { color: COLORS.text, fontSize: 13, fontWeight: '700' }, mapErrorCard: { position: 'absolute', top: 14, left: 14, right: 14, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8, backgroundColor: 'rgba(13,20,36,0.96)', borderWidth: 1, borderColor: COLORS.hazard }, mapErrorText: { flex: 1, color: COLORS.text, fontSize: 12, lineHeight: 17, fontWeight: '600' },
   mapStatusCard: { position: 'absolute', top: 14, left: 14, maxWidth: 245, minHeight: 54, paddingHorizontal: 13, paddingVertical: 9, borderRadius: 9, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(13,20,36,0.92)', borderWidth: 1, borderColor: COLORS.border }, statusDot: { width: 9, height: 9, borderRadius: 5, marginRight: 10 }, statusCopy: { flexShrink: 1 }, statusTitle: { color: COLORS.text, fontSize: 12, lineHeight: 16, fontWeight: '800' }, statusDetail: { color: COLORS.muted, fontSize: 10, lineHeight: 14, marginTop: 1 },
-  mapActions: { position: 'absolute', right: 14, bottom: 74, gap: 10 }, mapActionButton: { width: 48, height: 48, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(13,20,36,0.94)', borderWidth: 1, borderColor: COLORS.border, elevation: 5, shadowColor: '#000000', shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 3 } }, locationButton: { backgroundColor: COLORS.gps, borderColor: '#FFFFFF' },
+  mapActions: { position: 'absolute', right: 14, bottom: 74, gap: 10 }, mapActionButton: { width: 48, height: 48, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(13,20,36,0.94)', borderWidth: 1, borderColor: COLORS.border, elevation: 5, shadowColor: '#000000', shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 3 } }, routeSelectingButton: { backgroundColor: COLORS.route, borderColor: '#FFFFFF' }, locationButton: { backgroundColor: COLORS.gps, borderColor: '#FFFFFF' },
   mapSummary: { position: 'absolute', left: 14, bottom: 16, minHeight: 42, flexDirection: 'row', alignItems: 'baseline', paddingHorizontal: 14, borderRadius: 8, backgroundColor: 'rgba(13,20,36,0.94)', borderWidth: 1, borderColor: COLORS.border }, mapSummaryStrong: { color: COLORS.text, fontSize: 17, fontWeight: '900' }, mapSummaryText: { color: COLORS.text, fontSize: 11, fontWeight: '700' }, mapSummaryMuted: { color: COLORS.muted, fontSize: 10, fontWeight: '600' },
+  selectionPrompt: { position: 'absolute', left: 14, bottom: 16, minHeight: 54, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, backgroundColor: 'rgba(0,198,255,0.94)', borderWidth: 1, borderColor: '#FFFFFF' }, selectionPromptTitle: { color: COLORS.background, fontSize: 13, fontWeight: '900' }, selectionPromptText: { color: '#062232', fontSize: 10, marginTop: 2, fontWeight: '700' },
+  guidanceCard: { position: 'absolute', left: 14, right: 74, bottom: 14, minHeight: 72, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: 'rgba(13,20,36,0.96)', borderWidth: 1, borderColor: COLORS.route }, guidanceEyebrow: { color: COLORS.route, fontSize: 9, fontWeight: '900', letterSpacing: 1 }, guidanceTitle: { color: COLORS.text, fontSize: 14, fontWeight: '900', marginTop: 2 }, guidanceDetail: { color: COLORS.muted, fontSize: 10, lineHeight: 14, marginTop: 3 }, stopGuidanceButton: { width: 38, height: 38, marginLeft: 10, borderRadius: 19, backgroundColor: '#B91C1C', alignItems: 'center', justifyContent: 'center' },
+  guidanceMarker: { width: 32, height: 32, borderRadius: 16, borderWidth: 3, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', elevation: 8 }, guidanceMarkerText: { color: '#050811', fontSize: 13, fontWeight: '900' },
   markerTouch: { width: 48, height: 58, alignItems: 'center', justifyContent: 'flex-end' }, marker: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#FFFFFF', elevation: 7, shadowColor: '#000000', shadowOpacity: 0.35, shadowRadius: 5, shadowOffset: { width: 0, height: 3 } }, markerPointer: { width: 0, height: 0, marginTop: -1, borderLeftWidth: 7, borderRightWidth: 7, borderTopWidth: 9, borderLeftColor: 'transparent', borderRightColor: 'transparent' },
   gpsMarkerTouch: { width: 58, height: 58, alignItems: 'center', justifyContent: 'center' }, gpsPulse: { width: 46, height: 46, borderRadius: 23, backgroundColor: 'rgba(0,242,254,0.22)', borderWidth: 2, borderColor: 'rgba(0,242,254,0.5)', alignItems: 'center', justifyContent: 'center' }, gpsDot: { width: 20, height: 20, borderRadius: 10, backgroundColor: COLORS.gps, borderWidth: 4, borderColor: '#FFFFFF', elevation: 5 },
   listContent: { padding: 14, paddingBottom: 100, gap: 9 }, listRow: { minHeight: 82, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13, paddingVertical: 11, borderRadius: 9, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border }, listIcon: { width: 46, height: 46, borderRadius: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, marginRight: 12 }, listCopy: { flex: 1, marginRight: 8 }, listKind: { color: COLORS.responder, fontSize: 9, lineHeight: 13, fontWeight: '900', letterSpacing: 0.8 }, listTitle: { color: COLORS.text, fontSize: 15, lineHeight: 21, fontWeight: '800' }, listMeta: { color: COLORS.muted, fontSize: 10, lineHeight: 15, marginTop: 2 },

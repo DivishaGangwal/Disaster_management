@@ -11,7 +11,7 @@ import { e7ToFloat } from '@dsm/codec';
 
 export default function ResponderIncidentScreen() {
   const router = useRouter();
-  const { runtimeIncidents, mapObjects, selectedIncidentId, responderWorkflow, setResponderWorkflowState } = useAppStore();
+  const { runtimeIncidents, mapObjects, selectedIncidentId, responderWorkflow, setResponderWorkflowState, setNavigationDestinationObjectId } = useAppStore();
   const status: Status = selectedIncidentId ? responderWorkflow[selectedIncidentId] ?? 'pending' : 'pending';
   const incident = runtimeIncidents.find((item) => item.id === selectedIncidentId);
   const incidentMapObject = mapObjects.find((item) => item.objectId === selectedIncidentId);
@@ -108,6 +108,23 @@ export default function ResponderIncidentScreen() {
 
           </View>
         </View>
+
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Navigate to this incident using direct offline guidance"
+          onPress={() => {
+            if (!incidentMapObject || incidentMapObject.latE7 === undefined || incidentMapObject.lonE7 === undefined) {
+              Alert.alert('No coordinate available', 'This incident does not include a usable location.');
+              return;
+            }
+            setNavigationDestinationObjectId(incidentMapObject.objectId);
+            router.push('/(tabs)/map');
+          }}
+          style={{ minHeight: 50, marginBottom: 18, backgroundColor: '#00F2FE', borderRadius: 6, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 }}
+        >
+          <icons.navigation size={17} color="#050811" />
+          <Text style={{ color: '#050811', fontSize: 14, fontWeight: '900' }}>DIRECT OFFLINE GUIDANCE</Text>
+        </TouchableOpacity>
 
         {/* Section Title */}
         <Text style={{ color: '#F8FAFC', fontSize: 15, fontWeight: '800', marginBottom: 12 }}>

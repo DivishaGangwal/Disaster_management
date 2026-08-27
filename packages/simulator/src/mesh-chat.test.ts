@@ -17,7 +17,7 @@ test('addressed chat is validated, stored, and carried across an intermediate me
   const packet = buildMeshChat(
     { sourceId: '1111111111111111', sourceClass: SourceClass.GENERAL_PUBLIC, nowS: toEpochS(scenario.medium.clockMs) },
     'chat:aaaa0001:cccc0003',
-    { senderNodeToken: 'aaaa0001', recipientNodeToken: 'cccc0003', senderLabel: 'Asha', text: 'Meet at the marked shelter.' },
+    { senderNodeToken: 'aaaa0001', recipientNodeToken: 'cccc0003', senderLabel: 'Asha', text: 'Shared a location', location: { source: 1, latE7: 261440000, lonE7: 916860000, accuracyM: 12, ageS: 2 } },
   );
   const created = await scenario.node('sender').engine.createLocal(packet);
   assert.equal(created.accepted, true);
@@ -33,7 +33,11 @@ test('addressed chat is validated, stored, and carried across an intermediate me
   if (decoded.ok) {
     assert.equal(decoded.packet.header.type, MessageType.MESH_CHAT);
     assert.equal((decoded.packet.payload as Record<string, unknown>)['recipientNodeToken'], 'cccc0003');
-    assert.equal((decoded.packet.payload as Record<string, unknown>)['text'], 'Meet at the marked shelter.');
+    assert.equal((decoded.packet.payload as Record<string, unknown>)['text'], 'Shared a location');
+    assert.deepEqual((decoded.packet.payload as Record<string, unknown>)['location'], { source: 1, latE7: 261440000, lonE7: 916860000, accuracyM: 12, ageS: 2 });
   }
+  const marker = scenario.node('recipient').engine.projection.get('PEER-aaaa0001');
+  assert.equal(marker?.label, "Asha's shared location");
+  assert.equal(marker?.latE7, 261440000);
   await scenario.stopAll();
 });

@@ -220,6 +220,9 @@ export class DefaultPolicyEngine implements PolicyEngine {
     if (MAP_DELTA_TYPES.has(type)) {
       act = 'apply-map';
       actReason = PolicyReason.AUTHORITY_SOURCE;
+    } else if (type === MessageType.MESH_CHAT && typeof (packet.payload as Record<string, unknown>)['location'] === 'object') {
+      act = 'apply-map';
+      actReason = PolicyReason.RETENTION_WINDOW;
     } else if (EMERGENCY_TYPES.has(type) || RESPONDER_LIFECYCLE.has(type)) {
       act = 'update-incident';
       actReason = PolicyReason.OWN_INCIDENT;
