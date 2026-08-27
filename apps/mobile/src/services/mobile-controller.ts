@@ -440,22 +440,34 @@ class MobileController {
   }
 
   async responderTransition(action: 'accepted' | 'declined' | 'en-route' | 'arrived' | 'resolved') {
-    const runtime = await this.initialize('responder');
-    const incidentId = useAppStore.getState().selectedIncidentId;
+    const state = useAppStore.getState();
+    if (state.role !== 'responder') throw new Error('Switch this phone to the Responder role before changing an incident.');
+    let runtime = await this.initialize('responder');
+    if (runtime.engine.profile.role !== 'responder') runtime = await this.reconfigureRole('responder');
+    const incidentId = state.selectedIncidentId;
     if (!incidentId) throw new Error('Select a locally stored incident first');
-    this.sequence += 1;
+    const incident = runtime.engine.incidents.view(incidentId);
+    if (!incident) throw new Error('This SOS is not available in the responder packet store. Keep relay active and retry after it arrives.');
+    if (incident.state === 'cancelled' || incident.state === 'resolved') throw new Error(`This SOS is already ${incident.state}.`);
     const assignmentId = `ASG-${incidentId}`.slice(0, 32);
     const responderRef = runtime.engine.localSourceId.slice(0, 16);
+    if ((action === 'accepted' || action === 'declined') && incident.state === 'active') {
+      this.sequence += 1;
+      const assignment = buildResponderState(context(runtime), MessageType.RESPONDER_ASSIGNED, incidentId, this.sequence, { assignmentId, responderRef, dispatcherLabel: 'Local mesh self-assignment' });
+      const assigned = await runtime.engine.createLocal(assignment);
+      if (!assigned.validation.ok || assigned.storeOutcome !== 'inserted') throw new Error(assigned.validation.ok ? 'Assignment packet could not be saved.' : assigned.validation.reason);
+    }
+    this.sequence += 1;
     const type = action === 'accepted' ? MessageType.RESPONDER_ACCEPTED : action === 'declined' ? MessageType.RESPONDER_DECLINED : action === 'en-route' ? MessageType.RESPONDER_EN_ROUTE : action === 'arrived' ? MessageType.RESPONDER_ARRIVED : MessageType.RESOLVED;
     const responderLocation = action === 'en-route' ? await bestEffortLocation() : undefined;
     const payload = action === 'accepted' ? { assignmentId, responderRef }
       : action === 'declined' ? { assignmentId, responderRef, reasonCode: 0 }
-        : action === 'arrived' ? { evidence: ArrivalEvidence.DECLARED }
+        : action === 'arrived' ? { assignmentId, responderRef, evidence: ArrivalEvidence.DECLARED }
           : action === 'resolved' ? { resolverRef: responderRef, outcome: ResolutionOutcome.ASSISTED_ON_SITE, terminalRetentionS: 86_400 }
-            : responderLocation ? { location: responderLocation } : {};
+            : { assignmentId, responderRef, ...(responderLocation ? { location: responderLocation } : {}) };
     const packet = buildResponderState(context(runtime), type, incidentId, this.sequence, payload);
     const result = await runtime.engine.createLocal(packet);
-    if (!result.validation.ok) throw new Error(result.validation.reason);
+    if (!result.validation.ok || result.storeOutcome !== 'inserted') throw new Error(result.validation.ok ? 'Responder update could not be saved.' : result.validation.reason);
     if (!runtime.relay.isRunning) await runtime.startRelay();
     await runtime.relay.refreshAdvertisement();
     await this.refresh(runtime);
@@ -649,8 +661,18 @@ class MobileController {
       id: incident.incidentId,
       category: incident.category,
       severity: incident.severity,
+      state: incident.state,
       ...(incident.peopleTotal !== undefined ? { peopleTotal: incident.peopleTotal } : {}),
       ...(incident.injured !== undefined ? { injured: incident.injured } : {}),
+      ...(incident.responderRef ? { responderRef: incident.responderRef } : {}),
+      delivery: {
+        ...(incident.delivery.responderSeenAtS !== undefined ? { responderSeenAtS: incident.delivery.responderSeenAtS } : {}),
+        ...(incident.delivery.assignedAtS !== undefined ? { assignedAtS: incident.delivery.assignedAtS } : {}),
+        ...(incident.delivery.acceptedAtS !== undefined ? { acceptedAtS: incident.delivery.acceptedAtS } : {}),
+        ...(incident.delivery.enRouteAtS !== undefined ? { enRouteAtS: incident.delivery.enRouteAtS } : {}),
+        ...(incident.delivery.arrivedAtS !== undefined ? { arrivedAtS: incident.delivery.arrivedAtS } : {}),
+        ...(incident.delivery.resolvedAtS !== undefined ? { resolvedAtS: incident.delivery.resolvedAtS } : {}),
+      },
       updatedAtS: incident.updatedAtS,
     }));
     if (JSON.stringify(state.runtimeIncidents) !== JSON.stringify(newIncidents)) {

@@ -157,20 +157,26 @@ test('scenario B: a responder accepts, arrives, and resolves with no backend', a
     nowS: toEpochS(scenario.medium.clockMs),
   };
 
-  const accepted = buildResponderState(ctx, MessageType.RESPONDER_ACCEPTED, 'INC-B1', 2, {
+  const assigned = buildResponderState(ctx, MessageType.RESPONDER_ASSIGNED, 'INC-B1', 2, {
     assignmentId: 'ASG-1',
     responderRef: 'RSP-7',
   });
-  await responder.engine.createLocal(accepted);
+  await responder.engine.createLocal(assigned);
 
-  const arrived = buildResponderState(ctx, MessageType.RESPONDER_ARRIVED, 'INC-B1', 3, {
+  const accepted = buildResponderState(ctx, MessageType.RESPONDER_ACCEPTED, 'INC-B1', 3, {
+    assignmentId: 'ASG-1', responderRef: 'RSP-7',
+  });
+  await responder.engine.createLocal(accepted);
+  assert.equal(responder.engine.incidents.view('INC-B1')?.state, 'accepted', 'responder must see its accepted transition immediately');
+
+  const arrived = buildResponderState(ctx, MessageType.RESPONDER_ARRIVED, 'INC-B1', 4, {
     assignmentId: 'ASG-1',
     responderRef: 'RSP-7',
     evidence: ArrivalEvidence.DECLARED,
   });
   await responder.engine.createLocal(arrived);
 
-  const resolved = buildResponderState(ctx, MessageType.RESOLVED, 'INC-B1', 4, {
+  const resolved = buildResponderState(ctx, MessageType.RESOLVED, 'INC-B1', 5, {
     resolverRef: 'RSP-7',
     outcome: ResolutionOutcome.RESCUED,
     terminalRetentionS: 3600,
@@ -188,6 +194,27 @@ test('scenario B: a responder accepts, arrives, and resolves with no backend', a
   // GTW-008: nothing may claim the backend received it.
   assert.equal(victimView!.delivery.backendAcceptedAtS, undefined);
 
+  await scenario.stopAll();
+});
+
+test('scenario B decline: responder rejects and the SOS owner sees the case return to the open queue', async () => {
+  const scenario = scenarioWithThreeNodes();
+  scenario.link('victim', 'carrier');
+  scenario.link('carrier', 'responder');
+  await scenario.startAll();
+  const sos = makeSos(scenario, 'victim', 'INC-B2');
+  await scenario.node('victim').engine.createLocal(sos, 'INC-B2');
+  await scenario.gossip(6, 300);
+  const responder = scenario.node('responder');
+  const ctx = { sourceId: responder.spec.sourceId, sourceClass: SourceClass.RESPONDER_PROVISIONED, nowS: toEpochS(scenario.medium.clockMs) };
+  await responder.engine.createLocal(buildResponderState(ctx, MessageType.RESPONDER_ASSIGNED, 'INC-B2', 2, { assignmentId: 'ASG-2', responderRef: 'RSP-8' }));
+  await responder.engine.createLocal(buildResponderState(ctx, MessageType.RESPONDER_DECLINED, 'INC-B2', 3, { assignmentId: 'ASG-2', responderRef: 'RSP-8', reasonCode: 0 }));
+  assert.equal(responder.engine.incidents.view('INC-B2')?.state, 'active');
+  await scenario.gossip(8, 300);
+  const victimView = scenario.node('victim').engine.incidents.view('INC-B2');
+  assert.equal(victimView?.state, 'active');
+  assert.ok(victimView?.delivery.responderSeenAtS !== undefined);
+  assert.equal(victimView?.delivery.acceptedAtS, undefined);
   await scenario.stopAll();
 });
 

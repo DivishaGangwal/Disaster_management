@@ -1,6 +1,6 @@
 /** Responder incident evidence and monotonic workflow controls. */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { icons } from '@/constants/icons';
@@ -15,17 +15,20 @@ export default function ResponderIncidentScreen() {
   const status: Status = selectedIncidentId ? responderWorkflow[selectedIncidentId] ?? 'pending' : 'pending';
   const incident = runtimeIncidents.find((item) => item.id === selectedIncidentId);
   const incidentMapObject = mapObjects.find((item) => item.objectId === selectedIncidentId);
+  const [transitioning, setTransitioning] = useState(false);
 
   const ArrowLeftIcon = icons.arrowLeft;
 
   const transition = async (next: Exclude<Status, 'pending'>, msg: string) => {
+    if (transitioning) return;
+    setTransitioning(true);
     try {
       await mobileController.responderTransition(next);
       if (selectedIncidentId) setResponderWorkflowState(selectedIncidentId, next);
       Alert.alert('Status saved', `${msg}. The packet was saved locally and is eligible for relay.`);
     } catch (reason) {
       Alert.alert('Status not saved', reason instanceof Error ? reason.message : String(reason));
-    }
+    } finally { setTransitioning(false); }
   };
 
   return (
@@ -140,9 +143,9 @@ export default function ResponderIncidentScreen() {
             <TouchableOpacity
               accessibilityRole="button"
               accessibilityLabel="Accept this incident assignment"
-              accessibilityState={{ disabled: status !== 'pending' }}
+              accessibilityState={{ disabled: transitioning || status !== 'pending', busy: transitioning }}
               onPress={() => void transition('accepted', 'Assignment accepted')}
-              disabled={status !== 'pending'}
+              disabled={transitioning || status !== 'pending'}
               activeOpacity={0.8}
               style={{
                 flex: 1,
@@ -164,9 +167,9 @@ export default function ResponderIncidentScreen() {
             <TouchableOpacity
               accessibilityRole="button"
               accessibilityLabel="Decline this incident assignment"
-              accessibilityState={{ disabled: status !== 'pending' }}
+              accessibilityState={{ disabled: transitioning || status !== 'pending', busy: transitioning }}
               onPress={() => void transition('declined', 'Assignment declined')}
-              disabled={status !== 'pending'}
+              disabled={transitioning || status !== 'pending'}
               activeOpacity={0.8}
               style={{
                 flex: 1,
@@ -191,7 +194,7 @@ export default function ResponderIncidentScreen() {
             accessibilityLabel="Mark this incident en route"
             accessibilityState={{ disabled: status !== 'accepted' && status !== 'en-route' }}
             onPress={() => void transition('en-route', 'Marked en route')}
-            disabled={status !== 'accepted' && status !== 'en-route'}
+            disabled={transitioning || (status !== 'accepted' && status !== 'en-route')}
             activeOpacity={0.8}
             style={{
               backgroundColor: 'rgba(14, 165, 233, 0.15)',
@@ -216,7 +219,7 @@ export default function ResponderIncidentScreen() {
             accessibilityLabel="Mark arrival at the incident"
             accessibilityState={{ disabled: status !== 'en-route' && status !== 'arrived' }}
             onPress={() => void transition('arrived', 'Marked arrived')}
-            disabled={status !== 'en-route' && status !== 'arrived'}
+            disabled={transitioning || (status !== 'en-route' && status !== 'arrived')}
             activeOpacity={0.8}
             style={{
               backgroundColor: 'rgba(217, 119, 6, 0.15)',
@@ -240,7 +243,7 @@ export default function ResponderIncidentScreen() {
             accessibilityLabel="Resolve this incident"
             accessibilityState={{ disabled: status !== 'arrived' && status !== 'resolved' }}
             onPress={() => void transition('resolved', 'Incident resolved')}
-            disabled={status !== 'arrived' && status !== 'resolved'}
+            disabled={transitioning || (status !== 'arrived' && status !== 'resolved')}
             activeOpacity={0.8}
             style={{
               backgroundColor: 'rgba(13, 148, 136, 0.15)',
@@ -264,7 +267,7 @@ export default function ResponderIncidentScreen() {
             accessibilityLabel="Send my current responder location"
             accessibilityState={{ disabled: status !== 'accepted' && status !== 'en-route' }}
             onPress={() => void transition('en-route', 'En-route location update saved')}
-            disabled={status !== 'accepted' && status !== 'en-route'}
+            disabled={transitioning || (status !== 'accepted' && status !== 'en-route')}
             activeOpacity={0.8}
             style={{
               backgroundColor: 'rgba(147, 51, 234, 0.15)',

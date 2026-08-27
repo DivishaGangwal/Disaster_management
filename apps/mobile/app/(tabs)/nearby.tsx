@@ -32,7 +32,7 @@ const sevConfig: Record<number, { label: string; color: string; bg: string }> = 
 
 export default function NearbyScreen() {
   const router = useRouter();
-  const { role, runtimeIncidents, runtimePeers, setSelectedIncidentId, setSelectedPeerToken } = useAppStore();
+  const { role, runtimeIncidents, runtimePeers, meshChatMessages, lastReadChatAtSByPeer, setSelectedIncidentId, setSelectedPeerToken } = useAppStore();
 
   const [activeFilter, setActiveFilter] = useState<'all' | 'priority'>('all');
   const [sortOrder, setSortOrder] = useState<'high-to-low' | 'low-to-high'>('high-to-low');
@@ -88,21 +88,27 @@ export default function NearbyScreen() {
             <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '900', marginLeft: 8 }}>Recently seen people</Text>
           </View>
           {runtimePeers.map((peer) => (
+            (() => {
+              const unread = meshChatMessages.filter((message) => !message.outgoing && message.senderNodeToken === peer.peerToken && message.createdAtS > (lastReadChatAtSByPeer[peer.peerToken] ?? 0)).length;
+              const knownName = [...meshChatMessages].reverse().find((message) => message.senderNodeToken === peer.peerToken && message.senderLabel)?.senderLabel;
+              return (
             <TouchableOpacity
               key={peer.peerToken}
               accessibilityRole="button"
-              accessibilityLabel={`Chat with mesh peer ${shortToken(peer.peerToken)}`}
+              accessibilityLabel={`Chat with ${knownName ?? `mesh peer ${shortToken(peer.peerToken)}`}${unread ? `, ${unread} unread message${unread === 1 ? '' : 's'}` : ''}`}
               accessibilityHint="Opens offline mesh chat"
               onPress={() => openChat(peer.peerToken)}
               style={{ minHeight: 64, backgroundColor: '#0D1424', borderWidth: 1, borderColor: '#1B2944', borderRadius: 9, padding: 12, marginBottom: 8, flexDirection: 'row', alignItems: 'center' }}
             >
               <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,242,254,.12)', alignItems: 'center', justifyContent: 'center' }}><Users size={18} color="#00F2FE" /></View>
               <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800' }}>Mesh peer {shortToken(peer.peerToken)}</Text>
-                <Text style={{ color: '#64748B', fontSize: 11, marginTop: 3 }}>{peerAge(peer.lastSeenAtMs)} · {peer.sessionsCompleted} completed sessions</Text>
+                <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '800' }}>{knownName ?? `Mesh peer ${shortToken(peer.peerToken)}`}</Text>
+                <Text style={{ color: unread ? '#00F2FE' : '#64748B', fontSize: 11, marginTop: 3, fontWeight: unread ? '800' : '400' }}>{unread ? `${unread} new message${unread === 1 ? '' : 's'} · ` : ''}{peerAge(peer.lastSeenAtMs)} · {peer.sessionsCompleted} completed sessions</Text>
               </View>
-              <MessageCircle size={21} color="#C084FC" />
+              <View><MessageCircle size={21} color={unread ? '#00F2FE' : '#C084FC'} />{unread > 0 && <View style={{ position: 'absolute', right: -7, top: -7, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, backgroundColor: '#FF0055', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '900' }}>{unread > 9 ? '9+' : unread}</Text></View>}</View>
             </TouchableOpacity>
+              );
+            })()
           ))}
           {runtimePeers.length === 0 && (
             <View style={{ padding: 16, borderWidth: 1, borderColor: '#1E293B', borderRadius: 9, backgroundColor: '#0D1424' }}>

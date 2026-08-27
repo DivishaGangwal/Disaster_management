@@ -120,6 +120,7 @@ export const SCREENS: readonly ScreenSpec[] = [
     requirements: ['OFF-001', 'REL-001', 'DEC-022'],
     mustShow: [
       'selected recently observed peer identity',
+      'unread-message signal on the nearby person card',
       'bounded plaintext message composer',
       'sender display name with mesh-ID fallback',
       'deliberate GPS location share that opens and persists as a map marker',
@@ -135,6 +136,7 @@ export const SCREENS: readonly ScreenSpec[] = [
     requirements: ['OFF-007', 'ROL-007'],
     mustShow: [
       'accept or decline',
+      'self-assignment before acceptance or decline so the incident state machine remains valid',
       'mark en route',
       'last-known location and its uncertainty',
       'latest incident update and timeline',

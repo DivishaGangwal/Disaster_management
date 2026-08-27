@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, MapPin, Send } from 'lucide-react-native';
@@ -14,6 +14,7 @@ export default function MeshChatScreen() {
   const runtimePeers = useAppStore((state) => state.runtimePeers);
   const setRuntimeError = useAppStore((state) => state.setRuntimeError);
   const setFocusMapObjectId = useAppStore((state) => state.setFocusMapObjectId);
+  const markChatRead = useAppStore((state) => state.markChatRead);
   const peerToken = typeof params.peerToken === 'string' ? params.peerToken : fallbackPeer ?? '';
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -21,6 +22,11 @@ export default function MeshChatScreen() {
   const messages = useMemo(() => allMessages.filter((message) => message.senderNodeToken === peerToken || message.recipientNodeToken === peerToken), [allMessages, peerToken]);
   const peer = runtimePeers.find((item) => item.peerToken === peerToken);
   const peerName = [...messages].reverse().find((message) => !message.outgoing && message.senderLabel)?.senderLabel;
+  const newestIncomingAtS = [...messages].reverse().find((message) => !message.outgoing)?.createdAtS;
+
+  useEffect(() => {
+    if (peerToken && newestIncomingAtS !== undefined) markChatRead(peerToken, newestIncomingAtS);
+  }, [markChatRead, newestIncomingAtS, peerToken]);
 
   const send = async () => {
     if (sending || !draft.trim()) return;

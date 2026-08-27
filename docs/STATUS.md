@@ -42,6 +42,7 @@ The Android command compiled the Expo application and the autolinked `dsm-androi
 - Minimal direct offline guidance across map, resource detail and responder incident surfaces. Users can select two map points or navigate from live GPS to a selected operational object; distance and bearing update locally, and the UI explicitly says the line is not a verified road route.
 - Offline mesh chat carries the sender's bounded display name and supports deliberate GPS location messages. Shared locations open on the map and are rebuilt from the durable packet log after restart.
 - Diagnostics provides a confirmed local-history reset for stored packets, prior SOS/chat views, shared-location markers, peers and received files. It only clears this phone and cannot recall packets already relayed elsewhere.
+- The responder flow now emits a self-assignment before accept/decline, enforces the active responder runtime role, prevents duplicate button submissions, and projects accept, decline, en-route, arrival and resolution evidence back into the SOS owner's timeline. Nearby person cards show persisted unread-chat counts.
 
 ## Explicitly deferred or unmeasured
 

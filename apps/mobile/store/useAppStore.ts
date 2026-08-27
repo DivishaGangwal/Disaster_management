@@ -9,7 +9,8 @@ export type TransportMode = 'SIMULATED' | 'native';
 export type SelectedRadio = 'simulated' | 'BLE' | 'Bluetooth Classic';
 export type OfflinePackStatus = 'checking' | 'downloading' | 'ready' | 'not-downloaded' | 'error';
 export type ResponderWorkflowState = 'pending' | 'accepted' | 'declined' | 'en-route' | 'arrived' | 'resolved';
-export interface RuntimeIncident { id: string; category: number; severity: number; peopleTotal?: number; injured?: number; updatedAtS: number; }
+export interface RuntimeIncidentDelivery { responderSeenAtS?: number; assignedAtS?: number; acceptedAtS?: number; enRouteAtS?: number; arrivedAtS?: number; resolvedAtS?: number; }
+export interface RuntimeIncident { id: string; category: number; severity: number; state: string; peopleTotal?: number; injured?: number; responderRef?: string; delivery: RuntimeIncidentDelivery; updatedAtS: number; }
 export interface RuntimeMapObject { objectId: string; kind: string; label: string; state?: number; latE7?: number; lonE7?: number; asOfS: number; provenance: string; }
 export interface RuntimeDiagnostic {
   category: string;
@@ -75,6 +76,8 @@ interface AppState {
   setMeshChatMessages: (value: MeshChatMessage[]) => void;
   selectedPeerToken?: string;
   setSelectedPeerToken: (value?: string) => void;
+  lastReadChatAtSByPeer: Record<string, number>;
+  markChatRead: (peerToken: string, atS: number) => void;
 
   // Transport
   transportMode: TransportMode;
@@ -188,6 +191,8 @@ export const useAppStore = create<AppState>()(
       setMeshChatMessages: (meshChatMessages) => set({ meshChatMessages }),
       selectedPeerToken: undefined,
       setSelectedPeerToken: (selectedPeerToken) => set({ selectedPeerToken }),
+      lastReadChatAtSByPeer: {},
+      markChatRead: (peerToken, atS) => set((state) => ({ lastReadChatAtSByPeer: { ...state.lastReadChatAtSByPeer, [peerToken]: Math.max(state.lastReadChatAtSByPeer[peerToken] ?? 0, atS) } })),
 
       // Transport
       transportMode: 'SIMULATED',
@@ -296,6 +301,7 @@ export const useAppStore = create<AppState>()(
           ...previous,
           responderWorkflow: previous.responderWorkflow ?? {},
           selectedPeerToken: undefined,
+          lastReadChatAtSByPeer: previous.lastReadChatAtSByPeer ?? {},
           ...(staleRegion ? { selectedRegion: 'Mumbai Operational Region' } : {}),
         } as AppState;
       },
@@ -314,6 +320,7 @@ export const useAppStore = create<AppState>()(
         activeSosSavedAtMs: state.activeSosSavedAtMs,
         receivedPackets: state.receivedPackets,
         responderWorkflow: state.responderWorkflow,
+        lastReadChatAtSByPeer: state.lastReadChatAtSByPeer,
       }),
     },
   ),
