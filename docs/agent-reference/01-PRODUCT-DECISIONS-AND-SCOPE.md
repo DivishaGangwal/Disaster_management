@@ -674,10 +674,13 @@ All of the following packet families belong to the product. “Included” means
 | Check-in | Check-in campaign | Authority | High |
 | Check-in | Check-in response | General Public, Responder | High |
 | Request | Resource/help request | General Public, Responder | High |
+| Communication | Addressed mesh chat | General Public, Responder | Opportunistic |
 | Data | File manifest | Restricted creators | Low |
 | Data | File/image fragment | Restricted creators, requested transfer only | Lowest |
 | Network | Capability/hello | Every node | Reserved control |
 | Network | Inventory/packet request | Every node | Reserved control |
+
+Mesh chat is bounded, addressed to an observed node token, saved before the UI reports success, and carried by Tier 1 store-carry-forward. In the hackathon prototype it is plaintext with integrity checking, not end-to-end encryption; intermediate relays may retain the packet until expiry, and “saved to mesh” is not a delivery guarantee.
 
 ## Severity and importance
 

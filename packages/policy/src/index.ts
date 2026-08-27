@@ -200,7 +200,7 @@ export class DefaultPolicyEngine implements PolicyEngine {
     if (header.sourceClass === SourceClass.BACKEND) {
       upload = 'never';
       uploadReason = PolicyReason.ALREADY_BACKEND_ORIGIN;
-    } else if (type === MessageType.LINK_RECEIPT || type === MessageType.NETWORK_STATUS_OBSERVATION) {
+    } else if (type === MessageType.LINK_RECEIPT || type === MessageType.NETWORK_STATUS_OBSERVATION || type === MessageType.MESH_CHAT) {
       upload = 'never';
       uploadReason = PolicyReason.NOT_UPLOAD_ELIGIBLE;
     } else if (header.priority <= Priority.RESPONSE_CONTROL) {

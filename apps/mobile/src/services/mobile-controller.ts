@@ -25,7 +25,7 @@ import {
   type TransportKind,
   type DiagnosticEvent,
 } from '@dsm/contracts';
-import { buildCheckinResponse, buildResponderState, buildSosCancel, buildSosCreate, buildSosUpdate, decodePacket, floatToE7, newNodeToken, newSourceId, toEpochS } from '@dsm/codec';
+import { buildCheckinResponse, buildMeshChat, buildResponderState, buildSosCancel, buildSosCreate, buildSosUpdate, decodePacket, floatToE7, newNodeToken, newSourceId, toEpochS } from '@dsm/codec';
 import { MemoryEventSink } from '@dsm/store';
 import { createNativeTransport, createNativeWavePxAudioInput, requestNativeWavePxPermission } from '@dsm/android-radio-bridge';
 import { HttpGatewayClient } from '@dsm/gateway-client';
@@ -468,6 +468,28 @@ class MobileController {
     return bestEffortLocation();
   }
 
+  /** Persists a bounded chat packet before starting/opportunistically refreshing relay. */
+  async sendMeshChat(recipientNodeToken: string, text: string) {
+    const runtime = await this.initialize();
+    const body = text.trim();
+    if (!/^[A-Za-z0-9_.:-]{1,32}$/.test(recipientNodeToken)) throw new Error('That peer is no longer valid.');
+    if (!body) throw new Error('Type a message first.');
+    if (new TextEncoder().encode(body).length > 120) throw new Error('Message must be 120 bytes or fewer so it fits one Bluetooth record.');
+    const conversationId = conversationIdFor(runtime.engine.nodeToken, recipientNodeToken);
+    const packet = buildMeshChat(context(runtime), conversationId, {
+      senderNodeToken: runtime.engine.nodeToken,
+      recipientNodeToken,
+      senderLabel: useAppStore.getState().userName?.trim().slice(0, 32) || 'Mesh user',
+      text: body,
+    });
+    const result = await runtime.engine.createLocal(packet);
+    if (!result.validation.ok || result.storeOutcome !== 'inserted') throw new Error(result.validation.ok ? 'Message could not be saved.' : result.validation.reason);
+    if (!runtime.relay.isRunning) await runtime.startRelay();
+    await runtime.relay.refreshAdvertisement();
+    await this.refresh(runtime);
+    return result;
+  }
+
   async refreshOfflineMap() {
     const state = useAppStore.getState();
     state.setOfflinePackStatus('checking');
@@ -552,10 +574,38 @@ class MobileController {
       });
     }
 
-    const peersCount = (await runtime.engine.peers.list(Date.now())).length;
+    const peers = await runtime.engine.peers.list(Date.now());
+    const peersCount = peers.length;
     if (state.peersRecentlySeen !== peersCount) {
       state.setPeersRecentlySeen(peersCount);
     }
+    const runtimePeers = peers.map((peer) => ({
+      peerToken: peer.peerToken,
+      lastSeenAtMs: peer.lastSeenAtMs,
+      ...(peer.rssi !== undefined ? { rssi: peer.rssi } : {}),
+      sessionsCompleted: peer.sessionsCompleted,
+      sessionsFailed: peer.sessionsFailed,
+    })).sort((a, b) => b.lastSeenAtMs - a.lastSeenAtMs);
+    if (JSON.stringify(state.runtimePeers) !== JSON.stringify(runtimePeers)) state.setRuntimePeers(runtimePeers);
+
+    const chatPackets = (await runtime.engine.packets.listAll())
+      .filter((stored) => stored.packet.header.type === MessageType.MESH_CHAT)
+      .map((stored) => {
+        const payload = stored.packet.payload as Record<string, unknown>;
+        return {
+          packetId: stored.packet.header.packetId,
+          conversationId: String(payload['conversationId'] ?? stored.packet.streamId ?? ''),
+          senderNodeToken: String(payload['senderNodeToken'] ?? ''),
+          recipientNodeToken: String(payload['recipientNodeToken'] ?? ''),
+          ...(stringValue(payload['senderLabel']) ? { senderLabel: stringValue(payload['senderLabel']) } : {}),
+          text: String(payload['text'] ?? ''),
+          createdAtS: stored.packet.header.createdAt,
+          outgoing: payload['senderNodeToken'] === runtime.engine.nodeToken,
+        };
+      })
+      .filter((message) => message.senderNodeToken === runtime.engine.nodeToken || message.recipientNodeToken === runtime.engine.nodeToken)
+      .sort((a, b) => a.createdAtS - b.createdAtS || a.packetId.localeCompare(b.packetId));
+    if (JSON.stringify(state.meshChatMessages) !== JSON.stringify(chatPackets)) state.setMeshChatMessages(chatPackets);
 
     const incidentId = state.activeIncidentId;
     if (incidentId) {
@@ -636,6 +686,7 @@ function batteryBand(percent?: number): number {
 }
 
 function context(runtime: AppRuntime) { return { sourceId: runtime.engine.localSourceId, sourceClass: runtime.sourceClass, nowS: toEpochS(Date.now()) }; }
+function conversationIdFor(a: string, b: string) { return `chat:${[a, b].sort().join(':')}`; }
 function boundedSeverity(value: number) { return Math.max(0, Math.min(3, Math.trunc(value))) as 0 | 1 | 2 | 3; }
 function boundedCategory(value: number) { return Math.max(0, Math.min(7, Math.trunc(value))); }
 async function stableValue(key: string, create: () => string) { const existing = await AsyncStorage.getItem(key); if (existing) return existing; const value = create(); await AsyncStorage.setItem(key, value); return value; }

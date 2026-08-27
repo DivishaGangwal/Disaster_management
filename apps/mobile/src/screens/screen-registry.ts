@@ -105,11 +105,24 @@ export const SCREENS: readonly ScreenSpec[] = [
   },
   {
     route: 'NearbyIncidents',
-    title: 'Nearby incidents',
+    title: 'People on the mesh and nearby incidents',
     requirements: ['ROL-006', 'ROL-007', 'MAP-011'],
     mustShow: [
       'General Public: the configured MINIMAL public view only',
       'Responder: sort by severity ONLY',
+    ],
+    status: 'complete',
+  },
+  {
+    route: 'MeshChat',
+    title: 'Offline person-to-person mesh chat',
+    requirements: ['OFF-001', 'REL-001', 'DEC-022'],
+    mustShow: [
+      'selected recently observed peer identity',
+      'bounded plaintext message composer',
+      'locally saved outgoing and received conversation history',
+      'truthful saved-to-mesh wording, never guaranteed delivery',
+      'visible warning that prototype messages are not end-to-end encrypted',
     ],
     status: 'complete',
   },
@@ -203,4 +216,4 @@ export const SCREENS: readonly ScreenSpec[] = [
 ];
 
 /** Guard used by the boundary check: no screen may silently disappear. */
-export const REQUIRED_SCREEN_COUNT = 12;
+export const REQUIRED_SCREEN_COUNT = 13;

@@ -39,6 +39,8 @@ export interface ReceivedPacketSummary {
   payload: Record<string, unknown>;
   impacts: ReceivedPacketImpact[];
 }
+export interface RuntimePeer { peerToken: string; lastSeenAtMs: number; rssi?: number; sessionsCompleted: number; sessionsFailed: number; }
+export interface MeshChatMessage { packetId: string; conversationId: string; senderNodeToken: string; recipientNodeToken: string; senderLabel?: string; text: string; createdAtS: number; outgoing: boolean; }
 
 interface AppState {
   // Profile & role
@@ -66,6 +68,12 @@ interface AppState {
   setRelayActive: (v: boolean) => void;
   peersRecentlySeen: number;
   setPeersRecentlySeen: (n: number) => void;
+  runtimePeers: RuntimePeer[];
+  setRuntimePeers: (value: RuntimePeer[]) => void;
+  meshChatMessages: MeshChatMessage[];
+  setMeshChatMessages: (value: MeshChatMessage[]) => void;
+  selectedPeerToken?: string;
+  setSelectedPeerToken: (value?: string) => void;
 
   // Transport
   transportMode: TransportMode;
@@ -170,6 +178,12 @@ export const useAppStore = create<AppState>()(
       setRelayActive: (v) => set({ relayActive: v }),
       peersRecentlySeen: 0,
       setPeersRecentlySeen: (n) => set({ peersRecentlySeen: n }),
+      runtimePeers: [],
+      setRuntimePeers: (runtimePeers) => set({ runtimePeers }),
+      meshChatMessages: [],
+      setMeshChatMessages: (meshChatMessages) => set({ meshChatMessages }),
+      selectedPeerToken: undefined,
+      setSelectedPeerToken: (selectedPeerToken) => set({ selectedPeerToken }),
 
       // Transport
       transportMode: 'SIMULATED',
@@ -253,13 +267,14 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'dsm-app-state',
-      version: 5,
+      version: 6,
       migrate: (persisted) => {
         const previous = persisted as Partial<AppState>;
         const staleRegion = !previous.selectedRegion || previous.selectedRegion.includes('Assam') || previous.selectedRegion.endsWith('DISTRICT');
         return {
           ...previous,
           responderWorkflow: previous.responderWorkflow ?? {},
+          selectedPeerToken: undefined,
           ...(staleRegion ? { selectedRegion: 'Mumbai Operational Region' } : {}),
         } as AppState;
       },
